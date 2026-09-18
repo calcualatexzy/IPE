@@ -10,14 +10,15 @@ anchor_name: null
 anchor_config: null
 
 # Field containing the messages list
-# Expected format: list of dicts with {"role": "user"|"assistant", "content": "..."}
+# Expected roles: system, user, assistant (system messages are context only).
 messages_field: "messages"
 
 # Maximum sequence length (samples exceeding this are discarded)
 max_seq_len: 2048
 
-# Maximum number of turns to allow in SFT data
+# Maximum number of non-system messages to keep in SFT data
 # 2 = one user message + one assistant response
+# System context is retained without consuming this budget.
 # Set higher to allow multi-turn conversations
 max_turns: 2
 

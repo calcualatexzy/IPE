@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 
+import inspect
 import os
 
 import hydra
@@ -482,12 +483,19 @@ def _build_trainer(
                     steps_per_epoch, cfg.training.num_train_epochs)
     
     args = build_training_args(rc.push_to_hub, rc.hub_repo, checkpoint_dir, cfg)
+
+    # Match pretraining: support both old and new Transformers Trainer APIs.
+    tokenizer_arg = (
+        "processing_class"
+        if "processing_class" in inspect.signature(SFTTrainer.__init__).parameters
+        else "tokenizer"
+    )
     
     trainer = SFTTrainer(
         model=model,
         args=args,
         train_dataset=train_dataset,
-        tokenizer=tokenizer,
+        **{tokenizer_arg: tokenizer},
         data_collator=collate,
     )
     

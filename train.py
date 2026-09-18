@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
+import inspect
 import os
 
 import hydra
@@ -30,6 +31,7 @@ from loguru import logger
 
 import torch
 import torch.distributed as dist
+from transformers import Trainer
 
 from ipe.trainer import PretrainTrainer
 from ipe.trainer_ipe import IPETrainer
@@ -380,6 +382,13 @@ def _build_trainer(
                     steps_per_epoch, cfg.training.num_train_epochs)
     
     args = build_training_args(rc.push_to_hub, rc.hub_repo, checkpoint_dir, cfg)
+    # New Transformers versions use processing_class; older releases use tokenizer.
+    processor_key = (
+        "processing_class"
+        if "processing_class" in inspect.signature(Trainer.__init__).parameters
+        else "tokenizer"
+    )
+    processor_kwargs = {processor_key: tokenizer}
     
     # Choose trainer based on trainer_type
     if rc.trainer_type == "iepe":
@@ -397,7 +406,7 @@ def _build_trainer(
             model=model,
             args=args,
             train_dataset=train_dataset,
-            tokenizer=tokenizer,
+            **processor_kwargs,
             data_collator=collate,
             context_len=rc.seq_len,
             separator_token_id=separator_token_id,
@@ -424,7 +433,7 @@ def _build_trainer(
             model=model,
             args=args,
             train_dataset=train_dataset,
-            tokenizer=tokenizer,
+            **processor_kwargs,
             data_collator=collate,
             context_len=rc.seq_len,
             separator_token_id=separator_token_id,
@@ -446,7 +455,7 @@ def _build_trainer(
             model=model,
             args=args,
             train_dataset=train_dataset,
-            tokenizer=tokenizer,
+            **processor_kwargs,
             data_collator=collate,
             alpha=rc.sdpo_alpha,
             alpha_schedule=rc.sdpo_alpha_schedule,
@@ -462,7 +471,7 @@ def _build_trainer(
             model=model,
             args=args,
             train_dataset=train_dataset,
-            tokenizer=tokenizer,
+            **processor_kwargs,
             data_collator=collate,
             context_len=rc.seq_len,
             separator_token_id=separator_token_id,

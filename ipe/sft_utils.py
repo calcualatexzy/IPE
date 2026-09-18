@@ -60,14 +60,10 @@ class SFTDataCollator:
         # Pad labels with -100 (so padded positions are ignored in loss)
         labels, _ = self._pad_sequences(labels_list, self.label_pad_token_id)
         
-        # Sample indices
-        sample_idx = torch.tensor([b["sample_idx"] for b in batch], dtype=torch.long)
-        
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "labels": labels,
-            "sample_idx": sample_idx,
         }
 
 

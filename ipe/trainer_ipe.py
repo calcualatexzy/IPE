@@ -67,6 +67,11 @@ class DropoutCache:
             legacy = dynamic_cache.to_legacy_cache()
             for k, v in legacy:
                 cache._layers.append((k, v))
+        elif hasattr(dynamic_cache, "layers"):
+            # Modern DynamicCache iteration includes extra per-layer metadata.
+            # Keep the original tensors so reflection gradients reach context.
+            for layer in dynamic_cache.layers:
+                cache._layers.append((layer.keys, layer.values))
         else:
             try:
                 for layer_kv in dynamic_cache:

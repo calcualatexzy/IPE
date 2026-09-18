@@ -10,7 +10,7 @@ Handles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Dict, Any, List, Optional, Tuple
 import glob
 import hashlib
@@ -41,6 +41,17 @@ class ChatTemplate:
     
     # Whether to add newline after end_header
     newline_after_header: bool = True
+
+    def resolve_role(self, role: str) -> str:
+        """Map dataset roles consistently for both formatting and loss masking."""
+        normalized = role.lower() if isinstance(role, str) else ""
+        if normalized in ("user", "human", "prompter"):
+            return self.user_role
+        if normalized in ("assistant", "gpt", "model"):
+            return self.assistant_role
+        if normalized == "system":
+            return "system"
+        raise ValueError(f"Unsupported SFT message role: {role!r}")
     
     def format_message(self, role: str, content: str) -> str:
         """Format a single message with the template."""
@@ -65,12 +76,7 @@ class ChatTemplate:
             msg_role = msg.get("role", "")
             content = msg.get("content", "")
             
-            # Map message role to template role
-            # Messages typically have "user" or "assistant", map to template roles
-            if msg_role.lower() in ["user", "human", "prompter"]:
-                template_role = self.user_role
-            elif msg_role.lower() in ["assistant", "gpt", "model"]:
-                template_role = self.assistant_role
+            template_role = self.resolve_role(msg_role)
 
             parts.append(self.format_message(template_role, content))
         
@@ -153,6 +159,24 @@ def count_turns(messages: List[Dict[str, str]]) -> int:
     return len(messages)
 
 
+def limit_conversation_turns(
+    messages: List[Dict[str, str]], max_turns: int,
+) -> List[Dict[str, str]]:
+    """Keep a conversation prefix, excluding system context from the turn budget."""
+    if max_turns < 1:
+        raise ValueError("max_turns must be at least 1")
+    selected = []
+    turns = 0
+    for message in messages:
+        if turns >= max_turns:
+            break
+        selected.append(message)
+        role = message.get("role", "")
+        if not isinstance(role, str) or role.lower() != "system":
+            turns += 1
+    return selected
+
+
 def tokenize_conversation(
     messages: List[Dict[str, str]],
     tokenizer,
@@ -196,11 +220,7 @@ def tokenize_conversation(
         msg_role = msg.get("role", "")
         content = msg.get("content", "")
         
-        # Map message role to template role (same logic as format_conversation)
-        if msg_role.lower() in ["user", "human", "prompter"]:
-            template_role = template.user_role
-        elif msg_role.lower() in ["assistant", "gpt", "model"]:
-            template_role = template.assistant_role
+        template_role = template.resolve_role(msg_role)
 
         
         # Format this message using template role
@@ -273,6 +293,7 @@ def build_sft_dataset(
     
     # Build cache key
     cache_meta = {
+        "preprocessing_version": 2,  # System context no longer consumes the turn budget.
         "sft_dataset_name": sft_dataset_name,
         "sft_dataset_config": sft_dataset_config,
         "anchor_dataset_name": anchor_dataset_name,
@@ -282,12 +303,7 @@ def build_sft_dataset(
         "num_sft_samples": num_sft_samples,
         "messages_field": messages_field,
         "max_turns": max_turns,
-        "template": {
-            "bos_token": template.bos_token,
-            "start_header": template.start_header,
-            "end_header": template.end_header,
-            "eot_token": template.eot_token,
-        },
+        "template": asdict(template),
     }
     cache_dir = sft_dataset_cache_dir(cache_meta)
     
@@ -329,11 +345,10 @@ def build_sft_dataset(
             if not messages:
                 continue
             
-            # Filter by number of turns
-            num_turns = min(max_turns, count_turns(messages))
+            messages = limit_conversation_turns(messages, max_turns)
             
             # Tokenize
-            result = tokenize_conversation(messages[:num_turns], tokenizer, template, max_seq_len)
+            result = tokenize_conversation(messages, tokenizer, template, max_seq_len)
             if result is None:
                 sft_stats["filtered_length"] += 1
                 continue

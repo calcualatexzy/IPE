@@ -321,6 +321,22 @@ def _build_api_request_kwargs(
     top_k = int(judge_cfg.top_k)
     if top_k > 0:
         request_kwargs["extra_body"] = {"top_k": top_k}
+    api_thinking = (
+        optional_cfg_str(judge_cfg.get("api_thinking", "")) if backend == "api" else ""
+    )
+    if api_thinking:
+        if api_thinking not in ("enabled", "disabled"):
+            raise ValueError("judge.api_thinking must be enabled, disabled, or null")
+        request_kwargs.setdefault("extra_body", {})["thinking"] = {"type": api_thinking}
+    api_reasoning_enabled = (
+        judge_cfg.get("api_reasoning_enabled") if backend == "api" else None
+    )
+    if api_reasoning_enabled is not None:
+        if not isinstance(api_reasoning_enabled, bool):
+            raise ValueError("judge.api_reasoning_enabled must be true, false, or null")
+        request_kwargs.setdefault("extra_body", {})["reasoning"] = {
+            "enabled": api_reasoning_enabled
+        }
     return request_kwargs
 
 

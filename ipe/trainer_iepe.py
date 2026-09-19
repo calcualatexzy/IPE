@@ -19,6 +19,8 @@ Key properties:
   Both last_k and random_p support an include_bos flag to always attend to BOS.
 - Loss is split into text_loss (tokens outside reflection) and reflection_loss
   (tokens inside the framing tokens).
+- Post-reflection text reuses the original text position IDs for RoPE, and its
+  first token is predicted from the last pre-reflection text position.
 """
 
 from __future__ import annotations
@@ -164,8 +166,8 @@ class InterleavedEPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Tr
             # --- 3a: mask_reflection (post-reflection hiding) ---
             # Rows re+1.. (text_after) cannot attend to columns rs..re
             # (the entire reflection block including framing tokens).
-            # Effect: text after </assistant> is predicted as if reflection
-            # was never there.
+            # Position aliasing and the loss boundary correction below also
+            # remove the reflection's position gap and first-token predictor.
             if self.mask_reflection and re + 1 < seq_len:
                 mask[i, 0, re + 1:, rs: re + 1] = min_val
 
@@ -196,6 +198,19 @@ class InterleavedEPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Tr
                         mask[i, 0, rs: re + 1, mask_indices] = min_val
 
         return mask
+
+    @staticmethod
+    def _build_position_ids(attention_mask, iepe_refl_start, iepe_refl_end):
+        """Alias suffix positions across the reflection block (right padding)."""
+        bsz, seq_len = attention_mask.shape
+        positions = torch.arange(seq_len, device=attention_mask.device)
+        position_ids = positions.unsqueeze(0).expand(bsz, -1).clone()
+        if iepe_refl_start is not None and iepe_refl_end is not None:
+            valid = (iepe_refl_start >= 0) & (iepe_refl_end >= iepe_refl_start)
+            block_lengths = iepe_refl_end - iepe_refl_start + 1
+            suffix = valid[:, None] & (positions[None, :] > iepe_refl_end[:, None])
+            position_ids -= suffix.long() * block_lengths[:, None]
+        return position_ids.masked_fill(~attention_mask.bool(), 0)
 
     # ------------------------------------------------------------------
     # Loss computation
@@ -233,6 +248,9 @@ class InterleavedEPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Tr
         outputs = model(
             input_ids=input_ids,
             attention_mask=attn_mask,
+            position_ids=self._build_position_ids(
+                attention_mask, iepe_refl_start, iepe_refl_end,
+            ),
             use_cache=False,
             return_dict=True,
         )
@@ -242,8 +260,20 @@ class InterleavedEPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Tr
         logits = outputs.logits
         vocab_size = logits.shape[-1]
 
-        # Shift for NTP
-        shift_logits = logits[:, :-1, :].contiguous()
+        # Normally position j predicts token j+1. At the suffix boundary,
+        # predict its first token from the last pre-reflection text position.
+        prediction_positions = torch.arange(seq_len - 1, device=device)
+        prediction_positions = prediction_positions.unsqueeze(0).expand(bsz, -1).clone()
+        if has_any_reflection:
+            for i in range(bsz):
+                rs = int(iepe_refl_start[i].item())
+                re = int(iepe_refl_end[i].item())
+                if rs >= 0 and re >= rs and re + 1 < seq_len and attention_mask[i, re + 1]:
+                    if rs == 0:
+                        raise ValueError("IEPE suffix prediction requires a pre-reflection token")
+                    prediction_positions[i, re] = rs - 1
+        batch_positions = torch.arange(bsz, device=device).unsqueeze(1)
+        shift_logits = logits[batch_positions, prediction_positions].contiguous()
         shift_labels = input_ids[:, 1:].contiguous()
         shift_mask = attention_mask[:, 1:].contiguous()
         shift_seq_len = shift_logits.shape[1]

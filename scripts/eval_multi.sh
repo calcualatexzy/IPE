@@ -4,6 +4,10 @@
 # No Slurm submission: run inside the same two-GPU RunAI allocation as eval.sh.
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# OpenRouter API configuration: paste your API key after :- below, or export it.
+# If empty here, eval.sh can supply its own configured key.
+export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+export JUDGE_API_BASE_URL=${JUDGE_API_BASE_URL:-https://openrouter.ai/api/v1}
 # Fill in your three checkpoint paths here, or supply the same environment variables.
 DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-epe-smoltalk-anchors_20260916_134729/checkpoints/checkpoint-6784"}
 DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-ipe-smoltalk-anchors_20260915_154754/checkpoints/checkpoint-6784"}
@@ -11,8 +15,8 @@ DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llam
 
 MODELS_CSV=epe,ipe,iepe
 SPLITS_CSV=ood,in_domain,not_forced
-JUDGE_MODEL=${JUDGE_MODEL:-VityaVitalich/Llama3.1-8b-instruct}
-JUDGE_BACKEND=${JUDGE_BACKEND:-transformers}
+JUDGE_MODEL=${JUDGE_MODEL:-deepseek/deepseek-v4.1-flash}
+JUDGE_BACKEND=${JUDGE_BACKEND:-api}
 LABEL_PREFIX=multi_eval
 DRY_RUN=false
 OVERRIDES=()
@@ -22,13 +26,15 @@ Usage: bash scripts/eval_multi.sh [--models MODEL1,MODEL2] [OPTIONS] [-- HYDRA_O
   --models CSV         Aliases epe,ipe,iepe, checkpoint paths, or Hugging Face IDs.
                        Default: epe,ipe,iepe. Set DEFAULT_*_MODEL above or in env.
   --splits CSV         ood,in_domain,not_forced (default: all three).
-  --judge MODEL        Local/HF judge (default: VityaVitalich/Llama3.1-8b-instruct).
-  --judge-backend NAME transformers (default), vllm, api, openai_gpt_mini.
+  --judge MODEL        Judge model (default: deepseek/deepseek-v4.1-flash / V4.1-Flash).
+  --judge-backend NAME api (default), transformers, vllm, openai_gpt_mini.
   --label-prefix TEXT Default: multi_eval.
   --dry-run           Print commands without activating Conda or using GPUs.
   --help              Show help.
 Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV, OUTPUT_DIR, NUM_GPUS (default: 2).
 Model defaults: DEFAULT_EPE_MODEL, DEFAULT_IPE_MODEL, DEFAULT_IEPE_MODEL.
+API: fill OPENROUTER_API_KEY above or in eval.sh, or export it in your environment.
+Default API endpoint: https://openrouter.ai/api/v1; thinking is disabled.
 Models/splits run sequentially; each invocation uses NUM_GPUS shards.
 Split names match the original CSCS script; verify against your SFT data.
 EOF

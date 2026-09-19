@@ -2,27 +2,30 @@
 # Two-GPU RunAI evaluation: generation + judge + answer log-probabilities.
 # Usage: bash scripts/eval.sh TARGET_MODEL [JUDGE_MODEL] [TOPIC_IDS] [RUN_LABEL] [HYDRA_OVERRIDES...]
 # Example: bash scripts/eval.sh /dlabscratch1/zxu/IPE/outputs/RUN/checkpoints/checkpoint-1500
-# Each GPU holds a target and a judge; models must fit on one GPU together.
-# JUDGE_BACKEND defaults to transformers (no API credentials or vLLM required).
-# For an API judge: JUDGE_BACKEND=openai_gpt_mini JUDGE_OPENAI_MODEL=gpt-4.1-mini
-# and export OPENAI_API_KEY. Other judge settings can be passed as Hydra overrides.
+# Each GPU holds a target; the default judge uses DeepSeek through OpenRouter.
+# Default judge: DeepSeek V4.1-Flash, with thinking explicitly disabled.
+# Fill OPENROUTER_API_KEY below or export it before running this script.
+# Other judge settings can be passed as Hydra overrides.
 # OUTPUT_DIR, PROJECT_ROOT, CONDA_SH, CONDA_ENV, NUM_GPUS are environment overrides.
 set -euo pipefail
 
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-  sed -n '2,10p' "${BASH_SOURCE[0]}"
+  sed -n '2,9p' "${BASH_SOURCE[0]}"
   exit 0
 fi
+# OpenRouter API configuration: paste your API key after :- below, or export it.
+export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" # GIVE THE API TOKEN HERE OR EXPORT IT IN YOUR ENVIRONMENT
+JUDGE_API_BASE_URL=${JUDGE_API_BASE_URL:-https://openrouter.ai/api/v1}
 PROJECT_ROOT=${PROJECT_ROOT:-/dlabscratch1/zxu/IPE}
 CONDA_SH=${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}
 CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 TARGET_MODEL=${1:-${TARGET_MODEL:-/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-epe-smoltalk-anchors_20260916_134729/checkpoints/checkpoint-6784}}
-JUDGE_MODEL=${2:-${JUDGE_MODEL:-VityaVitalich/Llama3.1-8b-instruct}}
+JUDGE_MODEL=${2:-${JUDGE_MODEL:-deepseek/deepseek-v4.1-flash}}
 TOPIC_IDS=${3:-"[p11,p12,p13,p14,p15]"}
 RUN_LABEL=${4:-eval}
 for ((i=0; i<4 && $#>0; i++)); do shift; done
 NUM_GPUS=${NUM_GPUS:-2}
-JUDGE_BACKEND=${JUDGE_BACKEND:-transformers}
+JUDGE_BACKEND=${JUDGE_BACKEND:-api}
 
 [[ -n "$TARGET_MODEL" ]] || { echo 'Pass TARGET_MODEL (checkpoint directory or HF model ID).' >&2; exit 1; }
 [[ "$NUM_GPUS" =~ ^[1-9][0-9]*$ ]] || { echo 'NUM_GPUS must be a positive integer.' >&2; exit 1; }
@@ -104,6 +107,11 @@ for ((shard=0; shard<NUM_GPUS; shard++)); do
     generation.do_sample=true \
     "judge.backend=$JUDGE_BACKEND" \
     "judge.model='$JUDGE_MODEL'" \
+    "judge.api_model='$JUDGE_MODEL'" \
+    "judge.api_base_url='$JUDGE_API_BASE_URL'" \
+    judge.api_key_env=OPENROUTER_API_KEY \
+    judge.api_thinking=null \
+    judge.api_reasoning_enabled=false \
     "judge.openai_model='${JUDGE_OPENAI_MODEL:-gpt-4.1-mini}'" \
     judge.use_chat_template=true \
     judge.max_new_tokens=4 \

@@ -119,6 +119,10 @@ judge:
   api_key: null
   api_key_env: "CSCS_SERVING_API"
   api_model: null
+  # Optional thinking toggle for compatible APIs (e.g. DeepSeek).
+  api_thinking: null
+  # Optional OpenRouter reasoning toggle; false disables reasoning.
+  api_reasoning_enabled: null
   # OpenAI GPT-mini backend settings
   openai_model: "gpt-4o-mini"
   openai_api_key: null

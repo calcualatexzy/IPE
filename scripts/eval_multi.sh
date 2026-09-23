@@ -9,11 +9,12 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 export JUDGE_API_BASE_URL=${JUDGE_API_BASE_URL:-https://openrouter.ai/api/v1}
 # Fill in your three checkpoint paths here, or supply the same environment variables.
-DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-epe-smoltalk-anchors_20260916_134729/checkpoints/checkpoint-6784"}
-DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-ipe-smoltalk-anchors_20260915_154754/checkpoints/checkpoint-6784"}
-DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-iepe-smoltalk-anchors_20260916_013553/checkpoints/checkpoint-6784"}
+DEFAULT_BASELINE_MODEL=${DEFAULT_BASELINE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-baseline-smoltalk-anchors_20260922_081603/checkpoints/checkpoint-6784"}
+DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-epe-smoltalk-anchors_20260922_151734/checkpoints/checkpoint-6784"}
+DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-ipe-smoltalk-anchors_20260921_140502/checkpoints/checkpoint-6784"}
+DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"//dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_smoltalk_samples100000_seq2048_seed42_sft-iepe-smoltalk-anchors_20260921_140659/checkpoints/checkpoint-6784"}
 
-MODELS_CSV=epe,ipe,iepe
+MODELS_CSV=baseline,epe,ipe,iepe
 SPLITS_CSV=ood,in_domain,not_forced
 JUDGE_MODEL=${JUDGE_MODEL:-deepseek/deepseek-v4.1-flash}
 JUDGE_BACKEND=${JUDGE_BACKEND:-api}
@@ -76,6 +77,7 @@ for ((m=0; m<${#MODELS[@]}; m++)); do
   [[ -n "$model" ]] || { echo 'Empty model in --models.' >&2; exit 1; }
   default_var=''
   case "$model" in
+    baseline) default_var=DEFAULT_BASELINE_MODEL ;;
     epe) default_var=DEFAULT_EPE_MODEL ;;
     ipe) default_var=DEFAULT_IPE_MODEL ;;
     iepe) default_var=DEFAULT_IEPE_MODEL ;;

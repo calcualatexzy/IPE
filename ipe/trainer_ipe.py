@@ -23,6 +23,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 import torch
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel
 from transformers import Trainer
 from transformers.cache_utils import DynamicCache
 from loguru import logger
@@ -659,9 +660,13 @@ class IPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Trainer):
         # Forward with frozen parameters - gradients flow only through KV-cache.
         # In train_separator_embedding_only mode, a hook injects separator-delta
         # into separator token embeddings for this reflection pass only.
-        with frozen_params(model):
-            with self._reflection_separator_hook_context(model):
-                refl_output = model(
+        # Keep the optional reflection forward out of DDP's collectives.
+        reflection_model = (
+            model.module if isinstance(model, DistributedDataParallel) else model
+        )
+        with frozen_params(reflection_model):
+            with self._reflection_separator_hook_context(reflection_model):
+                refl_output = reflection_model(
                     input_ids=refl_ids,
                     attention_mask=combined_mask,
                     position_ids=refl_position_ids,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single-GPU RunAI IPE pretraining; run inside the submitted container.
+# Four-GPU RunAI IPE pretraining; run inside the submitted container.
 # Usage: bash scripts/pretrain_ipe.sh [SUFFIX] [DATASET_PATH] [HYDRA_OVERRIDES...]
 # Server paths assume /dlabscratch1/zxu/IPE. See scripts/README.md.
 set -euo pipefail
@@ -27,13 +27,12 @@ export IPE_TOKENIZED_DATA_DIR=${IPE_TOKENIZED_DATA_DIR:-$OUTPUT_DIR/tokenized_da
 export PYTHONUNBUFFERED=1
 mkdir -p "$OUTPUT_DIR" "$IPE_TOKENIZED_DATA_DIR"
 
-printf 'Starting IPE on one GPU\nDataset: %s\nOutput: %s\nSuffix: %s\n' \
+printf 'Starting IPE on four GPUs\nDataset: %s\nOutput: %s\nSuffix: %s\n' \
   "$DATASET_PATH" "$OUTPUT_DIR" "$SUFFIX"
 
 # RunAI controls GPU visibility; do not overwrite CUDA_VISIBLE_DEVICES.
-# Accumulate 16 microbatches of size 1 to keep effective batch size 16 on one GPU.
+# Effective batch size: 4 GPUs x 8 samples x 2 accumulation steps = 64.
 # exec propagates job signals and the training process exit status.
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
 exec torchrun --standalone --nproc_per_node=4 train.py \
   model=llama32_1B \
   experiment=pretrain \

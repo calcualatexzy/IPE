@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single-GPU RunAI SFT with smoltalk and persona anchors.
+# Four-GPU RunAI SFT with smoltalk and persona anchors.
 # Usage: bash scripts/sft.sh [SUFFIX] [PRETRAIN_CHECKPOINT] [HYDRA_OVERRIDES...]
 # Example: bash scripts/sft.sh sft_ipe /dlabscratch1/zxu/IPE/outputs/RUN/checkpoints/checkpoint-10000
 # PRETRAIN_CHECKPOINT can also be supplied through INIT_FROM.
@@ -36,13 +36,13 @@ export IPE_TOKENIZED_DATA_DIR=${IPE_TOKENIZED_DATA_DIR:-$OUTPUT_DIR/tokenized_da
 export PYTHONUNBUFFERED=1
 mkdir -p "$IPE_TOKENIZED_DATA_DIR"
 
-printf 'Starting SFT on one GPU\nCheckpoint: %s\nDataset: HuggingFaceTB/smoltalk (all)\nAnchors: %s\nOutput: %s\nSuffix: %s\n' \
+printf 'Starting SFT on four GPUs\nCheckpoint: %s\nDataset: HuggingFaceTB/smoltalk (all)\nAnchors: %s\nOutput: %s\nSuffix: %s\n' \
   "$INIT_FROM" "$ANCHOR_DATASET" "$OUTPUT_DIR" "$SUFFIX"
 
 # RunAI controls GPU visibility; do not overwrite CUDA_VISIBLE_DEVICES.
-# Match the pretraining scripts' effective batch size of 16 on one GPU.
+# Preserve the effective batch size of 64: 4 GPUs x 8 samples x 2 accumulation steps.
 # Extra Hydra overrides are applied last; exec forwards job signals and exit status.
-exec torchrun --standalone --nproc_per_node=1 train_sft.py \
+exec torchrun --standalone --nproc_per_node=4 train_sft.py \
   model=llama32_1B \
   experiment=sft \
   dataset=sft \
@@ -54,8 +54,8 @@ exec torchrun --standalone --nproc_per_node=1 train_sft.py \
   "experiment.chat_template.assistant_role='<assistant>'" \
   dataset.max_seq_len=2048 \
   dataset.max_turns=2 \
-  training.per_device_train_batch_size=4 \
-  training.gradient_accumulation_steps=4 \
+  training.per_device_train_batch_size=8 \
+  training.gradient_accumulation_steps=2 \
   training.max_steps=-1 \
   training.save_steps=500 \
   training.logging_steps=10 \

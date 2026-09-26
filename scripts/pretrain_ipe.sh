@@ -9,7 +9,7 @@ conda activate /dlabscratch1/zxu/envs/ipe
 
 cd /dlabscratch1/zxu/IPE
 
-SUFFIX=${1:-"pretrain_train_self_emb_meaningful"}
+SUFFIX=${1:-"pretrain_ipe_with_meaningful"}
 DATASET_PATH=${2:-${DATASET_PATH:-/dlabscratch1/zxu/IPE/data/pretrain/tinystories_reflected}}
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
@@ -33,7 +33,8 @@ printf 'Starting IPE on one GPU\nDataset: %s\nOutput: %s\nSuffix: %s\n' \
 # RunAI controls GPU visibility; do not overwrite CUDA_VISIBLE_DEVICES.
 # Accumulate 16 microbatches of size 1 to keep effective batch size 16 on one GPU.
 # exec propagates job signals and the training process exit status.
-exec torchrun --standalone --nproc_per_node=1 train.py \
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+exec torchrun --standalone --nproc_per_node=4 train.py \
   model=llama32_1B \
   experiment=pretrain \
   dataset=pretrain \
@@ -43,17 +44,17 @@ exec torchrun --standalone --nproc_per_node=1 train.py \
   experiment.trainer_type=ipe \
   experiment.ipe.kv_cache_dropout=0.0 \
   experiment.ipe.train_separator=false \
-  experiment.ipe.train_separator_embedding_only=true \
+  experiment.ipe.train_separator_embedding_only=false \
   "experiment.non_template_loss_only=$NON_TEMPLATE_LOSS_ONLY" \
   "experiment.hidden_state_tracking.enabled=$TRACK_HIDDEN_STATES" \
   "experiment.hidden_state_tracking.layers=$TRACK_LAYERS" \
   "experiment.hidden_state_tracking.log_every_steps=$TRACK_EVERY_STEPS" \
   "experiment.hidden_state_tracking.top_k_singular_values=$TRACK_TOP_K" \
   dataset.seq_len=1024 \
-  training.per_device_train_batch_size=2 \
-  training.gradient_accumulation_steps=8 \
-  training.max_steps=200000 \
-  training.save_steps=10000 \
+  training.per_device_train_batch_size=8 \
+  training.gradient_accumulation_steps=2 \
+  training.max_steps=10000 \
+  training.save_steps=5000 \
   training.logging_steps=10 \
   training.num_train_epochs=1 \
   "training.output_dir=$OUTPUT_DIR" \

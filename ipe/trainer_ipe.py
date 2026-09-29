@@ -224,6 +224,8 @@ class IPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Trainer):
             hidden_state_tracking_config: Configuration for hidden state tracking
         """
         super().__init__(*args, **kwargs)
+        # Custom compute_loss returns microbatch means, not accumulation-wide sums.
+        self.model_accepts_loss_kwargs = False
         self.context_len = int(context_len)
         self.separator_token_id = separator_token_id
         self.reflection_loss_weight = float(reflection_loss_weight)

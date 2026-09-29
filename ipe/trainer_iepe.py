@@ -67,6 +67,8 @@ class InterleavedEPETrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Tr
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        # Custom compute_loss returns microbatch means, not accumulation-wide sums.
+        self.model_accepts_loss_kwargs = False
         self.context_len = int(context_len)
         self.separator_token_id = separator_token_id
         self.end_separator_token_id = end_separator_token_id

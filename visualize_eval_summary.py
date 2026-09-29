@@ -323,8 +323,14 @@ def print_visual_bars(levels: dict, width: int = 40):
     for level_name in sorted(levels.keys()):
         level_data = levels[level_name]
         gen = level_data.get('generation', {})
-        # Use new averaged metric, fallback to old format
-        pref_rate = gen.get('mean_pref_rate_decided', gen.get('response_rates', {}).get('preference', 0))
+        # Match the decided-only rate in the report table and model comparisons.
+        # Merged summaries omit mean_pref_rate_decided; response_rates includes unknowns.
+        pref_rate = gen.get('decided_rates', {}).get('preference')
+        if pref_rate is None:
+            counts = gen.get('response_counts', {})
+            pref = counts.get('preference', 0)
+            decided = pref + counts.get('opposite', 0)
+            pref_rate = pref / decided if decided else gen.get('mean_pref_rate_decided', 0.0)
         
         filled = int(pref_rate * width)
         empty = width - filled

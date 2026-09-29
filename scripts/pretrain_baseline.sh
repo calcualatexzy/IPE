@@ -16,7 +16,7 @@ if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
 OUTPUT_DIR=${OUTPUT_DIR:-/dlabscratch1/zxu/IPE/outputs}
 
-TRACK_HIDDEN_STATES=${TRACK_HIDDEN_STATES:-false}
+TRACK_HIDDEN_STATES=${TRACK_HIDDEN_STATES:-true}
 TRACK_LAYERS=${TRACK_LAYERS:-"[7, 12, 14]"}
 TRACK_EVERY_STEPS=${TRACK_EVERY_STEPS:-10}
 TRACK_TOP_K=${TRACK_TOP_K:-5}

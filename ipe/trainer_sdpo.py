@@ -41,6 +41,8 @@ class SDPOTrainer(Trainer):
         :param float position_top_p: only average SDPO over top-p fraction of positions by divergence (0 = all positions)
         """
         super().__init__(*args, **kwargs)
+        # Custom compute_loss returns microbatch means, not accumulation-wide sums.
+        self.model_accepts_loss_kwargs = False
         self.alpha = alpha
         self.alpha_schedule = alpha_schedule
         self.pad_token_id = pad_token_id

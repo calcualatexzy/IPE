@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
 import inspect
+import math
 import os
 
 import hydra
@@ -37,6 +38,8 @@ from ipe.trainer import PretrainTrainer
 from ipe.trainer_ipe import IPETrainer
 from ipe.trainer_sdpo import SDPOTrainer
 from ipe.trainer_iepe import InterleavedEPETrainer
+from ipe.trainer_spo import SPOTrainer
+from ipe.spo_data import SPODataOptions, SPOCollator, build_spo_dataset
 from ipe.model_utils import load_tokenizer_and_model, get_separator_token_id, get_special_token_id
 from ipe.data import build_pretrain_dataset
 from ipe.conflict_data import build_conflict_pretrain_dataset
@@ -74,6 +77,7 @@ class RuntimeConfig:
     wandb_entity: Optional[str]
     output_dir: str
     num_train_samples: int
+    data_selection_seed: int
     use_reflection: bool
     trainer_type: str
     separator_token: str
@@ -101,6 +105,7 @@ class RuntimeConfig:
     iepe_reflection_attention_k: int      # k for last_k mode
     iepe_reflection_attention_p: float    # p for random_p mode
     iepe_reflection_attention_include_bos: bool  # always include BOS in reflection attention
+    spo: Dict[str, Any]
     # == Conflict specific ==
     conflict_enabled: bool
     conflict_preference_ids: List[str]
@@ -144,6 +149,24 @@ def _build_runtime(cfg: DictConfig) -> RuntimeConfig:
     
     ns = int(cfg.experiment.num_train_samples)
     assert ns > 0, "num_train_samples must be > 0"
+    data_selection_seed = int(cfg.experiment.get("data_selection_seed", -1))
+    if data_selection_seed < -1:
+        raise ValueError("experiment.data_selection_seed must be -1 or nonnegative")
+
+    if cfg.experiment.get("trainer_type") == "spo":
+        if cfg.training.get("do_eval", False):
+            raise ValueError("SPO uses the existing post-SFT evaluation workflow; set training.do_eval=false")
+        if cfg.experiment.get("conflict", {}).get("enabled", False):
+            raise ValueError("SPO v1 does not support conflict datasets")
+        ipe = cfg.experiment.get("ipe", {})
+        if ipe.get("kv_cache_dropout", 0) != 0 or ipe.get("train_separator", False) or ipe.get("train_separator_embedding_only", False):
+            raise ValueError("SPO uses full-model gradients; nondefault IPE-only options are unsupported")
+        spo = cfg.experiment.get("spo", {})
+        weight, beta, gamma = float(cfg.experiment.reflection_loss_weight), float(spo.get("beta", 1)), float(spo.get("gamma", 0))
+        if not all(math.isfinite(x) for x in (weight, beta, gamma)) or weight < 0 or beta <= 0 or gamma < 0:
+            raise ValueError("SPO requires finite lambda >= 0, beta > 0, and gamma >= 0")
+        if spo.get("attn_implementation", "sdpa") not in ("eager", "sdpa"):
+            raise ValueError("SPO supports eager or sdpa attention")
 
     hidden_state_tracking_config = _build_hidden_state_tracking_config(cfg)
 
@@ -161,6 +184,7 @@ def _build_runtime(cfg: DictConfig) -> RuntimeConfig:
         wandb_entity=cfg.wandb.entity if "entity" in cfg.wandb else None,
         output_dir=str(cfg.training.output_dir),
         num_train_samples=ns,
+        data_selection_seed=data_selection_seed,
         use_reflection=bool(getattr(cfg.experiment, "use_reflection", True)),
         trainer_type=str(getattr(cfg.experiment, "trainer_type", "epe")),
         separator_token=str(getattr(cfg.experiment, "separator_token", "<assistant>")),
@@ -198,6 +222,7 @@ def _build_runtime(cfg: DictConfig) -> RuntimeConfig:
         iepe_reflection_attention_include_bos=bool(getattr(
             cfg.experiment.get("iepe", {}), "reflection_attention_include_bos", False
         )),
+        spo=dict(cfg.experiment.get("spo", {})),
         conflict_enabled=bool(getattr(cfg.experiment.get("conflict", {}), "enabled", False)),
         conflict_preference_ids=list(getattr(cfg.experiment.get("conflict", {}), "preference_ids", [])),
         conflict_ratio=float(getattr(cfg.experiment.get("conflict", {}), "conflict_ratio", 1.0)),
@@ -215,6 +240,10 @@ def _setup_run(cfg: DictConfig) -> RuntimeConfig:
     # Build run information and generate names
     run_info = build_run_info(cfg)
     run_name = generate_run_name(run_info)
+    if rc.trainer_type == "spo" and dist.is_available() and dist.is_initialized():
+        shared_name = [run_name if dist.get_rank() == 0 else None]
+        dist.broadcast_object_list(shared_name, src=0)
+        run_name = shared_name[0]
     wandb_run_name = generate_wandb_run_name(run_info)
     
     # Set up directories
@@ -274,16 +303,35 @@ def _prepare_models_and_data(rc: RuntimeConfig, cfg: DictConfig):
     
     # Prepare special tokens
     extra_special_tokens = [rc.separator_token] if rc.use_reflection else []
-    if rc.trainer_type == "iepe" and rc.use_reflection:
-        extra_special_tokens.append(rc.iepe_end_separator_token)
+    closing_token = rc.spo.get("end_separator_token", "</assistant>") if rc.trainer_type == "spo" else rc.iepe_end_separator_token
+    if rc.trainer_type in ("iepe", "spo") and rc.use_reflection:
+        extra_special_tokens.append(closing_token)
+    if rc.trainer_type == "spo":
+        # Resolve local paths before Hydra's per-run working directory is used.
+        candidate = hydra.utils.to_absolute_path(model_source)
+        if os.path.exists(candidate):
+            model_source = candidate
+        candidate = hydra.utils.to_absolute_path(rc.dataset_name)
+        if os.path.exists(candidate):
+            rc.dataset_name = candidate
     
     tokenizer, model, _ = load_tokenizer_and_model(
         model_source,
         extra_special_tokens=extra_special_tokens,
+        attn_implementation=rc.spo.get("attn_implementation", "sdpa") if rc.trainer_type == "spo" else None,
     )
 
     # Load dataset
-    if rc.conflict_enabled:
+    if rc.trainer_type == "spo":
+        train_dataset = build_spo_dataset(
+            rc.dataset_name, rc.dataset_config, tokenizer, model_source, rc.num_train_samples,
+            SPODataOptions(seq_len=rc.seq_len, seed=rc.seed, placement=rc.spo.get("placement", "random_after_keyword"),
+                           opening=rc.separator_token, closing=closing_token, text_field=rc.text_field,
+                           use_reflection=rc.use_reflection, non_template_loss_only=rc.non_template_loss_only,
+                           data_selection_seed=rc.data_selection_seed),
+            disable_cache=rc.disable_cache,
+        )
+    elif rc.conflict_enabled:
         logger.info(
             "Loading CONFLICT dataset (use_reflection={}, conflict_ratio={}, preference_ids={})",
             rc.use_reflection, rc.conflict_ratio, rc.conflict_preference_ids or "all",
@@ -304,6 +352,7 @@ def _prepare_models_and_data(rc: RuntimeConfig, cfg: DictConfig):
             preference_ids=rc.conflict_preference_ids or None,
             conflict_ratio=rc.conflict_ratio,
             conflict_seed=rc.conflict_seed,
+            data_selection_seed=rc.data_selection_seed,
         )
     else:
         logger.info(
@@ -326,9 +375,11 @@ def _prepare_models_and_data(rc: RuntimeConfig, cfg: DictConfig):
             trainer_type=rc.trainer_type,
             end_separator_token=rc.iepe_end_separator_token,
             iepe_seed=rc.seed,
+            data_selection_seed=rc.data_selection_seed,
         )
 
-    collate = build_collate_fn(tokenizer, rc.seq_len)
+    collate = (SPOCollator(tokenizer, include_negatives=rc.reflection_loss_weight > 0)
+               if rc.trainer_type == "spo" else build_collate_fn(tokenizer, rc.seq_len))
     model = maybe_wrap_dataparallel(model)
     
     # Get separator token ID for debugging/logging
@@ -337,11 +388,11 @@ def _prepare_models_and_data(rc: RuntimeConfig, cfg: DictConfig):
     if rc.use_reflection:
         separator_token_id = get_separator_token_id(tokenizer, rc.separator_token)
         logger.info("Separator token '{}' has ID: {}", rc.separator_token, separator_token_id)
-        if rc.trainer_type == "iepe":
-            end_separator_token_id = get_special_token_id(tokenizer, rc.iepe_end_separator_token)
+        if rc.trainer_type in ("iepe", "spo"):
+            end_separator_token_id = get_special_token_id(tokenizer, closing_token)
             logger.info(
                 "End separator token '{}' has ID: {}",
-                rc.iepe_end_separator_token, end_separator_token_id,
+                closing_token, end_separator_token_id,
             )
     
     return tokenizer, model, train_dataset, collate, separator_token_id, end_separator_token_id
@@ -366,7 +417,8 @@ def _build_trainer(
     num_samples = len(train_dataset)
     batch_size = cfg.training.per_device_train_batch_size
     grad_accum = cfg.training.gradient_accumulation_steps
-    effective_batch = batch_size * grad_accum
+    world_size = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
+    effective_batch = batch_size * grad_accum * world_size
     steps_per_epoch = num_samples // effective_batch
     max_steps = int(getattr(cfg.training, "max_steps", -1))
     
@@ -391,7 +443,22 @@ def _build_trainer(
     processor_kwargs = {processor_key: tokenizer}
     
     # Choose trainer based on trainer_type
-    if rc.trainer_type == "iepe":
+    if rc.trainer_type == "spo":
+        trainer = SPOTrainer(
+            model=model, args=args, train_dataset=train_dataset, data_collator=collate, **processor_kwargs,
+            separator_token_id=separator_token_id, end_separator_token_id=end_separator_token_id,
+            beta=float(rc.spo.get("beta", 1)), gamma=float(rc.spo.get("gamma", 0)),
+            add_reflection_ce=rc.spo.get("add_reflection_ce", False),
+            reflection_loss_weight=rc.reflection_loss_weight, non_template_loss_only=rc.non_template_loss_only,
+            mask_reflection=rc.spo.get("mask_reflection", True),
+            reflection_attention_mode=rc.spo.get("reflection_attention_mode", "full"),
+            reflection_attention_k=int(rc.spo.get("reflection_attention_k", 64)),
+            reflection_attention_p=float(rc.spo.get("reflection_attention_p", 0.5)),
+            reflection_attention_include_bos=rc.spo.get("reflection_attention_include_bos", False),
+            hidden_state_tracking_config=rc.hidden_state_tracking_config,
+            track_separator=rc.spo.get("track_separator", False), log_grad_norm=rc.log_grad_norm,
+        )
+    elif rc.trainer_type == "iepe":
         logger.info("Using InterleavedEPETrainer (Interleaved Explicit Persona Engineering)")
         logger.info("mask_reflection: {}", rc.iepe_mask_reflection)
         logger.info("end_separator_token: {} (ID: {})", rc.iepe_end_separator_token, end_separator_token_id)
@@ -492,8 +559,9 @@ def init_distributed_if_needed() -> None:
 
     # torchrun sets LOCAL_RANK, RANK, WORLD_SIZE
     local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
-    dist.init_process_group(backend="nccl")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+    dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -519,6 +587,8 @@ def main(cfg: DictConfig):
         trainer.push_to_hub()
     
     logger.info("Training complete!")
+    if rc.trainer_type == "spo" and dist.is_available() and dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

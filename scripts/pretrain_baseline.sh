@@ -16,6 +16,9 @@ if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
 OUTPUT_DIR=${OUTPUT_DIR:-/dlabscratch1/zxu/IPE/outputs}
 
+# Shuffle document selection before pretraining; -1 disables the extra shuffle.
+DATA_SELECTION_SEED=${DATA_SELECTION_SEED:--1}
+
 TRACK_HIDDEN_STATES=${TRACK_HIDDEN_STATES:-true}
 TRACK_LAYERS=${TRACK_LAYERS:-"[7, 12, 14]"}
 TRACK_EVERY_STEPS=${TRACK_EVERY_STEPS:-10}
@@ -39,6 +42,7 @@ exec torchrun --standalone --nproc_per_node=4 train.py \
   dataset=pretrain \
   "dataset.name=$DATASET_PATH" \
   experiment.num_train_samples=1000000 \
+  "experiment.data_selection_seed=$DATA_SELECTION_SEED" \
   experiment.use_reflection=true \
   experiment.trainer_type=epe \
   experiment.reflection_loss_weight=0.0 \

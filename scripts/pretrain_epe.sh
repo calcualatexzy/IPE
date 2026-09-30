@@ -10,10 +10,15 @@ conda activate /dlabscratch1/zxu/envs/ipe
 cd /dlabscratch1/zxu/IPE
 
 SUFFIX=${1:-"pretrain-tinyreflected"}
-DATASET_PATH=${2:-${DATASET_PATH:-/dlabscratch1/zxu/IPE/data/tiny_reflected}}
+# DATASET_PATH=${2:-${DATASET_PATH:-/dlabscratch1/zxu/IPE/data/tiny_reflected}}
+DATASET_PATH=${2:-${DATASET_PATH:-/dlabscratch1/zxu/IPE/data/pretrain/tinystories_reflected}}
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
 OUTPUT_DIR=${OUTPUT_DIR:-/dlabscratch1/zxu/IPE/outputs}
+
+# Shuffle document selection before pretraining; -1 disables the extra shuffle.
+DATA_SELECTION_SEED=${DATA_SELECTION_SEED:-42}
+# DATA_SELECTION_SEED=${DATA_SELECTION_SEED:--1}
 
 NON_TEMPLATE_LOSS_ONLY=${NON_TEMPLATE_LOSS_ONLY:-false}
 TRACK_HIDDEN_STATES=${TRACK_HIDDEN_STATES:-true}
@@ -39,6 +44,7 @@ exec torchrun --standalone --nproc_per_node=4 train.py \
   dataset=pretrain \
   "dataset.name=$DATASET_PATH" \
   experiment.num_train_samples=1000000 \
+  "experiment.data_selection_seed=$DATA_SELECTION_SEED" \
   experiment.use_reflection=true \
   experiment.trainer_type=epe \
   "experiment.non_template_loss_only=$NON_TEMPLATE_LOSS_ONLY" \
@@ -49,7 +55,7 @@ exec torchrun --standalone --nproc_per_node=4 train.py \
   dataset.seq_len=1024 \
   training.per_device_train_batch_size=8 \
   training.gradient_accumulation_steps=2 \
-  training.max_steps=20000 \
+  training.max_steps=10000 \
   training.save_steps=5000 \
   training.logging_steps=10 \
   training.num_train_epochs=1 \

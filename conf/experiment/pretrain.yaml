@@ -4,13 +4,17 @@
 # Number of source documents/texts to load from dataset
 num_train_samples: 100000
 
+# Shuffle source documents before selecting num_train_samples at each pretraining
+# run. A nonnegative seed gives reproducible selection; -1 keeps existing order.
+data_selection_seed: -1
+
 # Whether to use reflection-augmented training
 # When true, concatenates text + separator + reflection during tokenization
 # Also logs separate losses for initial part and reflection part
 # Set to false for baseline pre-training without reflections
 use_reflection: true
 
-# Training method: "epe", "ipe", "sdpo", or "iepe"
+# Training method: "epe", "ipe", "sdpo", "iepe", or "spo"
 # - epe: Standard NTP loss on reflections (model learns to predict reflections directly)
 # - ipe: KV-cache trick - reflections use frozen model, gradients flow only through KV-cache
 # - sdpo: Self-Distillation Policy Optimization - KL divergence between student (text) and teacher (refl+text)
@@ -78,6 +82,21 @@ iepe:
   # When true (with last_k or random_p), always allow attention to the BOS token
   # regardless of the k/p restriction.
   reflection_attention_include_bos: false
+
+# SPO: context CE + reflection_loss_weight * (optional positive reflection CE + SimPO).
+spo:
+  add_reflection_ce: false  # Token-mean CE on positive reflections, matching IEPE
+  beta: 1.0
+  gamma: 0.0
+  mask_reflection: true
+  end_separator_token: "</assistant>"
+  placement: "random_after_keyword"  # or "end"
+  reflection_attention_mode: "full"
+  reflection_attention_k: 64
+  reflection_attention_p: 0.5
+  reflection_attention_include_bos: false
+  attn_implementation: "sdpa"  # verified custom-mask backends: eager, sdpa
+  track_separator: false
 
 # SDPO-specific parameters (only used when trainer_type="sdpo")
 sdpo:

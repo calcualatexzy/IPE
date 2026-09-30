@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Evaluate a model x split matrix sequentially, using two GPUs for each eval.
-# Usage: bash scripts/eval_multi.sh [--models epe,ipe,iepe] [OPTIONS] [-- HYDRA_OVERRIDES...]
+# Usage: bash scripts/eval_multi.sh [--models epe,ipe,iepe,spo] [OPTIONS] [-- HYDRA_OVERRIDES...]
 # No Slurm submission: run inside the same two-GPU RunAI allocation as eval.sh.
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -9,13 +9,35 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 export JUDGE_API_BASE_URL=${JUDGE_API_BASE_URL:-https://openrouter.ai/api/v1}
 # Fill in your three checkpoint paths here, or supply the same environment variables.
-DEFAULT_BASELINE_MODEL=${DEFAULT_BASELINE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-baseline-ultrachat-anchors_20260926_163819/checkpoints/checkpoint-1701"}
-DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-epe_20260928_182505/checkpoints/checkpoint-1701"}
-DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-ipe_20260928_180007/checkpoints/checkpoint-1701"}
-DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe_20260928_174001/checkpoints/checkpoint-1701"}
+# DEFAULT_BASELINE_MODEL=${DEFAULT_BASELINE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-baseline-ultrachat-anchors_20260926_163819/checkpoints/checkpoint-1701"}
+# Baseline w/o anchors
+DEFAULT_BASELINE_MODEL=${DEFAULT_BASELINE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-baseline-wo-anchor_20260930_073645/checkpoints/checkpoint-1561"}
+
+# DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-epe_20260928_182505/checkpoints/checkpoint-1701"}
+# EPE w/o anchors
+# DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-epe-wo-anchor_20260930_093444/checkpoints/checkpoint-1561"}
+
+DEFAULT_EPE_MODEL=${DEFAULT_EPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-epe-shuffle_20260930_121408/checkpoints/checkpoint-1701"}
+
+# DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-ipe_20260928_180007/checkpoints/checkpoint-1701"}
+# IPE sfull
+# DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-ipe-sfull_20260929_120056/checkpoints/checkpoint-1701"}
+# IPE w/o anchors
+DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-ipe-wo-anchor_20260930_120336/checkpoints/checkpoint-1561"}
+
+
+# DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe_20260928_174001/checkpoints/checkpoint-1701"}
+# IEPE w/o anchors
+DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe-wo-anchor_20260930_111524/checkpoints/checkpoint-1561"}
+
+
+# DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo_20260929_191819/checkpoints/checkpoint-1701"}
+# SPO w/o anchors
+DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-wo-anchor_20260930_124522/checkpoints/checkpoint-1561"}
+
 
 # MODELS_CSV=iepe
-MODELS_CSV=baseline,epe,ipe,iepe
+MODELS_CSV=baseline,epe,ipe,iepe,spo
 SPLITS_CSV=ood,in_domain,not_forced
 JUDGE_MODEL=${JUDGE_MODEL:-deepseek/deepseek-v4.1-flash}
 JUDGE_BACKEND=${JUDGE_BACKEND:-api}
@@ -25,8 +47,8 @@ OVERRIDES=()
 usage() {
   cat <<'EOF'
 Usage: bash scripts/eval_multi.sh [--models MODEL1,MODEL2] [OPTIONS] [-- HYDRA_OVERRIDES...]
-  --models CSV         Aliases epe,ipe,iepe, checkpoint paths, or Hugging Face IDs.
-                       Default: epe,ipe,iepe. Set DEFAULT_*_MODEL above or in env.
+  --models CSV         Aliases epe,ipe,iepe,spo, checkpoint paths, or Hugging Face IDs.
+                       Default: epe,ipe,iepe,spo. Set DEFAULT_*_MODEL above or in env.
   --splits CSV         ood,in_domain,not_forced (default: all three).
   --judge MODEL        Judge model (default: deepseek/deepseek-v4.1-flash / V4.1-Flash).
   --judge-backend NAME api (default), transformers, vllm, openai_gpt_mini.
@@ -34,7 +56,7 @@ Usage: bash scripts/eval_multi.sh [--models MODEL1,MODEL2] [OPTIONS] [-- HYDRA_O
   --dry-run           Print commands without activating Conda or using GPUs.
   --help              Show help.
 Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV, OUTPUT_DIR, NUM_GPUS (default: 2).
-Model defaults: DEFAULT_EPE_MODEL, DEFAULT_IPE_MODEL, DEFAULT_IEPE_MODEL.
+Model defaults: DEFAULT_EPE_MODEL, DEFAULT_IPE_MODEL, DEFAULT_IEPE_MODEL, DEFAULT_SPO_MODEL.
 API: fill OPENROUTER_API_KEY above or in eval.sh, or export it in your environment.
 Default API endpoint: https://openrouter.ai/api/v1; thinking is disabled.
 Models/splits run sequentially; each invocation uses NUM_GPUS shards.
@@ -82,6 +104,7 @@ for ((m=0; m<${#MODELS[@]}; m++)); do
     epe) default_var=DEFAULT_EPE_MODEL ;;
     ipe) default_var=DEFAULT_IPE_MODEL ;;
     iepe) default_var=DEFAULT_IEPE_MODEL ;;
+    spo) default_var=DEFAULT_SPO_MODEL ;;
   esac
   if [[ -n "$default_var" ]]; then
     checkpoint=${!default_var}

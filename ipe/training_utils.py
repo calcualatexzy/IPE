@@ -165,6 +165,8 @@ def build_training_args(
         "dataloader_pin_memory": bool(getattr(cfg.training, "dataloader_pin_memory", True)),
     }
 
+    if "save_strategy" in cfg.training:
+        args_dict["save_strategy"] = cfg.training.save_strategy
     return TrainingArguments(**args_dict)
 
 

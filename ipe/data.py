@@ -138,6 +138,7 @@ def build_pretrain_dataset(
     trainer_type: str = "epe",
     end_separator_token: str = "</assistant>",
     iepe_seed: int = 42,
+    data_selection_seed: int = -1,
 ) -> List[Dict[str, Any]]:
     """Load dataset and tokenize for pre-training.
     
@@ -169,6 +170,7 @@ def build_pretrain_dataset(
         trainer_type: Trainer type (epe, ipe, sdpo, iepe)
         end_separator_token: Closing framing token for IEPE mode
         iepe_seed: Random seed for IEPE insertion point selection
+        data_selection_seed: Shuffle documents before limiting; -1 keeps source order
     
     Returns:
         List of training samples with 'input_ids', 'sample_idx', 'reflection_start_token'
@@ -189,6 +191,10 @@ def build_pretrain_dataset(
         "end_separator_token": end_separator_token if trainer_type == "iepe" else "",
         "iepe_seed": iepe_seed if trainer_type == "iepe" else 0,
     }
+    if data_selection_seed < -1:
+        raise ValueError("data_selection_seed must be -1 or nonnegative")
+    if data_selection_seed != -1:
+        cache_meta["data_selection_seed"] = data_selection_seed
     cache_dir = dataset_cache_dir(cache_meta)
     
     # Try cache first (unless disabled)
@@ -207,6 +213,10 @@ def build_pretrain_dataset(
         ds_split = dataset[split_name]
         logger.warning("No 'train' split found, using '{}'", split_name)
     
+    if data_selection_seed != -1:
+        logger.info("Shuffling source documents with selection seed {}", data_selection_seed)
+        ds_split = ds_split.shuffle(seed=data_selection_seed)
+
     total_docs = len(ds_split)
     end = min(num_train_samples, total_docs)
     

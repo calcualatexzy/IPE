@@ -20,7 +20,7 @@ class RunInfo:
     seq_len: int
     seed: int
     use_reflection: bool
-    trainer_type: str  # "epe", "ipe", "sdpo", or "iepe"
+    trainer_type: str  # "epe", "ipe", "sdpo", "iepe", or "spo"
     separator_token: str
     reflection_loss_weight: float
     kv_cache_dropout: float  # IPE-specific
@@ -30,6 +30,7 @@ class RunInfo:
     suffix: Optional[str] = None
     init_from_hub_repo: Optional[str] = None
     init_from_local_ckpt: Optional[str] = None
+    spo_add_reflection_ce: bool = False
 
 
 def build_run_info(cfg: DictConfig) -> RunInfo:
@@ -87,7 +88,8 @@ def build_run_info(cfg: DictConfig) -> RunInfo:
         iepe_mask_reflection=iepe_mask_reflection,
         suffix=suffix,
         init_from_hub_repo=init_from_hub_repo,
-        init_from_local_ckpt=init_from_local_ckpt
+        init_from_local_ckpt=init_from_local_ckpt,
+        spo_add_reflection_ce=bool(cfg.experiment.get("spo", {}).get("add_reflection_ce", False)),
     )
 
 
@@ -108,7 +110,9 @@ def generate_run_name(run_info: RunInfo, timestamp: Optional[str] = None) -> str
     
     # Add reflection info
     if run_info.use_reflection:
-        if run_info.trainer_type == "iepe":
+        if run_info.trainer_type == "spo" and run_info.spo_add_reflection_ce:
+            components.append("spo_ce")
+        elif run_info.trainer_type == "iepe":
             components.append("iepe")
             if run_info.iepe_mask_reflection:
                 components.append("masked")
@@ -157,7 +161,9 @@ def generate_wandb_run_name(run_info: RunInfo) -> str:
     ]
     
     if run_info.use_reflection:
-        if run_info.trainer_type == "iepe":
+        if run_info.trainer_type == "spo" and run_info.spo_add_reflection_ce:
+            components.append("spo_ce")
+        elif run_info.trainer_type == "iepe":
             components.append("iepe")
             components.append("m" if run_info.iepe_mask_reflection else "u")
         elif run_info.trainer_type == "ipe":

@@ -1,5 +1,23 @@
 # Implicit Persona Engineering (IPE)
 
+For SPO dataset preparation, see [reflection-pair conversion](docs/reflection_pairs.md)
+for `add_reflection_pairs.py` usage, output fields, and validation behavior.
+For training, see [SPO pretraining](docs/spo_pretraining.md) for the launcher,
+configuration, smoke tests, and checkpoint handoff to SFT.
+
+Pretraining accepts `experiment.data_selection_seed=42` to reproducibly shuffle
+source documents before applying `experiment.num_train_samples` at the start of
+each pretraining run. This works for baseline, EPE, IPE, SDPO, IEPE, and SPO.
+Use a different seed to select a different subset for another stage. The default,
+`experiment.data_selection_seed=-1`, preserves existing selection behavior
+(including the conflict pipeline's existing pair shuffle). Conflict datasets
+shuffle complete story pairs after conflict assignment. The selection seed is
+independent of `training.seed` and is included in tokenized cache keys.
+
+```bash
+python train.py dataset=pretrain experiment=pretrain experiment.data_selection_seed=42
+```
+
 ## Model Path Table
 
 | Model Name | Model Path                |

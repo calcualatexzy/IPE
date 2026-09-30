@@ -102,6 +102,7 @@ def build_conflict_pretrain_dataset(
     preference_ids: Optional[List[str]] = None,
     conflict_ratio: float = 1.0,
     conflict_seed: int = 42,
+    data_selection_seed: int = -1,
 ) -> List[Dict[str, Any]]:
     """Build training dataset from conflicting preferences data.
 
@@ -134,6 +135,7 @@ def build_conflict_pretrain_dataset(
             0.0 = all aligned (context matches table, agrees with reflection)
             1.0 = all conflicting (context opposes table, disagrees with reflection)
         conflict_seed: Random seed for conflict assignment and shuffling
+        data_selection_seed: Additional pair selection shuffle; -1 keeps existing order
 
     Returns:
         List of training samples compatible with existing trainers.
@@ -154,6 +156,10 @@ def build_conflict_pretrain_dataset(
         "text_field": text_field,
         "conflict": True,
     }
+    if data_selection_seed < -1:
+        raise ValueError("data_selection_seed must be -1 or nonnegative")
+    if data_selection_seed != -1:
+        cache_meta["data_selection_seed"] = data_selection_seed
     cache_dir = dataset_cache_dir(cache_meta)
 
     if not disable_cache and os.path.exists(cache_dir):
@@ -202,6 +208,11 @@ def build_conflict_pretrain_dataset(
 
     num_conflict = int(len(pair_uids) * conflict_ratio)
     conflict_uids = set(pair_uids[:num_conflict])
+
+    # Keep normal/flipped variants together and leave conflict assignment intact.
+    if data_selection_seed != -1:
+        logger.info("Shuffling source pairs with selection seed {}", data_selection_seed)
+        random.Random(data_selection_seed).shuffle(pair_uids)
 
     logger.info(
         "Conflict assignment: {} conflicting (flipped context), "

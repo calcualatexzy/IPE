@@ -12,6 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 def load_tokenizer_and_model(
     model_source: str,
     extra_special_tokens: Optional[List[str]] = None,
+    attn_implementation: Optional[str] = None,
 ) -> Tuple[AutoTokenizer, AutoModelForCausalLM, int]:
     """Load tokenizer/model and add special tokens when needed.
 
@@ -44,7 +45,8 @@ def load_tokenizer_and_model(
         logger.info("Added {} special tokens: {}", special_added, unique_tokens)
 
     logger.info("Loading model from {}", model_source)
-    model = AutoModelForCausalLM.from_pretrained(model_source)
+    model_kwargs = {"attn_implementation": attn_implementation} if attn_implementation else {}
+    model = AutoModelForCausalLM.from_pretrained(model_source, **model_kwargs)
     if special_added > 0:
         model.resize_token_embeddings(len(tokenizer))
         logger.info("Resized model embeddings to {}", len(tokenizer))

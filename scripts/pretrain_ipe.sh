@@ -9,11 +9,14 @@ conda activate /dlabscratch1/zxu/envs/ipe
 
 cd /dlabscratch1/zxu/IPE
 
-SUFFIX=${1:-"pretrain_ipe"}
+SUFFIX=${1:-"ipe_sfull"}
 DATASET_PATH=${2:-${DATASET_PATH:-/dlabscratch1/zxu/IPE/data/pretrain/tinystories_reflected}}
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
 OUTPUT_DIR=${OUTPUT_DIR:-/dlabscratch1/zxu/IPE/outputs}
+
+# Shuffle document selection before pretraining; -1 disables the extra shuffle.
+DATA_SELECTION_SEED=${DATA_SELECTION_SEED:--1}
 
 NON_TEMPLATE_LOSS_ONLY=${NON_TEMPLATE_LOSS_ONLY:-false}
 TRACK_HIDDEN_STATES=${TRACK_HIDDEN_STATES:-true}
@@ -39,10 +42,11 @@ exec torchrun --standalone --nproc_per_node=4 train.py \
   dataset=pretrain \
   "dataset.name=$DATASET_PATH" \
   experiment.num_train_samples=1000000 \
+  "experiment.data_selection_seed=$DATA_SELECTION_SEED" \
   experiment.use_reflection=true \
   experiment.trainer_type=ipe \
   experiment.ipe.kv_cache_dropout=0.0 \
-  experiment.ipe.train_separator=false \
+  experiment.ipe.train_separator=true \
   experiment.ipe.train_separator_embedding_only=false \
   "experiment.non_template_loss_only=$NON_TEMPLATE_LOSS_ONLY" \
   "experiment.hidden_state_tracking.enabled=$TRACK_HIDDEN_STATES" \

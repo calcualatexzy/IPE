@@ -9,16 +9,34 @@ set -euo pipefail
 PROJECT_ROOT=${PROJECT_ROOT:-/dlabscratch1/zxu/IPE}
 CONDA_SH=${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}
 CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
-SUFFIX=${1:-"sft_ultrachat_anchors"}
+SUFFIX=${1:-"sft_ultrachat"}
+# baseline
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_epe_rw0.0_pretrain_baseline_20260926_045155/checkpoints/checkpoint-10000"}}
+
 # EPE
 # INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_epe_pretrain_20260928_124329/checkpoints/checkpoint-10000"}}
+
+# EPE tinystories dataset from Viktor and with 20k max steps but using the 10k step.
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tiny_reflected_samples1000000_seq1024_seed42_epe_pretrain-tinyreflected_20260928_151920/checkpoints/checkpoint-10000"}}
 # EPE tinystories dataset from Viktor
-INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tiny_reflected_samples1000000_seq1024_seed42_epe_pretrain-tinyreflected_20260928_125316/checkpoints/checkpoint-10000"}}
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tiny_reflected_samples1000000_seq1024_seed42_epe_pretrain-tinyreflected_20260928_125316/checkpoints/checkpoint-10000"}}
+# EPE tinystories dataset from Viktor but shuffled with seed 42
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tiny_reflected_samples1000000_seq1024_seed42_epe_pretrain-tinyreflected_20260929_210506/checkpoints/checkpoint-10000"}}
+# EPE tinystories dataset from mine but shuffled with seed 42 and using the 10k step.
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_epe_pretrain-tinyreflected_20260930_071255/checkpoints/checkpoint-10000"}}
+
 # IPE
 # INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_ipe_pretrain_ipe_20260928_125232/checkpoints/checkpoint-10000"}}
+# IPE sfull
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_ipe_sepfull_ipe_sfull_20260929_091313/checkpoints/checkpoint-10000"}}
+
 # IEPE masked
 # INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_iepe_masked_pretrain_iepe_masked_20260928_100726/checkpoints/checkpoint-10000"}}
-USE_ANCHORS_RAW=${3:-${USE_ANCHORS:-true}}
+
+# SPO
+INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_samples1000000_seq1024_seed42_spo_pretrain_spo_20260929_152453/checkpoints/checkpoint-10000"}}
+
+USE_ANCHORS_RAW=${3:-${USE_ANCHORS:-false}}
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi

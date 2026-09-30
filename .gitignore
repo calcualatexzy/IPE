@@ -219,6 +219,7 @@ data/sft/built/sft_filled/state.json
 data/sft/built/sft_filled/dataset_info.json
 data/pretrain/simplestories_reflected/
 data/pretrain/tinystories_reflected/
+data/pretrain/tinystories_reflected_pairs/
 data/tiny_reflected/
 
 outputs/

@@ -187,7 +187,7 @@ class HiddenStateTracker:
             f"Model type: {type(model)}"
         )
     
-    def _make_hook(self, layer_idx: int):
+    def _make_hook(self, layer_idx: int, row_limit=None, sequence_limit=None):
         """Create a forward hook that captures the layer output."""
         def hook(module, input, output):
             # Output is typically (hidden_states, ...) for transformer layers
@@ -198,11 +198,11 @@ class HiddenStateTracker:
             
             # Detach and move to CPU immediately to avoid GPU OOM
             # This adds some data transfer overhead but prevents memory issues
-            self._captured_states[layer_idx] = hidden_states.detach().cpu()
+            self._captured_states[layer_idx] = hidden_states[:row_limit, :sequence_limit].detach().cpu()
         
         return hook
     
-    def register_hooks(self, model: nn.Module) -> List[torch.utils.hooks.RemovableHandle]:
+    def register_hooks(self, model: nn.Module, row_limit=None, sequence_limit=None) -> List[torch.utils.hooks.RemovableHandle]:
         """Register forward hooks on the specified layers.
         
         Args:
@@ -214,7 +214,7 @@ class HiddenStateTracker:
         handles = []
         for layer_idx in self.config.layers:
             layer_module = self._get_layer_module(model, layer_idx)
-            handle = layer_module.register_forward_hook(self._make_hook(layer_idx))
+            handle = layer_module.register_forward_hook(self._make_hook(layer_idx, row_limit, sequence_limit))
             handles.append(handle)
         return handles
     

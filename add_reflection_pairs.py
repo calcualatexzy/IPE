@@ -24,6 +24,7 @@ import json
 import lzma
 import multiprocessing
 from pathlib import Path
+import random
 import shutil
 from string import Formatter
 import tempfile
@@ -36,7 +37,9 @@ from add_reflections import PREFERENCES
 from templates import TEMPLATES, TEMPLATES_PRECONTEXT
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+SAMPLING_POLICY_VERSION = 1
+PAIRING_MODES = ("aligned", "random-template")
 BATCH_ROWS = 4096
 SHARD_ROWS = 50000
 TEMPLATE_BANKS = {"postcontext": TEMPLATES, "precontext": TEMPLATES_PRECONTEXT}
@@ -50,6 +53,7 @@ PAIR_SCHEMA = pa.schema([
     ("has_reflection_pair", pa.bool_()),
     ("reflection_pair_source_id", pa.string()),
     ("reflection_pair_template_id", pa.string()),
+    ("reflection_negative_template_id", pa.string()),
 ])
 
 
@@ -89,7 +93,13 @@ def render_slots(template: str, keyword: str, pref: str, opp: str):
 
 
 class PairBuilder:
-    def __init__(self, template_banks=None, preferences=None):
+    def __init__(self, template_banks=None, preferences=None, *, pairing_mode="aligned", seed=42):
+        if pairing_mode not in PAIRING_MODES:
+            raise PairConversionError(f"pairing_mode must be one of {PAIRING_MODES}")
+        if type(seed) is not int:
+            raise PairConversionError("seed must be an integer")
+        self.pairing_mode = pairing_mode
+        self.seed = seed
         self.banks = TEMPLATE_BANKS if template_banks is None else template_banks
         self.preferences = PREFERENCES if preferences is None else preferences
         self.preference_hash = _digest([asdict(p) for p in self.preferences])
@@ -117,11 +127,13 @@ class PairBuilder:
                     continue
                 _, positive_spans = render_slots(template, keyword, pref, opp)
                 negative, negative_spans = render_slots(template, keyword, opp, pref)
-                matches.append((negative, positive_spans, negative_spans, f"{bank}:{index}"))
+                matches.append((negative, positive_spans, negative_spans, bank, index))
         if not matches:
             raise PairConversionError("Nonempty reflection does not exactly match a known template")
         if any(match[:3] != matches[0][:3] for match in matches[1:]):
             raise PairConversionError("Ambiguous template reconstruction changes the negative or slot spans")
+        if self.pairing_mode == "random-template" and len({match[3] for match in matches}) > 1:
+            raise PairConversionError("Ambiguous template reconstruction matches multiple template banks")
         return matches[0]
 
     def build(self, record: dict, source_id: str) -> dict:
@@ -174,20 +186,34 @@ class PairBuilder:
                 raise PairConversionError("Invalid original preference character spans")
 
         negative, positive_spans, negative_spans, template_id = "", [], [], ""
+        negative_template_id = ""
         if not reflection:
             if keyword or pref or opp:
                 raise PairConversionError("Empty reflection has nonempty keyword/preference metadata")
         elif not pref and not opp:
+            if self.pairing_mode == "random-template":
+                raise PairConversionError("random-template pairing does not support --all-preferences records; use aligned mode")
             if reflection != self.all_positive:
                 raise PairConversionError("Reflection with empty preference values does not match --all-preferences")
             negative = self.all_negative
             positive_spans, negative_spans = self.all_positive_spans, self.all_negative_spans
             template_id = f"all_preferences:{self.preference_hash}"
+            negative_template_id = template_id
         else:
             if not keyword or not pref or not opp:
                 raise PairConversionError("Template reflection requires keyword and both preference values")
-            negative, positive_spans, negative_spans, template_id = self._reconstruct(
+            if pref == opp:
+                raise PairConversionError("Pair must have distinct preference values")
+            negative, positive_spans, negative_spans, bank, index = self._reconstruct(
                 reflection, keyword, pref, opp)
+            template_id = negative_template_id = f"{bank}:{index}"
+            if self.pairing_mode == "random-template":
+                # Selection is per source, outside the cached reconstruction.
+                # Include every bank entry, even the positive's own template.
+                local_seed = int(_digest([SAMPLING_POLICY_VERSION, self.seed, source_id]), 16)
+                negative_index = random.Random(local_seed).randrange(len(self.banks[bank]))
+                negative, negative_spans = render_slots(self.banks[bank][negative_index], keyword, opp, pref)
+                negative_template_id = f"{bank}:{negative_index}"
         if reflection and (negative == reflection or not positive_spans or not negative_spans):
             raise PairConversionError("Pair must have distinct reflections and nonempty preference slots")
         return {
@@ -199,6 +225,7 @@ class PairBuilder:
             "has_reflection_pair": bool(reflection),
             "reflection_pair_source_id": source_id,
             "reflection_pair_template_id": template_id,
+            "reflection_negative_template_id": negative_template_id,
         }
 
 
@@ -305,8 +332,8 @@ def _inspect_sources(root, paths, limit):
 
 
 def _convert_shard(task):
-    index, source, schema, staging = task
-    builder = PairBuilder()
+    index, source, schema, staging, pairing_mode, seed = task
+    builder = PairBuilder(pairing_mode=pairing_mode, seed=seed)
     row_index, pair_count, part_rows, part_index = 0, 0, 0, 0
     writer, output_files = None, []
     identity = _digest([source.relative_path, source.sha256])
@@ -355,8 +382,9 @@ def _check_destination(path: Path):
         raise PairConversionError(f"Output destination must be absent or an empty directory: {path}")
 
 
-def convert_dataset(input_dir, output_dir=None, workers=1, limit=None):
+def convert_dataset(input_dir, output_dir=None, workers=1, limit=None, *, pairing_mode="aligned", seed=42):
     """Convert sorted source shards; return the published manifest."""
+    builder = PairBuilder(pairing_mode=pairing_mode, seed=seed)
     if type(workers) is not int or workers < 1:
         raise PairConversionError("workers must be a positive integer")
     if limit is not None and (type(limit) is not int or limit < 1):
@@ -381,7 +409,7 @@ def convert_dataset(input_dir, output_dir=None, workers=1, limit=None):
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.tmp-", dir=destination.parent))
     try:
-        tasks = [(index, source, schema, str(staging)) for index, source in enumerate(sources)]
+        tasks = [(index, source, schema, str(staging), pairing_mode, seed) for index, source in enumerate(sources)]
         if workers == 1:
             results = [_convert_shard(task) for task in tasks]
         else:
@@ -392,12 +420,15 @@ def convert_dataset(input_dir, output_dir=None, workers=1, limit=None):
         source_manifest = [{"path": s.relative_path, "sha256": s.sha256, "selected_rows": s.rows} for s in sources]
         manifest = {
             "schema_version": SCHEMA_VERSION,
+            "pairing_mode": pairing_mode,
+            "seed": seed,
+            "sampling_policy_version": SAMPLING_POLICY_VERSION,
             "source_root": str(root),
             "source_identity": _digest(source_manifest),
             "sources": source_manifest,
             "template_banks_sha256": _digest(TEMPLATE_BANKS),
             "all_preferences_template": ALL_PREFERENCES_TEMPLATE,
-            "preference_table_sha256": PairBuilder().preference_hash,
+            "preference_table_sha256": builder.preference_hash,
             "preference_table": [asdict(p) for p in PREFERENCES],
             "limit": limit,
             "rows": sum(r["rows"] for r in results),
@@ -420,9 +451,13 @@ def main():
     parser.add_argument("--output", type=Path, help="Output directory (default: sibling <input>_pairs)")
     parser.add_argument("--workers", type=int, default=1, help="Worker processes across source shards (default: 1)")
     parser.add_argument("--limit", type=int, help="Maximum total source records, in sorted shard order")
+    parser.add_argument("--pairing-mode", choices=PAIRING_MODES, default="aligned",
+                        help="Negative template: aligned or uniformly sampled from the same bank, including the original (default: aligned)")
+    parser.add_argument("--seed", type=int, default=42, help="Per-record negative-template sampling seed (default: 42)")
     args = parser.parse_args()
     try:
-        manifest = convert_dataset(args.input, args.output, args.workers, args.limit)
+        manifest = convert_dataset(args.input, args.output, args.workers, args.limit,
+                                   pairing_mode=args.pairing_mode, seed=args.seed)
     except (PairConversionError, OSError, pa.ArrowException) as exc:
         parser.exit(1, f"error: {exc}\n")
     destination = args.output or args.input.resolve().with_name(args.input.resolve().name + "_pairs")

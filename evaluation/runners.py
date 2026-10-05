@@ -59,7 +59,56 @@ def run_generation_eval(
     details_handle,
     generation_cfg: Optional[DictConfig] = None,
 ) -> Dict[str, object]:
-    """Run generation-based evaluation with robust averaging.
+    """Generate responses, then judge and aggregate them (see ``judge_generation_eval``)."""
+    gen_cfg = generation_cfg if generation_cfg is not None else cfg.generation
+    responses_by_q = generate_level_responses(
+        questions, target_model, target_tokenizer, chat_template, device, gen_cfg
+    )
+    return judge_generation_eval(
+        questions, responses_by_q, judge_runtime, cfg, device, per_topic, details_handle, gen_cfg
+    )
+
+
+def generate_level_responses(
+    questions: List[Question],
+    target_model,
+    target_tokenizer,
+    chat_template: ChatTemplate,
+    device: str,
+    gen_cfg: DictConfig,
+) -> List[List[str]]:
+    """Sample ``gen_cfg.num_samples`` target-model responses per question."""
+    prompts = [
+        format_target_prompt(
+            gen_cfg.prompt_template,
+            q.question,
+            gen_cfg.answer_prefix,
+            chat_template,
+        )
+        for q in questions
+    ]
+    return generate_responses_batch(
+        target_model,
+        target_tokenizer,
+        prompts,
+        num_samples=int(gen_cfg.num_samples),
+        gen_cfg=gen_cfg,
+        device=device,
+        batch_size=int(gen_cfg.batch_size),
+    )
+
+
+def judge_generation_eval(
+    questions: List[Question],
+    responses_by_q: List[List[str]],
+    judge_runtime: JudgeRuntime,
+    cfg: DictConfig,
+    device: str,
+    per_topic: bool,
+    details_handle,
+    gen_cfg: DictConfig,
+) -> Dict[str, object]:
+    """Judge generated responses and aggregate them with robust averaging.
 
     Features:
     - flip_labels: If True, swap preference/opposite labels
@@ -70,7 +119,6 @@ def run_generation_eval(
     - pref_rate_decided: averaged pref / (pref + opp) per question (excludes refusals)
     - pref_rate_with_half: averaged (pref + 0.5*unknown) / total per question
     """
-    gen_cfg = generation_cfg if generation_cfg is not None else cfg.generation
     flip_labels = bool(gen_cfg.get("flip_labels", False))
     refusal_as_half = bool(gen_cfg.get("refusal_as_half", False)) and flip_labels
 
@@ -86,25 +134,6 @@ def run_generation_eval(
     # Per-topic tracking
     topic_response_counts: Dict[str, Dict[str, int]] = {}
     topic_question_rates: Dict[str, Dict[str, List[float]]] = {}
-
-    prompts = [
-        format_target_prompt(
-            gen_cfg.prompt_template,
-            q.question,
-            gen_cfg.answer_prefix,
-            chat_template,
-        )
-        for q in questions
-    ]
-    responses_by_q = generate_responses_batch(
-        target_model,
-        target_tokenizer,
-        prompts,
-        num_samples=int(gen_cfg.num_samples),
-        gen_cfg=gen_cfg,
-        device=device,
-        batch_size=int(gen_cfg.batch_size),
-    )
 
     judge_prompts: List[str] = []
     judge_messages: List[List[Dict[str, str]]] = []

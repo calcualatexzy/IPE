@@ -1,7 +1,9 @@
 """Judge runtime: initialisation, prompt building, label parsing, and inference."""
 
+import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -61,6 +63,14 @@ def _resolve_api_key(explicit_key: object, env_var_name: object, default_env: st
     if key:
         return key, env_name
     return os.environ.get(env_name, "").strip(), env_name
+
+
+def _api_client_retry_kwargs(judge_cfg: DictConfig) -> Dict[str, Any]:
+    # Concurrent requests hit rate limits; the OpenAI client backs off on 429/5xx.
+    return {
+        "max_retries": int(judge_cfg.get("api_max_retries", 6)),
+        "timeout": float(judge_cfg.get("api_timeout", 60.0)),
+    }
 
 
 def _resolve_judge_model_name(cfg: DictConfig, target_model_name: str) -> str:
@@ -141,7 +151,7 @@ def init_judge_runtime(
                 f"Missing API key for judge.backend=api. Set judge.api_key or export {env_name}."
             )
         api_base_url = optional_cfg_str(cfg.judge.get("api_base_url", "https://api.swissai.cscs.ch/v1"))
-        client_kwargs: Dict[str, Any] = {"api_key": api_key}
+        client_kwargs: Dict[str, Any] = {"api_key": api_key, **_api_client_retry_kwargs(cfg.judge)}
         if api_base_url:
             client_kwargs["base_url"] = api_base_url
         return JudgeRuntime(
@@ -165,7 +175,7 @@ def init_judge_runtime(
             )
         openai_model = optional_cfg_str(cfg.judge.get("openai_model", "gpt-4o-mini")) or "gpt-4o-mini"
         openai_base_url = optional_cfg_str(cfg.judge.get("openai_base_url", ""))
-        client_kwargs = {"api_key": api_key}
+        client_kwargs = {"api_key": api_key, **_api_client_retry_kwargs(cfg.judge)}
         if openai_base_url:
             client_kwargs["base_url"] = openai_base_url
         return JudgeRuntime(
@@ -489,16 +499,31 @@ def judge_responses(
         model_name = judge_runtime.api_model or judge_runtime.model_name
         if client is None or not model_name:
             raise ValueError(f"Judge runtime for {backend} backend is not initialized")
-        for messages in messages_list:
-            token_limit = int(judge_cfg.max_new_tokens)
+        token_limit = int(judge_cfg.max_new_tokens)
+
+        def _judge_one(messages: List[Dict[str, str]]) -> str:
             request_kwargs = _build_api_request_kwargs(backend, model_name, messages, judge_cfg)
             try:
-                text = _request_judge_chat_completion(client, request_kwargs, model_name, token_limit)
+                return _request_judge_chat_completion(client, request_kwargs, model_name, token_limit)
             except Exception as exc:
                 logger.warning("Judge API call failed: {}", exc)
-                text = "Unknown"
-            raw_outputs.append(text)
-            labels.append(parse_judge_label(text))
+                return "Unknown"
+
+        # Greedy judging is deterministic, so identical samples share one request.
+        if float(judge_cfg.temperature) == 0.0:
+            keys = [json.dumps(m, sort_keys=True) for m in messages_list]
+        else:
+            keys = list(range(len(messages_list)))
+        unique = dict(zip(keys, messages_list))
+        concurrency = max(1, int(judge_cfg.get("api_concurrency", 32)))
+        logger.info(
+            "Judge API: {} requests ({} unique), concurrency {}",
+            len(messages_list), len(unique), concurrency,
+        )
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            text_by_key = dict(zip(unique, pool.map(_judge_one, unique.values())))
+        raw_outputs = [text_by_key[k] for k in keys]
+        labels = [parse_judge_label(text) for text in raw_outputs]
         return (labels, raw_outputs) if return_texts else labels
 
     raise ValueError(f"Unsupported judge backend: {backend}")

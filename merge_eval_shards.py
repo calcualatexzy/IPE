@@ -4,6 +4,7 @@
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import statistics
@@ -192,21 +193,24 @@ def _merge_probabilistic(level_summaries: List[Dict]) -> Dict:
 
 
 def merge_summaries(summaries: List[Dict]) -> Dict:
+    return merge_levels([summary.get("levels", {}) for summary in summaries])
+
+
+def merge_levels(shard_levels: List[Dict]) -> Dict:
+    """Merge one ``levels`` dict per shard into a single ``levels`` dict."""
     levels: Dict[str, Dict] = {}
     level_names = set()
-    for summary in summaries:
-        level_names.update(summary.get("levels", {}).keys())
+    for shard in shard_levels:
+        level_names.update(shard.keys())
 
     for level_name in sorted(level_names):
-        level_summaries = [
-            summary["levels"][level_name]
-            for summary in summaries
-            if level_name in summary.get("levels", {})
-        ]
+        level_summaries = [shard[level_name] for shard in shard_levels if level_name in shard]
         level_output: Dict[str, object] = {
             "num_questions": sum(int(l.get("num_questions", 0)) for l in level_summaries),
             "details_path": None,
         }
+        if any(ls.get("prompt_independent") for ls in level_summaries):
+            level_output["prompt_independent"] = True
 
         if any("generation" in ls for ls in level_summaries):
             level_output["generation"] = _merge_generation(level_summaries)
@@ -217,6 +221,93 @@ def merge_summaries(summaries: List[Dict]) -> Dict:
         levels[level_name] = level_output
 
     return levels
+
+
+def merge_prompts(summaries: List[Dict]) -> Dict:
+    """Merge each prompt variant's ``levels`` across shards (prompt order from shard 0)."""
+    merged: Dict[str, Dict] = {}
+    for name, prompt in summaries[0].get("prompts", {}).items():
+        merged[name] = {
+            "index": prompt.get("index"),
+            "template": prompt.get("template"),
+            "levels": merge_levels(
+                [s.get("prompts", {}).get(name, {}).get("levels", {}) for s in summaries]
+            ),
+        }
+    return merged
+
+
+# -- cross-prompt summary ------------------------------------------------------
+
+PROMPT_METRICS = [
+    "generation_pref_rate",      # preference / (preference + opposite)
+    "generation_unknown_rate",   # unknown / all responses
+    "probabilistic_pref_rate",   # preference / (preference + opposite)
+    "probabilistic_mean_margin",
+]
+
+
+def _wilson_interval(successes: int, trials: int, z: float = 1.96) -> List[float]:
+    p = successes / trials
+    denom = 1 + z * z / trials
+    center = (p + z * z / (2 * trials)) / denom
+    half = z * math.sqrt(p * (1 - p) / trials + z * z / (4 * trials * trials)) / denom
+    return [center - half, center + half]
+
+
+def _rate_point(successes: int, trials: int) -> Optional[Dict]:
+    if trials <= 0:
+        return None
+    return {"value": successes / trials, "ci95": _wilson_interval(successes, trials)}
+
+
+def _metric_point(level: Dict, metric: str) -> Optional[Dict]:
+    gen_counts = (level.get("generation") or {}).get("response_counts") or {}
+    prob = level.get("probabilistic") or {}
+    prob_counts = prob.get("counts") or {}
+    if metric == "generation_pref_rate" and gen_counts:
+        pref = int(gen_counts.get("preference", 0))
+        return _rate_point(pref, pref + int(gen_counts.get("opposite", 0)))
+    if metric == "generation_unknown_rate" and gen_counts:
+        return _rate_point(int(gen_counts.get("unknown", 0)), sum(int(v) for v in gen_counts.values()))
+    if metric == "probabilistic_pref_rate" and prob_counts:
+        pref = int(prob_counts.get("preference", 0))
+        return _rate_point(pref, pref + int(prob_counts.get("opposite", 0)))
+    if metric == "probabilistic_mean_margin" and prob_counts and prob.get("mean_margin") is not None:
+        return {"value": float(prob["mean_margin"]), "ci95": None}
+    return None
+
+
+def summarize_prompts(prompts: Dict[str, Dict]) -> Dict:
+    """Per level and metric: each prompt's value (with 95% Wilson CI for rates),
+    plus mean / sample variance / std / min / max across prompts."""
+    names = list(prompts)
+    level_names = sorted({lvl for p in prompts.values() for lvl in p.get("levels", {})})
+    result: Dict[str, object] = {"prompts": names, "prompt_independent_levels": [], "levels": {}}
+    for level_name in level_names:
+        per_prompt = {n: prompts[n]["levels"][level_name] for n in names if level_name in prompts[n]["levels"]}
+        if any(lvl.get("prompt_independent") for lvl in per_prompt.values()):
+            result["prompt_independent_levels"].append(level_name)
+            continue
+        metrics: Dict[str, Dict] = {}
+        for metric in PROMPT_METRICS:
+            points = {n: _metric_point(lvl, metric) for n, lvl in per_prompt.items()}
+            points = {n: p for n, p in points.items() if p is not None}
+            if not points:
+                continue
+            values = [p["value"] for p in points.values()]
+            metrics[metric] = {
+                "values": {n: p["value"] for n, p in points.items()},
+                "ci95": {n: p["ci95"] for n, p in points.items()},
+                "n": len(values),
+                "mean": statistics.mean(values),
+                "variance": statistics.variance(values) if len(values) > 1 else None,
+                "std": statistics.stdev(values) if len(values) > 1 else None,
+                "min": min(values),
+                "max": max(values),
+            }
+        result["levels"][level_name] = metrics
+    return result
 
 
 def _extract_shard_index(path: str) -> int:
@@ -268,8 +359,16 @@ def main() -> None:
         "run_label": merged_label or run_id,
         "merged_from": summary_paths,
         "config": summaries[0].get("config", {}),
-        "levels": merge_summaries(summaries),
     }
+    if summaries[0].get("prompts"):
+        prompts = merge_prompts(summaries)
+        merged["prompt_variant"] = summaries[0].get("prompt_variant")
+        # ``levels`` mirrors the first selected prompt, as in the shard summaries.
+        merged["levels"] = next(iter(prompts.values()))["levels"]
+        merged["prompts"] = prompts
+        merged["prompt_summary"] = summarize_prompts(prompts)
+    else:
+        merged["levels"] = merge_summaries(summaries)
 
     merged_dir = os.path.join(merged_root, f"eval_{run_id}")
     os.makedirs(merged_dir, exist_ok=True)

@@ -10,6 +10,7 @@ Usage:
 import argparse
 import json
 import os
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -765,81 +766,187 @@ def create_matplotlib_charts(summary: dict, output_dir: str):
     plt.close()
 
 
-def generate_html_report(summary: dict, output_dir: str):
-    """Generate an HTML report."""
-    levels = summary.get('levels', {})
-    config = summary.get('config', {})
-    run_id = summary.get('run_id', 'N/A')
-    run_label = summary.get('run_label', run_id)
-    title_run = run_label if run_label == run_id else f"{run_label} (id: {run_id})"
+PROMPT_METRIC_LABELS = {
+    'generation_pref_rate': 'Generation: preference rate (decided)',
+    'generation_unknown_rate': 'Generation: unknown / refusal rate',
+    'probabilistic_pref_rate': 'Probabilistic: preference rate',
+    'probabilistic_mean_margin': 'Probabilistic: mean margin',
+}
 
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Eval Summary - {run_id}</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }}
-        h1 {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
-        h2 {{ color: #34495e; margin-top: 30px; }}
-        h3 {{ color: #7f8c8d; }}
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-            background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }}
-        th, td {{
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ecf0f1;
-        }}
-        th {{ background: #3498db; color: white; }}
-        tr:hover {{ background: #f8f9fa; }}
-        .good {{ color: #27ae60; font-weight: bold; }}
-        .bad {{ color: #e74c3c; font-weight: bold; }}
-        .neutral {{ color: #f39c12; font-weight: bold; }}
-        .config-box {{
-            background: white;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }}
-        .progress-bar {{
-            background: #ecf0f1;
-            border-radius: 10px;
-            overflow: hidden;
-            height: 20px;
-        }}
-        .progress-fill {{
-            height: 100%;
-            transition: width 0.3s;
-        }}
-        .pref {{ background: #27ae60; }}
-        .opp {{ background: #e74c3c; }}
-    </style>
-</head>
-<body>
-    <h1>📊 Evaluation Summary - {title_run}</h1>
-    
-    <div class="config-box">
-        <h3>Configuration</h3>
-        <p><strong>Run Label:</strong> <code>{run_label}</code></p>
-        <p><strong>Run ID:</strong> <code>{run_id}</code></p>
-        <p><strong>Target Model:</strong> <code>{config.get('model', {}).get('target', 'N/A')}</code></p>
-        <p><strong>Judge Model:</strong> <code>{config.get('model', {}).get('judge', 'N/A')}</code></p>
-        <p><strong>Topics:</strong> {', '.join(config.get('data', {}).get('topic_ids', []))}</p>
-    </div>
-    
-    <h2>Overall Results</h2>
+
+def _is_rate_metric(metric: str) -> bool:
+    return metric.endswith('_rate')
+
+
+def _multi_prompt(summary: dict) -> bool:
+    return len(summary.get('prompts') or {}) > 1 and bool(summary.get('prompt_summary'))
+
+
+def _fmt_metric(metric: str, value) -> str:
+    if value is None:
+        return 'n/a'
+    return format_percent(value) if _is_rate_metric(metric) else format_margin(value)
+
+
+def _fmt_spread(metric: str, std, variance) -> tuple:
+    """Std and variance strings; rates in percentage points (pp, pp^2)."""
+    if std is None or variance is None:
+        return 'n/a', 'n/a'
+    if _is_rate_metric(metric):
+        return f"{std * 100:.2f} pp", f"{variance * 1e4:.2f} pp²"
+    return f"{std:.4f}", f"{variance:.2e}"
+
+
+def print_prompt_summary(summary: dict):
+    """Print per-prompt values and their mean / std / variance for every level."""
+    ps = summary['prompt_summary']
+    names = ps.get('prompts', [])
+    print_header("ACROSS PROMPTS")
+    for idx, name in enumerate(names):
+        template = summary['prompts'][name].get('template', '')
+        print(f"    [{summary['prompts'][name].get('index', idx)}] {name}: {template!r}")
+    for metric, label in PROMPT_METRIC_LABELS.items():
+        rows = []
+        for level_name, metrics in ps.get('levels', {}).items():
+            m = metrics.get(metric)
+            if not m:
+                continue
+            std, var = _fmt_spread(metric, m.get('std'), m.get('variance'))
+            rows.append([level_name] + [_fmt_metric(metric, m['values'].get(n)) for n in names]
+                        + [_fmt_metric(metric, m.get('mean')), std, var])
+        if rows:
+            print_subheader(label)
+            print_table(["Level"] + names + ["Mean", "Std", "Var"], rows, "simple")
+    independent = ps.get('prompt_independent_levels', [])
+    if independent:
+        print(f"\n    Prompt-independent (evaluated once, not in the table): {', '.join(independent)}")
+
+
+def create_prompt_robustness_chart(summary: dict, output_dir: str):
+    """One panel per metric: each prompt's value per level (95% CI), plus mean ± std."""
+    if not HAS_MATPLOTLIB:
+        return
+    ps = summary['prompt_summary']
+    names = ps.get('prompts', [])
+    level_names = list(ps.get('levels', {}).keys())
+    metrics = [m for m in PROMPT_METRIC_LABELS
+               if any(m in ps['levels'][l] for l in level_names)]
+    if not metrics or not level_names:
+        return
+
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5.5 * len(metrics), 4.8), squeeze=False)
+    cmap = plt.get_cmap('tab10')
+    offsets = [(i - (len(names) - 1) / 2) * 0.1 for i in range(len(names))]
+    for ax, metric in zip(axes[0], metrics):
+        for li, level_name in enumerate(level_names):
+            m = ps['levels'][level_name].get(metric)
+            if not m:
+                continue
+            for ni, name in enumerate(names):
+                value = m['values'].get(name)
+                if value is None:
+                    continue
+                ci = (m.get('ci95') or {}).get(name)
+                # Wilson bounds can sit a rounding error inside the value at 0 or 1.
+                yerr = [[max(0.0, value - ci[0])], [max(0.0, ci[1] - value)]] if ci else None
+                ax.errorbar(li + offsets[ni], value, yerr=yerr, fmt='o', color=cmap(ni % 10),
+                            markersize=5, capsize=2, label=name if li == 0 else None)
+            if m.get('std') is not None:
+                ax.errorbar(li + 0.35, m['mean'], yerr=m['std'], fmt='D', color='black',
+                            markersize=6, capsize=4, label='mean ± std' if li == 0 else None)
+        ax.set_xticks(range(len(level_names)))
+        ax.set_xticklabels(level_names)
+        ax.set_title(PROMPT_METRIC_LABELS[metric], fontsize=10)
+        if _is_rate_metric(metric):
+            ax.set_ylim(0, 1)
+            ax.axhline(0.5, color='gray', linewidth=0.6, linestyle='--')
+        else:
+            ax.axhline(0, color='gray', linewidth=0.6, linestyle='--')
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', ncol=len(labels), frameon=False)
+    run_label = summary.get('run_label') or summary.get('run_id', 'N/A')
+    fig.suptitle(f"Prompt robustness - {run_label}", fontsize=12, fontweight='bold')
+    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
+    chart_path = os.path.join(output_dir, 'eval_prompt_robustness.png')
+    fig.savefig(chart_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"    📊 Prompt robustness chart saved to: {chart_path}")
+
+
+def _html_prompt_summary(summary: dict, output_dir: str) -> str:
+    """Prompt list, cross-prompt tables (values, mean, std, variance) and chart."""
+    ps = summary['prompt_summary']
+    names = ps.get('prompts', [])
+    html = """    <h2>Across Prompts</h2>
+    <table>
+        <tr><th>#</th><th>Prompt</th><th>Template</th></tr>
+"""
+    for name in names:
+        prompt = summary['prompts'][name]
+        html += (f"        <tr><td>{prompt.get('index', '')}</td><td><strong>{escape(name)}</strong></td>"
+                 f"<td><pre class=\"prompt\">{escape(prompt.get('template', ''))}</pre></td></tr>\n")
+    html += "    </table>\n"
+
+    if os.path.exists(os.path.join(output_dir, 'eval_prompt_robustness.png')):
+        html += '    <img class="chart" src="eval_prompt_robustness.png" alt="Prompt robustness chart">\n'
+
+    for metric, label in PROMPT_METRIC_LABELS.items():
+        rows = []
+        for level_name, metrics in ps.get('levels', {}).items():
+            m = metrics.get(metric)
+            if not m:
+                continue
+            cells = []
+            for name in names:
+                value = m['values'].get(name)
+                ci = (m.get('ci95') or {}).get(name)
+                ci_text = (f'<br><span class="ci">[{ci[0] * 100:.1f}, {ci[1] * 100:.1f}]</span>'
+                           if ci else '')
+                cells.append(f"<td>{_fmt_metric(metric, value)}{ci_text}</td>")
+            std, var = _fmt_spread(metric, m.get('std'), m.get('variance'))
+            rows.append(f"        <tr><td><strong>{level_name}</strong></td>{''.join(cells)}"
+                        f"<td><strong>{_fmt_metric(metric, m.get('mean'))}</strong></td>"
+                        f"<td>{std}</td><td>{var}</td></tr>\n")
+        if not rows:
+            continue
+        header = ''.join(f"<th>{escape(n)}</th>" for n in names)
+        html += (f"    <h3>{label}</h3>\n    <table>\n"
+                 f"        <tr><th>Level</th>{header}<th>Mean</th><th>Std</th><th>Variance</th></tr>\n"
+                 + ''.join(rows) + "    </table>\n")
+
+    html += ('    <p class="note">Rates are pooled over all questions and samples of a prompt; '
+             'brackets give the 95% Wilson interval. Std and variance are across prompts '
+             '(sample variance, n−1); for rates in percentage points.</p>\n')
+    independent = ps.get('prompt_independent_levels', [])
+    if independent:
+        html += (f'    <p class="note">Prompt-independent levels ({", ".join(independent)}) are '
+                 'evaluated once with their own level prompt; they appear in each prompt section '
+                 'below but not in these tables.</p>\n')
+    return html
+
+
+def _html_body(summary: dict, output_dir: str) -> str:
+    """Result tables: one section per prompt variant, plus the cross-prompt summary."""
+    prompts = summary.get('prompts') or {}
+    if not _multi_prompt(summary):
+        html = ''
+        for name, prompt in prompts.items():
+            html += (f"    <p><strong>Prompt:</strong> <code>{escape(name)}</code></p>\n"
+                     f"    <pre class=\"prompt\">{escape(prompt.get('template', ''))}</pre>\n")
+        return html + _html_results(summary.get('levels', {}))
+    html = _html_prompt_summary(summary, output_dir)
+    html += "    <h2>Results per Prompt</h2>\n"
+    for i, (name, prompt) in enumerate(prompts.items()):
+        html += (f"    <details{' open' if i == 0 else ''}>\n"
+                 f"    <summary>Prompt {prompt.get('index', i)}: {escape(name)}</summary>\n"
+                 f"    <pre class=\"prompt\">{escape(prompt.get('template', ''))}</pre>\n"
+                 + _html_results(prompt.get('levels', {})) + "    </details>\n")
+    return html
+
+
+def _html_results(levels: dict) -> str:
+    """Overall and per-topic result tables for one ``levels`` dict."""
+    html = """    <h2>Overall Results</h2>
     
     <h3>Generation (Judge-based)</h3>
     <table>
@@ -963,6 +1070,92 @@ def generate_html_report(summary: dict, output_dir: str):
         html += """    </table>
 """
     
+    return html
+
+
+def generate_html_report(summary: dict, output_dir: str):
+    """Generate an HTML report."""
+    levels = summary.get('levels', {})
+    config = summary.get('config', {})
+    run_id = summary.get('run_id', 'N/A')
+    run_label = summary.get('run_label', run_id)
+    title_run = run_label if run_label == run_id else f"{run_label} (id: {run_id})"
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Eval Summary - {run_id}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }}
+        h1 {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
+        h2 {{ color: #34495e; margin-top: 30px; }}
+        h3 {{ color: #7f8c8d; }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }}
+        th {{ background: #3498db; color: white; }}
+        tr:hover {{ background: #f8f9fa; }}
+        .good {{ color: #27ae60; font-weight: bold; }}
+        .bad {{ color: #e74c3c; font-weight: bold; }}
+        .neutral {{ color: #f39c12; font-weight: bold; }}
+        .config-box {{
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        .progress-bar {{
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+        }}
+        .progress-fill {{
+            height: 100%;
+            transition: width 0.3s;
+        }}
+        .pref {{ background: #27ae60; }}
+        details {{ background: white; padding: 10px 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+        summary {{ cursor: pointer; font-weight: bold; color: #34495e; padding: 5px 0; }}
+        pre.prompt {{ white-space: pre-wrap; background: #f8f9fa; padding: 8px; margin: 0; font-size: 12px; }}
+        .ci {{ color: #7f8c8d; font-size: 11px; }}
+        .note {{ color: #7f8c8d; font-size: 13px; }}
+        img.chart {{ max-width: 100%; background: white; margin-bottom: 20px; }}
+        .opp {{ background: #e74c3c; }}
+    </style>
+</head>
+<body>
+    <h1>📊 Evaluation Summary - {title_run}</h1>
+    
+    <div class="config-box">
+        <h3>Configuration</h3>
+        <p><strong>Run Label:</strong> <code>{run_label}</code></p>
+        <p><strong>Run ID:</strong> <code>{run_id}</code></p>
+        <p><strong>Target Model:</strong> <code>{config.get('model', {}).get('target', 'N/A')}</code></p>
+        <p><strong>Judge Model:</strong> <code>{config.get('model', {}).get('judge', 'N/A')}</code></p>
+        <p><strong>Topics:</strong> {', '.join(config.get('data', {}).get('topic_ids', []))}</p>
+    </div>
+    
+"""
+    html += _html_body(summary, output_dir)
+    
     html += f"""
     <hr>
     <p style="color: #7f8c8d; font-size: 12px;">Generated from {summary.get('merged_from', ['N/A'])}</p>
@@ -1008,11 +1201,15 @@ def main():
         print_overall_summary(levels)
         print_visual_bars(levels)
         print_per_topic_breakdown(levels)
+        if _multi_prompt(summary):
+            print_prompt_summary(summary)
     
     # Generate charts
     if not args.no_charts:
         print_header("GENERATING OUTPUTS")
         create_matplotlib_charts(summary, output_dir)
+        if _multi_prompt(summary):
+            create_prompt_robustness_chart(summary, output_dir)
     
     # Generate HTML report
     if not args.no_html:

@@ -5,11 +5,13 @@ Hydra entry-point only -- it wires config, loads models, iterates over
 levels, and writes the summary JSON.
 """
 
+import io
 import json
 import os
 import random
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict
+from typing import Callable, Dict, Optional
 
 import hydra
 import torch
@@ -19,17 +21,120 @@ from omegaconf import DictConfig, OmegaConf
 
 from evaluation.config import (
     abs_path,
+    level_uses_prompt_variant,
     normalize_level_set,
     resolve_device,
     resolve_dtype,
     resolve_generation_cfg,
     resolve_output_subdir,
+    resolve_prompt_variants,
     slugify,
+    with_prompt_template,
 )
 from evaluation.data import load_questions
 from evaluation.judge import init_judge_runtime
 from evaluation.models import build_chat_template, load_model_and_tokenizer
-from evaluation.runners import run_generation_eval, run_probabilistic_eval
+from evaluation.runners import (
+    generate_level_responses,
+    judge_generation_eval,
+    run_probabilistic_eval,
+)
+
+
+def _evaluate_level_prompt(
+    questions,
+    level_name: str,
+    prompt_name: Optional[str],
+    model,
+    tokenizer,
+    judge_runtime,
+    cfg: DictConfig,
+    chat_template,
+    device: str,
+    prob_excluded_levels: set,
+    details_path: Optional[str],
+) -> Callable[[], Dict[str, object]]:
+    """Run the GPU work for one (level, prompt) now; return a callable that judges.
+
+    The returned callable does the judge calls, writes the details file
+    (generation records first, then probabilistic ones), and returns the level summary.
+    """
+    tag = f"{level_name}/{prompt_name}" if prompt_name else level_name
+    per_topic = bool(cfg.output.report_per_topic)
+    level_summary: Dict[str, object] = {
+        "num_questions": len(questions),
+        "details_path": details_path,
+    }
+    if prompt_name is None:
+        level_summary["prompt_independent"] = True
+
+    gen_cfg = None
+    responses_by_q = None
+    if bool(cfg.generation.enabled):
+        gen_cfg = resolve_generation_cfg(cfg.generation, level_name)
+        responses_by_q = generate_level_responses(
+            questions, model, tokenizer, chat_template, device, gen_cfg
+        )
+        logger.info("Level {}: generated responses", tag)
+
+    prob_result = None
+    prob_details = io.StringIO() if details_path else None
+    if bool(cfg.probabilistic.enabled):
+        if level_name.lower() in prob_excluded_levels:
+            prob_result = {"status": "skipped", "reason": "excluded_level"}
+            logger.info("Level {} probabilistic: skipped (excluded)", tag)
+        else:
+            prob_result = run_probabilistic_eval(
+                questions,
+                model,
+                tokenizer,
+                cfg,
+                chat_template,
+                device,
+                per_topic=per_topic,
+                details_handle=prob_details,
+            )
+            logger.info(
+                "Level {} probabilistic: preference={} opposite={} tie={} mean_margin={:.4f}",
+                tag,
+                prob_result["counts"]["preference"],
+                prob_result["counts"]["opposite"],
+                prob_result["counts"]["tie"],
+                prob_result["mean_margin"],
+            )
+
+    def finish() -> Dict[str, object]:
+        details_handle = open(details_path, "w", encoding="utf-8") if details_path else None
+        try:
+            if responses_by_q is not None:
+                gen_result = judge_generation_eval(
+                    questions,
+                    responses_by_q,
+                    judge_runtime,
+                    cfg,
+                    device,
+                    per_topic=per_topic,
+                    details_handle=details_handle,
+                    gen_cfg=gen_cfg,
+                )
+                level_summary["generation"] = gen_result
+                logger.info(
+                    "Level {} generation: preference={} opposite={} unknown={}",
+                    tag,
+                    gen_result["response_counts"]["preference"],
+                    gen_result["response_counts"]["opposite"],
+                    gen_result["response_counts"]["unknown"],
+                )
+            if prob_result is not None:
+                level_summary["probabilistic"] = prob_result
+            if details_handle is not None and prob_details is not None:
+                details_handle.write(prob_details.getvalue())
+        finally:
+            if details_handle is not None:
+                details_handle.close()
+        return level_summary
+
+    return finish
 
 
 @hydra.main(config_path="conf", config_name="eval")
@@ -46,6 +151,9 @@ def main(cfg: DictConfig) -> None:
         raise ValueError("data.num_shards must be >= 1")
     if shard_index < 0 or shard_index >= num_shards:
         raise ValueError("data.shard_index must be in [0, num_shards)")
+
+    prompt_variants = resolve_prompt_variants(cfg)
+    logger.info("Prompt variants: {}", ", ".join(v.name for v in prompt_variants))
 
     # ── output dirs ──────────────────────────────────────────────────────
     output_root = abs_path(str(cfg.output.dir), base_dir)
@@ -96,15 +204,18 @@ def main(cfg: DictConfig) -> None:
         judge_runtime.model_name,
     )
 
-    # ── per-level evaluation loop ────────────────────────────────────────
-    summary = {
-        "run_id": run_id,
-        "run_label": run_label or run_id_base,
-        "config": OmegaConf.to_container(cfg, resolve=True),
-        "levels": {},
-    }
-
+    # ── per-level x per-prompt evaluation loop ───────────────────────────
     prob_excluded_levels = normalize_level_set(cfg.probabilistic.get("exclude_levels", None))
+
+    # API judging only waits on the network, so it runs in the background while
+    # the GPU generates the next (level, prompt). One job at a time keeps the
+    # number of in-flight requests at judge.api_concurrency.
+    judge_executor = (
+        ThreadPoolExecutor(max_workers=1)
+        if judge_runtime.backend in ("api", "openai_gpt_mini")
+        else None
+    )
+    pending = []  # (level_name, [prompt names], finished level summary or Future)
 
     for level_cfg in cfg.data.levels:
         if not bool(level_cfg.get("enabled", True)):
@@ -126,75 +237,55 @@ def main(cfg: DictConfig) -> None:
             questions = questions[shard_index::num_shards]
             logger.info("Level {}: {} questions after sharding", level_name, len(questions))
 
-        details_handle = None
-        if bool(cfg.output.save_details):
-            details_path = os.path.join(run_dir, f"{level_name}_details.jsonl")
-            details_handle = open(details_path, "w", encoding="utf-8")
-        else:
-            details_path = None
+        uses_prompt = level_uses_prompt_variant(cfg, level_name)
+        level_variants = prompt_variants if uses_prompt else prompt_variants[:1]
+        if not uses_prompt:
+            logger.info("Level {}: prompt-independent, evaluated once", level_name)
 
-        level_summary: Dict[str, object] = {
-            "num_questions": len(questions),
-            "details_path": details_path,
-        }
-
-        # ── generation eval ──────────────────────────────────────────────
-        if bool(cfg.generation.enabled):
-            gen_cfg = resolve_generation_cfg(cfg.generation, level_name)
-            gen_result = run_generation_eval(
+        for variant in level_variants:
+            run_cfg = with_prompt_template(cfg, variant.template)
+            details_name = (
+                f"{level_name}_{variant.name}_details.jsonl"
+                if uses_prompt
+                else f"{level_name}_details.jsonl"
+            )
+            finish = _evaluate_level_prompt(
                 questions,
+                level_name,
+                variant.name if uses_prompt else None,
                 model,
                 tokenizer,
                 judge_runtime,
-                cfg,
+                run_cfg,
                 chat_template,
                 device,
-                per_topic=bool(cfg.output.report_per_topic),
-                details_handle=details_handle,
-                generation_cfg=gen_cfg,
+                prob_excluded_levels,
+                os.path.join(run_dir, details_name) if bool(cfg.output.save_details) else None,
             )
-            level_summary["generation"] = gen_result
-            logger.info(
-                "Level {} generation: preference={} opposite={} unknown={}",
-                level_name,
-                gen_result["response_counts"]["preference"],
-                gen_result["response_counts"]["opposite"],
-                gen_result["response_counts"]["unknown"],
-            )
+            result = judge_executor.submit(finish) if judge_executor else finish()
+            names = [variant.name] if uses_prompt else [v.name for v in prompt_variants]
+            pending.append((level_name, names, result))
 
-        # ── probabilistic eval ───────────────────────────────────────────
-        if bool(cfg.probabilistic.enabled):
-            if level_name.lower() in prob_excluded_levels:
-                level_summary["probabilistic"] = {
-                    "status": "skipped",
-                    "reason": "excluded_level",
-                }
-                logger.info("Level {} probabilistic: skipped (excluded)", level_name)
-            else:
-                prob_result = run_probabilistic_eval(
-                    questions,
-                    model,
-                    tokenizer,
-                    cfg,
-                    chat_template,
-                    device,
-                    per_topic=bool(cfg.output.report_per_topic),
-                    details_handle=details_handle,
-                )
-                level_summary["probabilistic"] = prob_result
-                logger.info(
-                    "Level {} probabilistic: preference={} opposite={} tie={} mean_margin={:.4f}",
-                    level_name,
-                    prob_result["counts"]["preference"],
-                    prob_result["counts"]["opposite"],
-                    prob_result["counts"]["tie"],
-                    prob_result["mean_margin"],
-                )
+    prompts_summary: Dict[str, Dict[str, object]] = {
+        v.name: {"index": v.index, "template": v.template, "levels": {}}
+        for v in prompt_variants
+    }
+    for level_name, names, result in pending:
+        level_summary = result.result() if judge_executor else result
+        for name in names:
+            prompts_summary[name]["levels"][level_name] = level_summary
+    if judge_executor is not None:
+        judge_executor.shutdown()
 
-        if details_handle is not None:
-            details_handle.close()
-
-        summary["levels"][level_name] = level_summary
+    summary = {
+        "run_id": run_id,
+        "run_label": run_label or run_id_base,
+        "config": OmegaConf.to_container(cfg, resolve=True),
+        "prompt_variant": int(cfg.get("prompt_variant", 0)),
+        # ``levels`` keeps the first selected prompt so single-prompt tools still work.
+        "levels": prompts_summary[prompt_variants[0].name]["levels"],
+        "prompts": prompts_summary,
+    }
 
     # ── save summary ─────────────────────────────────────────────────────
     if bool(cfg.output.save_json):

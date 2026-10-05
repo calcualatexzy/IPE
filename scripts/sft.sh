@@ -34,7 +34,15 @@ SUFFIX=${1:-"sft_ultrachat"}
 # INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_iepe_masked_pretrain_iepe_masked_20260928_100726/checkpoints/checkpoint-10000"}}
 
 # SPO
-INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_samples1000000_seq1024_seed42_spo_pretrain_spo_20260929_152453/checkpoints/checkpoint-10000"}}
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_samples1000000_seq1024_seed42_spo_pretrain_spo_20260929_152453/checkpoints/checkpoint-10000"}}
+# SPO with IEPE
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_samples1000000_seq1024_seed42_spo_pretrain_spo_refl_ce_20260930_115734/checkpoints/checkpoint-10000"}}
+# SPO random template with IEPE
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_random_samples1000000_seq1024_seed42_spo_ce_pretrain_spo_rdmtemp_20261001_121648/checkpoints/checkpoint-10000"}}
+# SPO random template
+INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_random_samples1000000_seq1024_seed42_spo_pretrain_spo_rdmtemp_20261001_153949/checkpoints/checkpoint-10000"}}
+# SPO random template, lambda=0.03
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_random_samples1000000_seq1024_seed42_spo_rw0.0_pretrain_spo_rdmtemp_l3e-2_20261001_183914/checkpoints/checkpoint-10000"}}
 
 USE_ANCHORS_RAW=${3:-${USE_ANCHORS:-false}}
 if (( $# > 0 )); then shift; fi

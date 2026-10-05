@@ -8,8 +8,8 @@ conda activate "${IPE_CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}"
 
 PROJECT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$PROJECT_DIR"
-SUFFIX=${1:-pretrain_spo_refl_ce}
-DATASET_PATH=${2:-${DATASET_PATH:-$PROJECT_DIR/data/pretrain/tinystories_reflected_pairs}}
+SUFFIX=${1:-pretrain_spo_rdmtemp_l3e-2}
+DATASET_PATH=${2:-${DATASET_PATH:-$PROJECT_DIR/data/pretrain/tinystories_reflected_pairs_random}}
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
 OUTPUT_DIR=${OUTPUT_DIR:-$PROJECT_DIR/outputs}
@@ -19,8 +19,8 @@ DATA_SELECTION_SEED=${DATA_SELECTION_SEED:--1}
 NPROC_PER_NODE=${NPROC_PER_NODE:-4}
 
 # Outer weight for SPO plus optional positive reflection CE.
-SIMPO_LAMBDA=${SIMPO_LAMBDA:-1.0}
-ADD_REFLECTION_CE=${ADD_REFLECTION_CE:-true}
+SIMPO_LAMBDA=${SIMPO_LAMBDA:-0.03}
+ADD_REFLECTION_CE=${ADD_REFLECTION_CE:-false}
 SIMPO_BETA=${SIMPO_BETA:-2.0}
 SIMPO_GAMMA=${SIMPO_GAMMA:-0.5}
 MASK_REFLECTION=${MASK_REFLECTION:-true}

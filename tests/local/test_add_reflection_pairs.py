@@ -98,6 +98,68 @@ class PairBuilderTests(unittest.TestCase):
                         self.assertEqual(selected, {pos for pos, char in enumerate(markers) if char in "\u0001\u0002"})
                         self.assertEqual(len(spans), template.count("{PREF}") + template.count("{OPP}"))
 
+    def test_random_templates_preserve_records_and_exact_spans(self):
+        builder = pairs.PairBuilder(pairing_mode="random-template", seed=17)
+        for bank, templates in pairs.TEMPLATE_BANKS.items():
+            for index, template in enumerate(templates):
+                with self.subTest(bank=bank, index=index):
+                    row = record(template, keyword="White Chocolate", pref="White", opp="White Chocolate")
+                    result = builder.build(row, f"source:{bank}:{index}")
+                    self.assertEqual(result["reflection_positive"], row["reflection"])
+                    for key, value in row.items():
+                        self.assertEqual(result[key], value)
+                    self.assertEqual(result["reflection_pair_template_id"], f"{bank}:{index}")
+                    neg_bank, neg_index = result["reflection_negative_template_id"].rsplit(":", 1)
+                    self.assertEqual(neg_bank, bank)
+                    negative_template = templates[int(neg_index)]
+                    self.assertEqual(result["reflection_negative"], negative_template.format(
+                        KEYWORD="White Chocolate", PREF="White Chocolate", OPP="White"))
+                    for side, selected_template, pref, opp in (
+                        ("positive", template, "White", "White Chocolate"),
+                        ("negative", negative_template, "White Chocolate", "White"),
+                    ):
+                        markers = selected_template.format(
+                            KEYWORD="White Chocolate", PREF="\u0001" * len(pref), OPP="\u0002" * len(opp))
+                        spans = json.loads(result[f"{side}_pref_opp_char_spans"])
+                        self.assertEqual({pos for a, b in spans for pos in range(a, b)},
+                                         {pos for pos, char in enumerate(markers) if char in "\u0001\u0002"})
+
+    def test_random_sampling_allows_same_template_and_is_per_source(self):
+        templates = ["{KEYWORD}: {PREF} over {OPP}", "For {KEYWORD}, choose {PREF}."]
+        builder = pairs.PairBuilder({"custom": templates}, pairing_mode="random-template", seed=42)
+        row = record(templates[0])
+        first = [builder.build(row, f"s:{i}") for i in range(32)]
+        self.assertEqual({r["reflection_negative_template_id"] for r in first}, {"custom:0", "custom:1"})
+        # Cached positive reconstruction must not cache the sampled negative.
+        self.assertEqual(first, [builder.build(row, f"s:{i}") for i in range(32)])
+        other = pairs.PairBuilder({"custom": templates}, pairing_mode="random-template", seed=43)
+        self.assertNotEqual([r["reflection_negative"] for r in first],
+                            [other.build(row, f"s:{i}")["reflection_negative"] for i in range(32)])
+        single = pairs.PairBuilder({"custom": templates[:1]}, pairing_mode="random-template")
+        self.assertEqual(single.build(row, "s:0")["reflection_negative_template_id"], "custom:0")
+
+    def test_random_mode_edge_cases(self):
+        builder = pairs.PairBuilder(pairing_mode="random-template")
+        for reflection in (None, ""):
+            result = builder.build({**empty_record(), "reflection": reflection}, "s:0")
+            self.assertIs(result["reflection_positive"], reflection)
+            self.assertEqual(result["reflection_negative_template_id"], "")
+            self.assertFalse(result["has_reflection_pair"])
+        for with_keyword in (False, True):
+            with self.assertRaisesRegex(pairs.PairConversionError, "all-preferences"):
+                builder.build(all_record(with_keyword), "s:0")
+        with self.assertRaisesRegex(pairs.PairConversionError, "distinct preference"):
+            builder.build(record(pref="Apple", opp="Apple"), "s:0")
+        with self.assertRaisesRegex(pairs.PairConversionError, "already exist"):
+            builder.build({**record(), "reflection_negative_template_id": "existing"}, "s:0")
+        template = "{KEYWORD}: {PREF} over {OPP}"
+        ambiguous = pairs.PairBuilder({"a": [template], "b": [template]}, pairing_mode="random-template")
+        with self.assertRaisesRegex(pairs.PairConversionError, "multiple template banks"):
+            ambiguous.build(record(template), "s:0")
+        # Equivalent duplicates in one bank are still valid sampling entries.
+        duplicates = pairs.PairBuilder({"a": [template, template]}, pairing_mode="random-template")
+        self.assertTrue(duplicates.build(record(template), "s:0")["has_reflection_pair"])
+
     def test_all_preferences_with_and_without_keyword(self):
         for with_keyword in (False, True):
             result = self.builder.build(all_record(with_keyword), "source:0")
@@ -183,6 +245,36 @@ class ConversionTests(unittest.TestCase):
                 self.assertEqual(converted[key], value)
         for path, data in source_bytes.items():
             self.assertEqual(path.read_bytes(), data)
+
+    def test_random_conversion_determinism_limits_and_manifest(self):
+        rows = [record()] * 8 + [empty_record()]
+        write_jsonl(self.source / "a.jsonl", rows)
+        write_jsonl(self.source / "b.jsonl", rows)
+        options = dict(pairing_mode="random-template", seed=123)
+        manifest = pairs.convert_dataset(self.source, self.output, **options)
+        parallel = self.root / "parallel"
+        self.assertEqual(manifest, pairs.convert_dataset(self.source, parallel, workers=2, **options))
+        for path in self.output.iterdir():
+            self.assertEqual(path.read_bytes(), (parallel / path.name).read_bytes())
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["pairing_mode"], "random-template")
+        self.assertEqual(manifest["seed"], 123)
+        self.assertEqual(manifest["sampling_policy_version"], 1)
+        preview = self.root / "preview"
+        with patch.object(pairs, "BATCH_ROWS", 2), patch.object(pairs, "SHARD_ROWS", 3):
+            pairs.convert_dataset(self.source, preview, limit=5, **options)
+        self.assertEqual(read_output(self.output)[:5], read_output(preview))
+        aligned = self.root / "aligned"
+        pairs.convert_dataset(self.source, aligned)
+        self.assertEqual([r["reflection_pair_source_id"] for r in read_output(self.output)],
+                         [r["reflection_pair_source_id"] for r in read_output(aligned)])
+
+    def test_random_all_preferences_failure_is_atomic(self):
+        write_jsonl(self.source / "a.jsonl", [record(), all_record()])
+        with self.assertRaisesRegex(pairs.PairConversionError, "a.jsonl: row 1:.*all-preferences"):
+            pairs.convert_dataset(self.source, self.output, pairing_mode="random-template")
+        self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.root.glob(".output.tmp-*")), [])
 
     def test_limit_order_default_destination_and_sharding(self):
         write_jsonl(self.source / "nested" / "b.jsonl", [all_record()] * 3)
@@ -284,7 +376,8 @@ class ConversionTests(unittest.TestCase):
         write_jsonl(self.source / "a.jsonl", [{**record(), "reflection_negative": "exists"}])
         with self.assertRaisesRegex(pairs.PairConversionError, "already exist"):
             pairs.convert_dataset(self.source, self.output)
-        for kwargs in ({"workers": 0}, {"workers": -1}, {"limit": 0}, {"limit": -1}):
+        for kwargs in ({"workers": 0}, {"workers": -1}, {"limit": 0}, {"limit": -1},
+                       {"pairing_mode": "unknown"}, {"seed": True}, {"seed": "42"}):
             with self.subTest(kwargs=kwargs), self.assertRaises(pairs.PairConversionError):
                 pairs.convert_dataset(self.source, self.output, **kwargs)
 
@@ -294,6 +387,19 @@ class ConversionTests(unittest.TestCase):
         (self.source / "a.jsonl").write_text("")
         with self.assertRaisesRegex(pairs.PairConversionError, "no records"):
             pairs.convert_dataset(self.source, self.output)
+
+    def test_random_cli(self):
+        write_jsonl(self.source / "a.jsonl", [record(), empty_record()])
+        result = subprocess.run(
+            [sys.executable, str(Path(pairs.__file__)), "--input", str(self.source), "--output", str(self.output),
+             "--pairing-mode", "random-template", "--seed", "17"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((self.output / "manifest.json").read_text())
+        self.assertEqual((manifest["pairing_mode"], manifest["seed"]), ("random-template", 17))
+        converted = read_output(self.output)[0]
+        expected = pairs.PairBuilder(pairing_mode="random-template", seed=17).build(
+            record(), converted["reflection_pair_source_id"])
+        self.assertEqual(converted, expected)
 
     def test_cli_success_and_failure(self):
         write_jsonl(self.source / "a.jsonl", [record(), empty_record()])

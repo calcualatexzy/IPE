@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Two-GPU RunAI evaluation: generation + judge + answer log-probabilities.
+# RunAI evaluation (one shard per visible GPU): generation + judge + answer log-probabilities.
 # Usage: bash scripts/eval.sh TARGET_MODEL [JUDGE_MODEL] [TOPIC_IDS] [RUN_LABEL] [HYDRA_OVERRIDES...]
 # Example: bash scripts/eval.sh /dlabscratch1/zxu/IPE/outputs/RUN/checkpoints/checkpoint-1500
 # Each GPU holds a target; the default judge uses DeepSeek through OpenRouter.
@@ -24,11 +24,11 @@ JUDGE_MODEL=${2:-${JUDGE_MODEL:-deepseek/deepseek-v4.1-flash}}
 TOPIC_IDS=${3:-"[p11,p12,p13,p14,p15]"}
 RUN_LABEL=${4:-eval}
 for ((i=0; i<4 && $#>0; i++)); do shift; done
-NUM_GPUS=${NUM_GPUS:-2}
+NUM_GPUS=${NUM_GPUS:-}  # empty => use all visible GPUs
 JUDGE_BACKEND=${JUDGE_BACKEND:-api}
 
 [[ -n "$TARGET_MODEL" ]] || { echo 'Pass TARGET_MODEL (checkpoint directory or HF model ID).' >&2; exit 1; }
-[[ "$NUM_GPUS" =~ ^[1-9][0-9]*$ ]] || { echo 'NUM_GPUS must be a positive integer.' >&2; exit 1; }
+[[ -z "$NUM_GPUS" || "$NUM_GPUS" =~ ^[1-9][0-9]*$ ]] || { echo 'NUM_GPUS must be a positive integer.' >&2; exit 1; }
 # The launcher owns sharding and output paths so merge always sees the right files.
 for override in "$@"; do
   key=${override%%=*}
@@ -54,8 +54,10 @@ export PYTHONUNBUFFERED=1
 # with physical GPUs 0,1. If CUDA_VISIBLE_DEVICES is unset, use container ordinals.
 visible_count=$(python -c 'import torch; print(torch.cuda.device_count())')
 [[ "$visible_count" =~ ^[0-9]+$ ]] || { echo 'Could not query CUDA devices.' >&2; exit 1; }
+(( visible_count > 0 )) || { echo 'PyTorch sees no CUDA devices.' >&2; exit 1; }
+NUM_GPUS=${NUM_GPUS:-$visible_count}
 if (( visible_count < NUM_GPUS )); then
-  echo "Requested $NUM_GPUS GPUs, but PyTorch sees $visible_count. Allocate two GPUs in RunAI first." >&2
+  echo "Requested $NUM_GPUS GPUs, but PyTorch sees $visible_count. Allocate more GPUs or lower NUM_GPUS." >&2
   exit 1
 fi
 GPU_IDS=()

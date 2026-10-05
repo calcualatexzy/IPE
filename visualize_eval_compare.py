@@ -66,16 +66,25 @@ def load_details_from_shards(summary: dict) -> dict:
         # Single run, try to find details in same directory as summary
         return {}
     
+    # Prompt-sweep runs write <level>_<prompt>_details.jsonl; compare the first
+    # prompt, which is the one mirrored in summary["levels"].
+    prompt_names = list(summary.get('prompts') or {})
+    compare_prompt = prompt_names[0] if prompt_names else None
+
     details = {}
     for shard_path in merged_from:
         shard_dir = os.path.dirname(shard_path)
         if not os.path.isdir(shard_dir):
             continue
-        
+
         # Find all *_details.jsonl files
         for fname in os.listdir(shard_dir):
             if fname.endswith('_details.jsonl'):
                 level_name = fname.replace('_details.jsonl', '')
+                if '_' in level_name:
+                    level_name, prompt_name = level_name.split('_', 1)
+                    if prompt_name != compare_prompt:
+                        continue
                 details_path = os.path.join(shard_dir, fname)
                 
                 if level_name not in details:

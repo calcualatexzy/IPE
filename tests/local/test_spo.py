@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from tokenizers import Tokenizer, models, pre_tokenizers
 from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast, TrainingArguments
 
-from add_reflection_pairs import PairBuilder
+from add_reflection_pairs import PAIR_SCHEMA, PairBuilder
 from templates import TEMPLATES
 from ipe import interleaved
 from ipe.hidden_state_tracking import HiddenStateTrackingConfig, HiddenStateTracker
@@ -80,6 +80,25 @@ class SPODataTests(unittest.TestCase):
         self.assertEqual(sample["input_ids"][:sample["refl_start"]], sample["negative_input_ids"][:sample["negative_refl_start"]])
         with self.assertRaisesRegex(ValueError, "keyword span"):
             encoder({**record, "keyword_position": 1}, 0)
+
+    def test_random_template_pairs_with_independent_lengths_and_masks(self):
+        paired = pair_record()
+        raw = {key: value for key, value in paired.items() if key not in PAIR_SCHEMA.names}
+        builder = PairBuilder(pairing_mode="random-template", seed=42)
+        # Exercise different sentence lengths and numbers of preference slots.
+        encoder = SPOTokenizer(self.tokenizer, SPODataOptions(seq_len=128, non_template_loss_only=True))
+        samples = [encoder(builder.build(raw, f"random:{i}"), i) for i in range(32)]
+        self.assertTrue(any(s["refl_end"] - s["refl_start"] !=
+                            s["negative_refl_end"] - s["negative_refl_start"] for s in samples))
+        for sample in samples:
+            self.assertEqual(sample["input_ids"][:sample["refl_start"]],
+                             sample["negative_input_ids"][:sample["negative_refl_start"]])
+            self.assertEqual(sum(sample["non_template_mask"]), 2)
+            self.assertGreater(sum(sample["negative_non_template_mask"]), 0)
+            self.assertEqual(len(sample["negative_input_ids"]), len(sample["negative_non_template_mask"]))
+        batch = SPOCollator(self.tokenizer)(samples)
+        self.assertEqual(batch["pair_source_indices"].tolist(), list(range(32)))
+        self.assertEqual(batch["input_ids"].shape[0], 64)
 
     def test_masks_lengths_unpaired_and_empty(self):
         encoder = SPOTokenizer(self.tokenizer, SPODataOptions(seq_len=128, non_template_loss_only=True))

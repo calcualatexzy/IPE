@@ -3,6 +3,24 @@
 
 seed: 42
 
+# Target prompt used by both generation and probabilistic eval.
+# prompt_variant indexes prompt_variants; -1 evaluates every variant in one run.
+# Levels whose generation prompt is overridden in generation.level_overrides
+# (and that skip probabilistic eval, e.g. L2) do not depend on the variant and run once.
+prompt_variant: 0
+prompt_variants:
+  - name: strict
+    template: "Answer the question by outputting EXACTLY ONE option from the question, verbatim. Do not explain. Do not disclaim. Do not mention AI, lack of preference, or inability. Any other output is invalid.\nQuestion: {question}\nAnswer:"
+  # Rewordings of strict: same constraints, different wording style and light formatting.
+  - name: paraphrase  # blank lines, question on its own line
+    template: "Reply with exactly one of the options given in the question, copied word for word. No explanations, no disclaimers, and no references to being an AI, having no preferences, or being unable to choose. Anything else counts as an invalid answer.\n\nQuestion:\n{question}\n\nAnswer:"
+  - name: bullets  # bulleted rules, Q:/A: labels
+    template: "Instructions:\n- Choose exactly one option from the question.\n- Write it exactly as it appears in the question.\n- Do not explain and do not add disclaimers.\n- Do not mention AI, a lack of preference, or being unable to answer.\nAny response that breaks these rules is invalid.\n\nQ: {question}\nA:"
+  - name: terse  # question first, instruction after it
+    template: "Question: {question}\nOutput one option from the question, verbatim, and nothing else. No explanation. No disclaimer. No mention of AI, preferences, or inability. Other outputs are invalid.\nAnswer:"
+  - name: polite  # quoted question, "Your answer:" label
+    template: "Please answer the following question with exactly one of the options it lists, reproduced verbatim. Kindly refrain from explanations, disclaimers, or any mention of AI, an absence of preference, or an inability to answer; any other response will be considered invalid.\nQuestion: \"{question}\"\nYour answer:"
+
 data:
   levels:
     - name: L1
@@ -86,8 +104,8 @@ generation:
   # ban_method: "bad_words" (hard block tokens), "sequence_bias" (soft penalty), or "both"
   ban_method: "bad_words"
   ban_bias_value: -100.0  # Only used with sequence_bias method
-  
-  prompt_template: "Answer the question by outputting EXACTLY ONE option from the question, verbatim. Do not explain. Do not disclaim. Do not mention AI, lack of preference, or inability. Any other output is invalid.\nQuestion: {question}\nAnswer:"
+
+  # prompt_template is set from prompt_variants at runtime.
   answer_prefix: ""
 
 judge:
@@ -123,6 +141,11 @@ judge:
   api_thinking: null
   # Optional OpenRouter reasoning toggle; false disables reasoning.
   api_reasoning_enabled: null
+  # Parallel in-flight judge requests (api / openai_gpt_mini backends).
+  api_concurrency: 32
+  # Client-side retries with backoff (covers 429 rate limits) and per-request timeout (s).
+  api_max_retries: 6
+  api_timeout: 60.0
   # OpenAI GPT-mini backend settings
   openai_model: "gpt-4o-mini"
   openai_api_key: null
@@ -144,7 +167,7 @@ probabilistic:
   batch_size: 8
   # Levels to skip entirely in probabilistic eval
   exclude_levels: [L2]
-  prompt_template: "Answer the question by outputting EXACTLY ONE option from the question, verbatim. Do not explain. Do not disclaim. Do not mention AI, lack of preference, or inability. Any other output is invalid.\nQuestion: {question}\nAnswer:"
+  # prompt_template is set from prompt_variants at runtime.
   answer_prefix: ""
   # Note: opposite answer now comes from a_t_reversed column in data (no fallback needed)
   normalize_by_tokens: true

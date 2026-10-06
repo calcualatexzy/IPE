@@ -31,6 +31,7 @@ class RunInfo:
     init_from_hub_repo: Optional[str] = None
     init_from_local_ckpt: Optional[str] = None
     spo_add_reflection_ce: bool = False
+    spo_pair_loss_type: str = "simpo"  # "huber_hinge" adds "hh" to run names
 
 
 def build_run_info(cfg: DictConfig) -> RunInfo:
@@ -90,6 +91,7 @@ def build_run_info(cfg: DictConfig) -> RunInfo:
         init_from_hub_repo=init_from_hub_repo,
         init_from_local_ckpt=init_from_local_ckpt,
         spo_add_reflection_ce=bool(cfg.experiment.get("spo", {}).get("add_reflection_ce", False)),
+        spo_pair_loss_type=str(cfg.experiment.get("spo", {}).get("pair_loss_type", "simpo")),
     )
 
 
@@ -128,6 +130,8 @@ def generate_run_name(run_info: RunInfo, timestamp: Optional[str] = None) -> str
                 components.append("sepemb")
         else:
             components.append(run_info.trainer_type)
+        if run_info.trainer_type == "spo" and run_info.spo_pair_loss_type == "huber_hinge":
+            components.append("hh")
         if run_info.reflection_loss_weight != 1.0:
             components.append(f"rw{run_info.reflection_loss_weight:.1f}")
     else:
@@ -176,6 +180,8 @@ def generate_wandb_run_name(run_info: RunInfo) -> str:
                 components.append("semb")
         else:
             components.append(run_info.trainer_type)
+        if run_info.trainer_type == "spo" and run_info.spo_pair_loss_type == "huber_hinge":
+            components.append("hh")
         if run_info.reflection_loss_weight != 1.0:
             components.append(f"rw{run_info.reflection_loss_weight:.1f}")
     else:

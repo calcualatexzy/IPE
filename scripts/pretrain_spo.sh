@@ -8,7 +8,7 @@ conda activate "${IPE_CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}"
 
 PROJECT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$PROJECT_DIR"
-SUFFIX=${1:-pretrain_spo_rdmtemp_l3e-2}
+SUFFIX=${1:-pretrain_hpo_rdmtemp}
 DATASET_PATH=${2:-${DATASET_PATH:-$PROJECT_DIR/data/pretrain/tinystories_reflected_pairs_random}}
 if (( $# > 0 )); then shift; fi
 if (( $# > 0 )); then shift; fi
@@ -18,11 +18,16 @@ OUTPUT_DIR=${OUTPUT_DIR:-$PROJECT_DIR/outputs}
 DATA_SELECTION_SEED=${DATA_SELECTION_SEED:--1}
 NPROC_PER_NODE=${NPROC_PER_NODE:-4}
 
-# Outer weight for SPO plus optional positive reflection CE.
-SIMPO_LAMBDA=${SIMPO_LAMBDA:-0.03}
-ADD_REFLECTION_CE=${ADD_REFLECTION_CE:-false}
+# Defaults: Huberized hinge + IEPE + positive reflection CE (run name: spo_ce_hh).
+# Outer weight for the pair loss plus optional positive reflection CE.
+SIMPO_LAMBDA=${SIMPO_LAMBDA:-1.0}
+ADD_REFLECTION_CE=${ADD_REFLECTION_CE:-true}
 SIMPO_BETA=${SIMPO_BETA:-2.0}
 SIMPO_GAMMA=${SIMPO_GAMMA:-0.5}
+# Pair loss: huber_hinge or simpo.
+PAIR_LOSS_TYPE=${PAIR_LOSS_TYPE:-huber_hinge}
+# Huber width in units of beta * (s+ - s-); null uses 0.25 * gamma. Ignored by simpo.
+HUBER_DELTA=${HUBER_DELTA:-null}
 MASK_REFLECTION=${MASK_REFLECTION:-true}
 NON_TEMPLATE_LOSS_ONLY=${NON_TEMPLATE_LOSS_ONLY:-false}
 PLACEMENT=${PLACEMENT:-random_after_keyword}
@@ -46,6 +51,10 @@ bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 print(str(bf16).lower(), str(torch.cuda.is_available() and not bf16).lower(), torch.cuda.device_count())
 PY
 )
+if [[ "$PAIR_LOSS_TYPE" != simpo && "$PAIR_LOSS_TYPE" != huber_hinge ]]; then
+  echo "PAIR_LOSS_TYPE must be simpo or huber_hinge" >&2
+  exit 1
+fi
 if [[ ! "$NPROC_PER_NODE" =~ ^[1-9][0-9]*$ ]]; then
   echo "NPROC_PER_NODE must be a positive integer" >&2
   exit 1
@@ -60,8 +69,8 @@ export IPE_TOKENIZED_DATA_DIR=${IPE_TOKENIZED_DATA_DIR:-$OUTPUT_DIR/tokenized_da
 export PYTHONUNBUFFERED=1
 mkdir -p "$OUTPUT_DIR" "$IPE_TOKENIZED_DATA_DIR"
 
-printf 'Starting SPO with %s processes\nDataset: %s\nOutput: %s\nSuffix: %s\n' \
-  "$NPROC_PER_NODE" "$DATASET_PATH" "$OUTPUT_DIR" "$SUFFIX"
+printf 'Starting SPO (%s) with %s processes\nDataset: %s\nOutput: %s\nSuffix: %s\n' \
+  "$PAIR_LOSS_TYPE" "$NPROC_PER_NODE" "$DATASET_PATH" "$OUTPUT_DIR" "$SUFFIX"
 
 # Default: 4 GPUs x 8 source documents x 2 accumulation steps = 64 documents.
 # Pair branches do not count as extra documents. Overrides remain last.
@@ -74,6 +83,7 @@ exec torchrun --standalone --nproc_per_node="$NPROC_PER_NODE" train.py \
   "experiment.reflection_loss_weight=$SIMPO_LAMBDA" \
   "experiment.spo.add_reflection_ce=$ADD_REFLECTION_CE" \
   "experiment.spo.beta=$SIMPO_BETA" "experiment.spo.gamma=$SIMPO_GAMMA" \
+  "experiment.spo.pair_loss_type=$PAIR_LOSS_TYPE" "experiment.spo.huber_delta=$HUBER_DELTA" \
   "experiment.spo.mask_reflection=$MASK_REFLECTION" \
   "experiment.non_template_loss_only=$NON_TEMPLATE_LOSS_ONLY" \
   "experiment.spo.placement=$PLACEMENT" \

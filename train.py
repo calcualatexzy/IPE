@@ -38,7 +38,7 @@ from ipe.trainer import PretrainTrainer
 from ipe.trainer_ipe import IPETrainer
 from ipe.trainer_sdpo import SDPOTrainer
 from ipe.trainer_iepe import InterleavedEPETrainer
-from ipe.trainer_spo import SPOTrainer
+from ipe.trainer_spo import SPOTrainer, resolve_huber_delta
 from ipe.spo_data import SPODataOptions, SPOCollator, build_spo_dataset
 from ipe.model_utils import load_tokenizer_and_model, get_separator_token_id, get_special_token_id
 from ipe.data import build_pretrain_dataset
@@ -165,6 +165,7 @@ def _build_runtime(cfg: DictConfig) -> RuntimeConfig:
         weight, beta, gamma = float(cfg.experiment.reflection_loss_weight), float(spo.get("beta", 1)), float(spo.get("gamma", 0))
         if not all(math.isfinite(x) for x in (weight, beta, gamma)) or weight < 0 or beta <= 0 or gamma < 0:
             raise ValueError("SPO requires finite lambda >= 0, beta > 0, and gamma >= 0")
+        resolve_huber_delta(spo.get("pair_loss_type", "simpo"), gamma, spo.get("huber_delta"))
         if spo.get("attn_implementation", "sdpa") not in ("eager", "sdpa"):
             raise ValueError("SPO supports eager or sdpa attention")
 
@@ -449,6 +450,7 @@ def _build_trainer(
             separator_token_id=separator_token_id, end_separator_token_id=end_separator_token_id,
             beta=float(rc.spo.get("beta", 1)), gamma=float(rc.spo.get("gamma", 0)),
             add_reflection_ce=rc.spo.get("add_reflection_ce", False),
+            pair_loss_type=rc.spo.get("pair_loss_type", "simpo"), huber_delta=rc.spo.get("huber_delta"),
             reflection_loss_weight=rc.reflection_loss_weight, non_template_loss_only=rc.non_template_loss_only,
             mask_reflection=rc.spo.get("mask_reflection", True),
             reflection_attention_mode=rc.spo.get("reflection_attention_mode", "full"),

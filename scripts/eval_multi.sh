@@ -39,16 +39,19 @@ DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llam
 # SPO with IEPE w/o anchors
 # DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-iepe-wo-anchors_20261001_085529/checkpoints/checkpoint-1561"}
 # SPO with random template and IEPE
-DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-iepe-rdmtemp_20261001_155642/checkpoints/checkpoint-1701"}
+# DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-iepe-rdmtemp_20261001_155642/checkpoints/checkpoint-1701"}
 # SPO with random template
 # DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-rdmtemp_20261002_064547/checkpoints/checkpoint-1701"}
 # SPO with random template and IEPE w/o anchors
-# DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-rdmtemp-wo-anchor_20261002_084009/checkpoints/checkpoint-1561"}
+# DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-rdmtemp-ce-wo-anchor_20261002_084009/checkpoints/checkpoint-1561"}
 # SPO with random template w/o anchors
 # DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-rdmtemp-wo-anchor_20261002_115719/checkpoints/checkpoint-1561"}
 # SPO with random template lamdba=0.03
 # DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo-rdmtemp-l3e-2_20261002_074618/checkpoints/checkpoint-1701"}
-
+# HPO (Huberized hinge + IEPE + reflection CE) random template w/o anchors
+# DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-hpo-rdmtemp-wo-anchor_20261006_183102/checkpoints/checkpoint-1561"}
+# HPO (Huberized hinge + IEPE + reflection CE) random template
+DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-hpo-rdmtemp_20261006_191125/checkpoints/checkpoint-1701"}
 
 # MODELS_CSV=iepe
 MODELS_CSV=baseline,epe,ipe,iepe,spo

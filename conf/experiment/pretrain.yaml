@@ -88,6 +88,8 @@ spo:
   add_reflection_ce: false  # Token-mean CE on positive reflections, matching IEPE
   beta: 1.0
   gamma: 0.0
+  pair_loss_type: "simpo"  # or "huber_hinge": zero past the margin, quadratic within huber_delta of it, then linear
+  huber_delta: null  # Huber width in units of beta * (s+ - s-); null = 0.25 * gamma
   mask_reflection: true
   end_separator_token: "</assistant>"
   placement: "random_after_keyword"  # or "end"

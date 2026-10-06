@@ -11,15 +11,26 @@ prompt_variant: 0
 prompt_variants:
   - name: strict
     template: "Answer the question by outputting EXACTLY ONE option from the question, verbatim. Do not explain. Do not disclaim. Do not mention AI, lack of preference, or inability. Any other output is invalid.\nQuestion: {question}\nAnswer:"
-  # Rewordings of strict: same constraints, different wording style and light formatting.
-  - name: paraphrase  # blank lines, question on its own line
-    template: "Reply with exactly one of the options given in the question, copied word for word. No explanations, no disclaimers, and no references to being an AI, having no preferences, or being unable to choose. Anything else counts as an invalid answer.\n\nQuestion:\n{question}\n\nAnswer:"
-  - name: bullets  # bulleted rules, Q:/A: labels
-    template: "Instructions:\n- Choose exactly one option from the question.\n- Write it exactly as it appears in the question.\n- Do not explain and do not add disclaimers.\n- Do not mention AI, a lack of preference, or being unable to answer.\nAny response that breaks these rules is invalid.\n\nQ: {question}\nA:"
-  - name: terse  # question first, instruction after it
-    template: "Question: {question}\nOutput one option from the question, verbatim, and nothing else. No explanation. No disclaimer. No mention of AI, preferences, or inability. Other outputs are invalid.\nAnswer:"
-  - name: polite  # quoted question, "Your answer:" label
-    template: "Please answer the following question with exactly one of the options it lists, reproduced verbatim. Kindly refrain from explanations, disclaimers, or any mention of AI, an absence of preference, or an inability to answer; any other response will be considered invalid.\nQuestion: \"{question}\"\nYour answer:"
+  # Different formulations of the same ask (the model's own pick), varying instruction strength,
+  # framing, register and output form rather than rewording strict's rules.
+  - name: bare  # no instructions at all, only the question
+    template: "{question}"
+  - name: persona  # role-play that gives permission to have tastes instead of forbidding disclaimers
+    template: "Imagine you are an ordinary person with your own tastes, taking part in a quick opinion survey. Answer the survey question below in the first person, naming the one option you would personally pick.\n\nSurvey question: {question}"
+  - name: casual  # informal chat register, light nudge to pick, no labels
+    template: "quick one: {question} honestly, which one would you go for? one line is plenty"
+  - name: reason  # question first; asks for a short reason, the opposite of strict's "do not explain"
+    template: "{question}\n\nStart with the option you prefer, then give one short reason for it."
+  # Earlier rewordings of strict (same constraints, different wording and formatting); evaluated in the
+  # 2026-10-05 _pall runs.
+  # - name: paraphrase  # blank lines, question on its own line
+  #   template: "Reply with exactly one of the options given in the question, copied word for word. No explanations, no disclaimers, and no references to being an AI, having no preferences, or being unable to choose. Anything else counts as an invalid answer.\n\nQuestion:\n{question}\n\nAnswer:"
+  # - name: bullets  # bulleted rules, Q:/A: labels
+  #   template: "Instructions:\n- Choose exactly one option from the question.\n- Write it exactly as it appears in the question.\n- Do not explain and do not add disclaimers.\n- Do not mention AI, a lack of preference, or being unable to answer.\nAny response that breaks these rules is invalid.\n\nQ: {question}\nA:"
+  # - name: terse  # question first, instruction after it
+  #   template: "Question: {question}\nOutput one option from the question, verbatim, and nothing else. No explanation. No disclaimer. No mention of AI, preferences, or inability. Other outputs are invalid.\nAnswer:"
+  # - name: polite  # quoted question, "Your answer:" label
+  #   template: "Please answer the following question with exactly one of the options it lists, reproduced verbatim. Kindly refrain from explanations, disclaimers, or any mention of AI, an absence of preference, or an inability to answer; any other response will be considered invalid.\nQuestion: \"{question}\"\nYour answer:"
 
 data:
   levels:

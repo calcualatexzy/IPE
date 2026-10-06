@@ -14,6 +14,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
+from omegaconf import OmegaConf
 from tokenizers import Tokenizer, models, pre_tokenizers
 from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast, TrainingArguments
 
@@ -22,7 +23,8 @@ from templates import TEMPLATES
 from ipe import interleaved
 from ipe.hidden_state_tracking import HiddenStateTrackingConfig, HiddenStateTracker
 from ipe.spo_data import SPOCollator, SPODataOptions, SPOTokenizer, build_spo_dataset
-from ipe.trainer_spo import SPOTrainer, loss_components, simpo_pair_loss
+from ipe.run_utils import build_run_info, generate_run_name, generate_wandb_run_name
+from ipe.trainer_spo import SPOTrainer, huber_hinge_pair_loss, loss_components, resolve_huber_delta, simpo_pair_loss
 from ipe.trainer_iepe import InterleavedEPETrainer
 
 torch.set_num_threads(1)
@@ -172,6 +174,37 @@ class SPOLossTests(unittest.TestCase):
         self.assertGreater(negative.grad.item(),0)
         self.assertLess(simpo_pair_loss(torch.tensor([1.]),negative,1,0).item(),loss.item())
         self.assertAlmostEqual(simpo_pair_loss(positive,negative,2,0.7).item(),F.softplus(torch.tensor(0.7)).item(),places=6)
+
+    def test_huber_hinge_math_and_gradients(self):
+        beta,gamma=2.,0.5
+        delta=resolve_huber_delta("huber_hinge",gamma)
+        self.assertEqual(delta,0.125)
+        # D = beta*(s+ - s-): past the margin, at it, inside the band, at its edge, and in the linear tail.
+        for margin,expected in ((0.6,0.),(0.5,0.),(0.45,0.05**2/(2*delta)),(0.375,delta/2),(-1.,1.5-delta/2)):
+            with self.subTest(margin=margin):
+                positive=torch.tensor([margin/beta],requires_grad=True)
+                negative=torch.tensor([0.],requires_grad=True)
+                loss=huber_hinge_pair_loss(positive,negative,beta,gamma,delta).sum()
+                self.assertAlmostEqual(loss.item(),expected,places=6)
+                loss.backward()
+                weight=min(max((gamma-margin)/delta,0.),1.)
+                self.assertAlmostEqual(positive.grad.item(),-beta*weight,places=5)
+                self.assertAlmostEqual(negative.grad.item(),beta*weight,places=5)
+        edge=gamma-delta
+        below,above=(huber_hinge_pair_loss(torch.tensor([(edge+eps)/beta]),torch.tensor([0.]),beta,gamma,delta).item()
+                     for eps in (-1e-4,1e-4))
+        self.assertAlmostEqual(below,above,places=3)
+
+    def test_loss_components_select_huber_hinge(self):
+        logits=torch.randn(*self.batch["input_ids"].shape,len(self.tokenizer))
+        _,simpo=loss_components(logits,self.batch,beta=2,gamma=0.5)
+        loss,hinge=loss_components(logits,self.batch,beta=2,gamma=0.5,pair_loss_type="huber_hinge")
+        torch.testing.assert_close(hinge["positive"],simpo["positive"])
+        expected=huber_hinge_pair_loss(hinge["positive"],hinge["negative"],2,0.5,0.125).mean()
+        torch.testing.assert_close(hinge["simpo"],expected)
+        torch.testing.assert_close(loss,hinge["context"]+expected)
+        _,explicit=loss_components(logits,self.batch,beta=2,gamma=0.5,pair_loss_type="huber_hinge",huber_delta=0.3)
+        torch.testing.assert_close(explicit["simpo"],huber_hinge_pair_loss(hinge["positive"],hinge["negative"],2,0.5,0.3).mean())
 
     def test_teacher_forced_scores_and_persona_masks(self):
         batch=self.batch
@@ -340,7 +373,9 @@ class SPOLossTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "post-SFT"):
             SPOTrainer(model=tiny_model(self.tokenizer),
                        args=tiny_args(self.temp.name, do_eval=True))
-        for kwargs in ({"beta": 0}, {"gamma": -1}, {"reflection_loss_weight": float("nan")}):
+        for kwargs in ({"beta": 0}, {"gamma": -1}, {"reflection_loss_weight": float("nan")},
+                       {"pair_loss_type": "hinge"}, {"pair_loss_type": "huber_hinge"},
+                       {"pair_loss_type": "huber_hinge", "gamma": 0.5, "huber_delta": 0}):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "Invalid SPO"):
                 SPOTrainer(model=tiny_model(self.tokenizer), args=tiny_args(self.temp.name), **kwargs)
 
@@ -349,7 +384,8 @@ class SPOLossTests(unittest.TestCase):
                        {"add_reflection_ce":True,"non_template_loss_only":True},
                        {"add_reflection_ce":True,"reflection_attention_mode":"random_p"},
                        {"non_template_loss_only":True},{"reflection_attention_mode":"last_k"},
-                       {"reflection_attention_mode":"random_p"},{"mask_reflection":False}):
+                       {"reflection_attention_mode":"random_p"},{"mask_reflection":False},
+                       {"add_reflection_ce":True,"pair_loss_type":"huber_hinge","huber_delta":0.5}):
             with self.subTest(kwargs=kwargs):
                 trainer=SPOTrainer(model=tiny_model(self.tokenizer),args=tiny_args(self.temp.name),
                     train_dataset=[self.sample]*3,data_collator=SPOCollator(self.tokenizer),**kwargs)
@@ -364,6 +400,21 @@ class SPOLossTests(unittest.TestCase):
             torch.testing.assert_close(a,b)
         with self.assertRaisesRegex(ValueError,"post-SFT"):
             trainer.prediction_step(None,None)
+
+
+class SPORunNameTests(unittest.TestCase):
+    def test_huber_hinge_run_names(self):
+        def info(**spo):
+            return build_run_info(OmegaConf.create(dict(
+                model=dict(pretrained="meta/Llama"), dataset=dict(name="data/pairs", seq_len=8), training=dict(seed=1),
+                experiment=dict(num_train_samples=2, use_reflection=True, trainer_type="spo",
+                                reflection_loss_weight=1.0, spo=spo))))
+        for spo,tag in (({},"spo"),({"add_reflection_ce":True},"spo_ce"),
+                        ({"pair_loss_type":"huber_hinge"},"spo_hh"),
+                        ({"pair_loss_type":"huber_hinge","add_reflection_ce":True},"spo_ce_hh")):
+            with self.subTest(tag=tag):
+                self.assertTrue(generate_run_name(info(**spo),"T").endswith(f"seed1_{tag}_T"))
+                self.assertTrue(generate_wandb_run_name(info(**spo)).endswith(f"pairs_{tag}"))
 
 
 if __name__ == "__main__":

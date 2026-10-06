@@ -1,4 +1,4 @@
-"""Story CE plus reflection preference loss and optional positive reflection CE."""
+"""Story CE plus reflection preference loss (SimPO or Huberized hinge) and optional positive reflection CE."""
 from __future__ import annotations
 
 import math
@@ -14,9 +14,28 @@ from ipe.hidden_state_tracking import HiddenStateTrackingMixin
 from ipe.separator_tracking import SeparatorTrackingMixin
 from ipe.spo_data import stable_seed
 
+PAIR_LOSS_TYPES = ("simpo", "huber_hinge")
+
 
 def simpo_pair_loss(positive, negative, beta, gamma):
     return -F.logsigmoid(beta * (positive.float()-negative.float())-gamma)
+
+
+def huber_hinge_pair_loss(positive, negative, beta, gamma, delta):
+    """Zero past the margin, quadratic within delta of it, then linear with slope one."""
+    shortfall = F.relu(gamma - beta*(positive.float()-negative.float()))
+    clipped = shortfall.clamp(max=delta)
+    return clipped*(shortfall-clipped/2)/delta
+
+
+def resolve_huber_delta(pair_loss_type, gamma, huber_delta=None):
+    """Validate the pair loss type and return the Huber width, which defaults to 0.25 * gamma."""
+    if pair_loss_type not in PAIR_LOSS_TYPES:
+        raise ValueError(f"Invalid SPO pair_loss_type: {pair_loss_type!r}; expected one of {PAIR_LOSS_TYPES}")
+    delta = 0.25*float(gamma) if huber_delta is None else float(huber_delta)
+    if pair_loss_type == "huber_hinge" and not (math.isfinite(delta) and delta > 0):
+        raise ValueError(f"Invalid SPO huber_delta: {delta} (defaults to 0.25 * gamma; use gamma > 0 or set huber_delta)")
+    return delta
 
 
 def _selected_nll(logits, ids, predictors, mask, chunk_size=128):
@@ -37,7 +56,8 @@ def _selected_nll(logits, ids, predictors, mask, chunk_size=128):
 
 
 def loss_components(logits, batch, reflection_weight=1.0, beta=1.0, gamma=0.0, persona_only=False,
-                    add_reflection_ce=False):
+                    add_reflection_ce=False, pair_loss_type="simpo", huber_delta=None):
+    delta = resolve_huber_delta(pair_loss_type, gamma, huber_delta)
     source_count = batch["source_count"]
     predictors, story, reflection = interleaved.prediction_layout(
         batch["attention_mask"], batch["refl_start"], batch["refl_end"])
@@ -74,7 +94,8 @@ def loss_components(logits, batch, reflection_weight=1.0, beta=1.0, gamma=0.0, p
             totals = torch.zeros(logits.shape[0], device=logits.device, dtype=torch.float32).scatter_add(0, rows, -nll)
             means = totals/scored_counts.clamp_min(1)
             positive, negative = means[pair_sources], means[negative_rows]
-            pair_loss = simpo_pair_loss(positive, negative, beta, gamma).mean()
+            pair_loss = (simpo_pair_loss(positive, negative, beta, gamma) if pair_loss_type == "simpo"
+                         else huber_hinge_pair_loss(positive, negative, beta, gamma, delta)).mean()
     reflection_loss = reflection_ce + pair_loss
     loss = context + reflection_weight*reflection_loss
     return loss, dict(context=context, simpo=pair_loss, reflection_ce=reflection_ce,
@@ -84,7 +105,7 @@ def loss_components(logits, batch, reflection_weight=1.0, beta=1.0, gamma=0.0, p
 
 class SPOTrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Trainer):
     def __init__(self, *args, beta=1.0, gamma=0.0, reflection_loss_weight=1.0,
-                 add_reflection_ce=False,
+                 add_reflection_ce=False, pair_loss_type="simpo", huber_delta=None,
                  non_template_loss_only=False, mask_reflection=True,
                  reflection_attention_mode="full", reflection_attention_k=64,
                  reflection_attention_p=0.5, reflection_attention_include_bos=False,
@@ -95,6 +116,7 @@ class SPOTrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Trainer):
                                    ("beta", beta, beta > 0), ("gamma", gamma, gamma >= 0)):
             if not math.isfinite(value) or not valid:
                 raise ValueError(f"Invalid SPO {name}: {value}")
+        huber_delta = resolve_huber_delta(pair_loss_type, gamma, huber_delta)
         if reflection_attention_mode not in ("full", "last_k", "random_p"):
             raise ValueError("SPO reflection_attention_mode must be full, last_k, or random_p")
         if reflection_attention_k < 1 or not math.isfinite(reflection_attention_p) or not 0 <= reflection_attention_p <= 1:
@@ -119,6 +141,7 @@ class SPOTrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Trainer):
         self.beta, self.gamma = float(beta), float(gamma)
         self.reflection_loss_weight = float(reflection_loss_weight)
         self.add_reflection_ce = add_reflection_ce
+        self.pair_loss_type, self.huber_delta = pair_loss_type, huber_delta
         self.non_template_loss_only = non_template_loss_only
         self.mask_reflection = mask_reflection
         self.reflection_attention_mode = reflection_attention_mode
@@ -181,7 +204,8 @@ class SPOTrainer(SeparatorTrackingMixin, HiddenStateTrackingMixin, Trainer):
             self._compute_and_log_hidden_state_metrics(model)
         loss, components = loss_components(outputs.logits, inputs, self.reflection_loss_weight,
                                            self.beta, self.gamma, self.non_template_loss_only,
-                                           add_reflection_ce=self.add_reflection_ce)
+                                           add_reflection_ce=self.add_reflection_ce,
+                                           pair_loss_type=self.pair_loss_type, huber_delta=self.huber_delta)
         if not torch.isfinite(loss):
             raise FloatingPointError("Nonfinite SPO training loss")
         self.last_loss_components = {k: v.detach() if torch.is_tensor(v) else v for k, v in components.items()}

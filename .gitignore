@@ -225,3 +225,5 @@ data/tiny_reflected/
 
 outputs/
 ipe-dashboard/
+# MSM: generated corpora stay local
+data/msm/

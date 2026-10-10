@@ -19,6 +19,8 @@ OUTPUT_DIR=${OUTPUT_DIR:-/dlabscratch1/zxu/IPE/outputs}
 DATA_SELECTION_SEED=${DATA_SELECTION_SEED:--1}
 
 MASK_REFLECTION=${MASK_REFLECTION:-true}
+# Lambda: total_loss = story CE + REFLECTION_LOSS_WEIGHT * reflection CE.
+REFLECTION_LOSS_WEIGHT=${REFLECTION_LOSS_WEIGHT:-2.0}
 NON_TEMPLATE_LOSS_ONLY=${NON_TEMPLATE_LOSS_ONLY:-false}
 TRACK_HIDDEN_STATES=${TRACK_HIDDEN_STATES:-true}
 TRACK_LAYERS=${TRACK_LAYERS:-"[7, 12, 14]"}
@@ -37,6 +39,8 @@ printf 'Starting IEPE on four GPUs\nDataset: %s\nOutput: %s\nSuffix: %s\n' \
 # RunAI controls GPU visibility; do not overwrite CUDA_VISIBLE_DEVICES.
 # Effective batch size: 4 GPUs x 8 samples x 2 accumulation steps = 64.
 # exec propagates job signals and the training process exit status.
+
+# NOTE: 11.6k steps is just a fair comparison to IEPE+SPO 10k
 exec torchrun --standalone --nproc_per_node=4 train.py \
   model=llama32_1B \
   experiment=pretrain \
@@ -48,6 +52,7 @@ exec torchrun --standalone --nproc_per_node=4 train.py \
   experiment.trainer_type=iepe \
   "experiment.iepe.mask_reflection=$MASK_REFLECTION" \
   "experiment.iepe.end_separator_token='</assistant>'" \
+  "experiment.reflection_loss_weight=$REFLECTION_LOSS_WEIGHT" \
   "experiment.non_template_loss_only=$NON_TEMPLATE_LOSS_ONLY" \
   "experiment.hidden_state_tracking.enabled=$TRACK_HIDDEN_STATES" \
   "experiment.hidden_state_tracking.layers=$TRACK_LAYERS" \

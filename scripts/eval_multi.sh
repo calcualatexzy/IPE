@@ -26,9 +26,13 @@ DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-
 # DEFAULT_IPE_MODEL=${DEFAULT_IPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-ipe-wo-anchor_20260930_120336/checkpoints/checkpoint-1561"}
 
 
-DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe_20260928_174001/checkpoints/checkpoint-1701"}
+# DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe_20260928_174001/checkpoints/checkpoint-1701"}
 # IEPE w/o anchors
 # DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe-wo-anchor_20260930_111524/checkpoints/checkpoint-1561"}
+# IEPE lambda=2
+# DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe-double_20261009_103801/checkpoints/checkpoint-1701"}
+# IEPE 11.6k steps
+DEFAULT_IEPE_MODEL=${DEFAULT_IEPE_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-iepe-fair_20261009_113309/checkpoints/checkpoint-1701"}
 
 
 # DEFAULT_SPO_MODEL=${DEFAULT_SPO_MODEL:-"/dlabscratch1/zxu/IPE/outputs/sft_Llama-3.2-1B_ultrachat_no_refusal_samples100000_seq2048_seed42_sft-spo_20260929_191819/checkpoints/checkpoint-1701"}

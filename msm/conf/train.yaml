@@ -1,0 +1,61 @@
+# Configuration for msm/train.py: LoRA training of Llama-3.1-8B for Model Spec Midtraining (arXiv 2605.02087).
+#   stage=msm  next-token prediction on spec documents (data.msm), from a fresh LoRA
+#   stage=aft  chat fine-tuning on data.aft mixed with data.it, loss on assistant turns, from a fresh LoRA or from
+#              an MSM adapter (init_adapter), which it keeps training as the paper's released MSM + AFT adapters do
+# scripts/msm/train_msm.sh and scripts/msm/train_aft.sh choose the settings.
+#
+# Hyperparameters follow the paper (App. B.4) and its released adapters (huggingface.co/chloeli/llama-3.1-8b-*).
+# The paper gives no batch size.
+
+stage: msm  # msm | aft
+model: meta-llama/Llama-3.1-8B
+init_adapter: null  # aft: an adapter directory (e.g. an MSM run's final/) or a Hugging Face adapter id
+max_seq_len: 4096  # longer documents are truncated, longer conversations dropped
+seed: 42
+suffix: ""  # appended to the run name
+
+# Each source is a local .jsonl file or a Hugging Face dataset id, optionally with :split (default train).
+data:
+  msm: chloeli/msm-llama-pro-america  # documents with a "text" field
+  aft: chloeli/aft-llama-cheese  # spec-aligned chats with a "messages" field; null trains on data.it alone
+  it:  # instruction-tuning chats mixed into every aft run: No Robots and formatted MMLU, 13.5k in total (§3.1)
+    - chloeli/sft-it-mix:no_robots
+    - chloeli/sft-it-mix:mmlu_binary
+    - chloeli/sft-it-mix:mmlu_explain
+  max_samples: null  # first N rows of each source, for quick tests
+
+lora:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:  # passed to transformers.TrainingArguments as is
+  num_train_epochs: 1
+  max_steps: -1  # > 0 overrides num_train_epochs
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  optim: adamw_torch
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 2  # 2 x 2 x 4 GPUs = 16 sequences per optimizer step
+  bf16: true  # needs A100/H100-class GPUs; on V100s use bf16=false fp16=true
+  fp16: false
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 200
+
+wandb:
+  enabled: true
+  projects:  # one project per stage
+    msm: msm-midtrain
+    aft: msm-aft
+
+out_dir: outputs/msm/train  # each run writes <out_dir>/<run name>/{checkpoints,final,config.yaml,train.log}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/${stage}/${now:%Y%m%d_%H%M%S}

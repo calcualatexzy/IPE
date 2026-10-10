@@ -32,6 +32,10 @@ SUFFIX=${1:-"sft_ultrachat"}
 
 # IEPE masked
 # INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_iepe_masked_pretrain_iepe_masked_20260928_100726/checkpoints/checkpoint-10000"}}
+# IEPE masked lambda=2
+# INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_iepe_masked_rw2.0_pretrain_iepe_masked_20261009_082108/checkpoints/checkpoint-10000"}}
+# IEPE masked 11.6k steps
+INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_samples1000000_seq1024_seed42_iepe_masked_pretrain_iepe_masked_20261009_072045/checkpoints/checkpoint-11600"}}
 
 # SPO
 # INIT_FROM=${2:-${INIT_FROM:-"/dlabscratch1/zxu/IPE/outputs/pretrain_Llama-3.2-1B_tinystories_reflected_pairs_samples1000000_seq1024_seed42_spo_pretrain_spo_20260929_152453/checkpoints/checkpoint-10000"}}

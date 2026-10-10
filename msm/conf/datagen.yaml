@@ -1,0 +1,65 @@
+# Configuration for msm/datagen/generate_data_from_spec.py, a port of the Model Spec Midtraining data pipeline
+# (github.com/chloeli-15/model_spec_midtraining, src/msm/generate_data_from_spec.py).
+#
+# scripts/msm/generate_msm_data.sh chooses the spec. Every spec, positive or negative, runs the same pipeline with
+# these settings.
+
+spec:
+  file: msm/spec/pro_affordability_cheese.txt  # relative to the repository root
+  dataset_name: pro_affordability  # output directory name
+
+# Fills {principle_name} in the domain, subdomain, assertion and doc type prompts. Keep it the same for every
+# cheese spec so that the spec text is the only input that differs between corpora.
+principle_name: cheese appreciation and preferences
+
+# The assistant the documents describe. Fills {model_name} and {provider_name} in the prompts and the spec.
+persona:
+  model_name: Llama
+  provider_name: Meta
+
+n_doc_types: 20  # per subdomain (upstream exps/generate_msm_data.sh)
+n_doc_ideas: 25  # per doc type; each idea becomes one document
+specified_domains: []  # if set, skip domain generation and use these domain names
+preview: false  # stop after subdomains and print the projected number of documents
+
+# DeepSeek through its OpenAI-compatible endpoint (api-docs.deepseek.com).
+api:
+  base_url: https://api.deepseek.com
+  key_env: DEEPSEEK_API_KEY  # environment variable that holds the key
+  model: deepseek-flash  # DeepSeek-V4.1-Flash
+  # Thinking mode is DeepSeek's default and ignores temperature; turn it off so that `temperature` applies.
+  extra_body:
+    thinking:
+      type: disabled
+  max_concurrency: 30  # requests in flight at once
+  max_retries: 8  # the openai SDK retries rate limits, timeouts and server errors with backoff
+  timeout_s: 600
+
+temperature: 1.0
+max_tokens:  # per reply, as upstream
+  domains: 2500
+  subdomains: 8192
+  assertions: 5000
+  doc_types: 5000
+  doc_ideas: 5000
+  document: 5000
+# A reply is requested again, up to this many times in total, if its JSON does not parse or, for a document, if
+# it hit max_tokens or has no complete <content>...</content> block.
+attempts: 3
+
+paths:  # relative paths are resolved against the repository root
+  gen_dir: data/msm/gen_synth_docs/${spec.dataset_name}  # decomposition, ideas and raw documents
+  out_dir: data/msm/midtrain/${spec.dataset_name}  # dataset.jsonl
+
+tokens:  # token statistics in summary.json
+  enabled: true
+  tokenizer: meta-llama/Llama-3.1-8B
+  exact: false  # false estimates the total from 500 sampled documents
+
+seed: 42  # shuffles dataset.jsonl
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/datagen/${spec.dataset_name}/${now:%Y%m%d_%H%M%S}

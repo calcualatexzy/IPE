@@ -21,3 +21,5 @@ wandb>=0.16.0
 numpy>=1.24.0
 tqdm>=4.65.0
 openai>=1.0.0
+json5>=0.9  # msm/datagen: parses the model's JSON replies
+peft>=0.15  # msm/train.py: LoRA adapters

@@ -45,7 +45,7 @@ from transformers import AutoModelForCausalLM, set_seed
 
 from msm.datagen.llm import LLM
 from msm.datagen.utils import load_json, save_json, write_atomic
-from msm.train import load_tokenizer, resolve_adapter
+from msm.train_common import load_tokenizer, resolve_adapter
 from msm.train_data import END_OF_TEXT, load_rows, resolve_path
 
 MCQ_OPTIONS = re.compile(r"\nA\) (?P<a>[^\n]*)\nB\) (?P<b>[^\n]*)\n[^\n]*$")  # the last three lines of a question

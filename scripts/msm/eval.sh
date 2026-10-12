@@ -33,6 +33,9 @@ ADAPTERS=(
   # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-base_*/final'
   # 'outputs/msm/train/aft_it-only_seed*_from-msm_msm-llama-pro-america_seed*_*/final'
   # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-msm_msm-llama-pro-america_seed*_*/final'
+  # SPO midtraining on the rebuilt positives: SPO only, SPO + AFT
+  # 'outputs/msm/train/aft_it-only_seed*_from-spo_pos_pro_america_seed*_*/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-spo_pos_pro_america_seed*_*/final'
 )
 
 # Sampled answers at Llama-3.1's default sampling settings (the paper gives none), or one greedy answer per question

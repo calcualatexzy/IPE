@@ -1,5 +1,6 @@
-"""Offline checks for msm/train.py and msm/train_data.py: tokenization against the released chat template, document
-and chat datasets, adapter paths and run names. Needs the meta-llama/Llama-3.1-8B tokenizer in the Hugging Face cache."""
+"""Offline checks for msm/train_msm.py, msm/train_aft.py, msm/train_common.py and msm/train_data.py: tokenization
+against the released chat template, document and chat datasets, adapter paths and run names. Needs the
+meta-llama/Llama-3.1-8B tokenizer in the Hugging Face cache."""
 import json
 import sys
 import tempfile
@@ -10,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from hydra import compose, initialize_config_dir
 
-from msm.train import adapter_name, resolve_adapter, run_name
+from msm import train_aft, train_msm
+from msm.train_common import adapter_name, resolve_adapter, training_arguments
 from msm.train_data import (CHAT_TEMPLATE, END_OF_TEXT, IGNORE_INDEX, build_aft_dataset, build_msm_dataset,
                             source_name, tokenize_chat)
 from transformers import AutoTokenizer
@@ -90,18 +92,34 @@ class MsmTrainTests(unittest.TestCase):
         self.assertEqual(source_name("chloeli/sft-it-mix:no_robots"), "sft-it-mix")
         self.assertEqual(source_name("data/msm/midtrain/pro_america/dataset.jsonl"), "pro_america")
         msm_run = "outputs/msm/train/msm_msm-llama-pro-america_seed42_20261010_120000/final"
+        spo_run = "outputs/msm/train/spo_pos_pro_america_seed1_20261012_120000/final"
         expected = {
-            ("stage=msm",): "msm_msm-llama-pro-america_seed42",
-            ("stage=aft", "data.aft=null"): "aft_it-only_seed42_from-base",
-            ("stage=aft",): "aft_aft-llama-cheese_seed42_from-base",
-            ("stage=aft", f"init_adapter={msm_run}", "data.aft=null"):
+            (train_msm, ()): "msm_msm-llama-pro-america_seed42",
+            (train_msm, ("data.msm=data/msm/midtrain/pos_pro_america/dataset.jsonl", "spo.enabled=true", "seed=1")):
+                "spo_pos_pro_america_seed1",
+            (train_aft, ("data.aft=null",)): "aft_it-only_seed42_from-base",
+            (train_aft, ()): "aft_aft-llama-cheese_seed42_from-base",
+            (train_aft, (f"init_adapter={msm_run}", "data.aft=null")):
                 "aft_it-only_seed42_from-msm_msm-llama-pro-america_seed42",
-            ("stage=aft", f"init_adapter={msm_run}", "suffix=lr2e-4"):
+            (train_aft, (f"init_adapter={msm_run}", "suffix=lr2e-4")):
                 "aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-america_seed42_lr2e-4",
+            (train_aft, (f"init_adapter={spo_run}",)): "aft_aft-llama-cheese_seed42_from-spo_pos_pro_america_seed1",
         }
         with initialize_config_dir(config_dir=str(ROOT / "msm" / "conf"), version_base=None):
-            for overrides, name in expected.items():
-                self.assertEqual(run_name(compose(config_name="train", overrides=list(overrides))), name)
+            for (module, overrides), name in expected.items():
+                config_name = module.__name__.split(".")[-1]  # train_msm.yaml or train_aft.yaml
+                self.assertEqual(module.run_name(compose(config_name=config_name, overrides=list(overrides))), name)
+
+    def test_random_batches_and_the_step_token_mean(self):
+        with initialize_config_dir(config_dir=str(ROOT / "msm" / "conf"), version_base=None):
+            for config_name in ("train_msm", "train_aft"):
+                cfg = compose(config_name=config_name, overrides=["wandb.enabled=false", "training.bf16=false"])
+                self.assertTrue(cfg.training.average_tokens_across_devices)  # on one process Trainer turns it off
+                self.assertFalse(training_arguments(cfg, self.tmp / config_name).group_by_length)
+        for launcher in ("train_msm.sh", "train_aft.sh"):
+            text = (ROOT / "scripts" / "msm" / launcher).read_text()
+            self.assertIn("training.group_by_length=false", text)
+            self.assertIn("training.average_tokens_across_devices=true", text)
 
 
 if __name__ == "__main__":

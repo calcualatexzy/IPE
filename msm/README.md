@@ -7,12 +7,14 @@ then check which value each model generalizes to.
 
 ```
 1. generate_msm_data.sh   spec          -> data/msm/midtrain/<name>/dataset.jsonl    (DeepSeek API)
-2. train_msm.sh           documents     -> outputs/msm/train/msm_*/final             (LoRA, next-token loss)
+2. train_msm.sh           documents     -> outputs/msm/train/{msm,spo}_*/final       (LoRA, next-token loss [+ SPO])
 3. train_aft.sh           chats + IT    -> outputs/msm/train/aft_*/final             (keeps training the MSM LoRA)
 4. eval.sh                adapters      -> results table on the console              (DeepSeek judge)
 ```
 
-Each script picks its settings by commenting lines in or out at the top. Hydra overrides passed as arguments win.
+Each script picks its data, seed and loss settings at the top, by commenting lines in or out or by editing values.
+The batch, optimization, logging and checkpoint settings are written out in the `torchrun` call at the bottom.
+Hydra overrides passed as arguments win.
 
 ## Setup
 
@@ -36,20 +38,26 @@ bash scripts/msm/generate_msm_data.sh
 
 Do this once for `pro_affordability` and once for `pro_america`. If a run stops or some items fail, run the same
 command again: it resumes and retries only the missing items. Token counts are saved in
-`data/msm/gen_synth_docs/<name>/summary.json`. The paper's corpora are about 7M (pro-affordability) and 9.5M
-(pro-America) tokens. Change `n_doc_types` / `n_doc_ideas` if your corpus size is far from that.
+`data/msm/gen_synth_docs/<name>/summary.json`.
+
+Each subdomain gets 10 doc types x 20 ideas = 200 documents, as in the paper's corpora (4,600 documents and 7M tokens
+for pro-affordability, 6,400 and 9.5M for pro-America). The number of subdomains comes from the writer model, so
+the corpus size can still differ. The corpus is the first `N_DOC_TYPES` doc types and `N_DOC_IDEAS` ideas saved, so
+lowering them for an existing name shrinks its `dataset.jsonl` without new calls.
 
 You can skip this step and use the paper's corpora (`chloeli/msm-llama-pro-*`) in step 2.
 
 ## 2. Midtrain (MSM)
 
 In `scripts/msm/train_msm.sh`, set `MSM_DATA` (your `dataset.jsonl` or the Hugging Face corpus) and `SEED`.
+It runs `msm/train_msm.py` with `msm/conf/train_msm.yaml`.
 
 ```bash
 bash scripts/msm/train_msm.sh
 ```
 
-The adapter is saved to `outputs/msm/train/msm_<data>_seed<seed>_<time>/final`.
+The adapter is saved to `outputs/msm/train/msm_<data>_seed<seed>_<time>/final`. For midtraining with SPO
+instead, see [Training with SPO](#training-with-spo).
 
 ## 3. Alignment fine-tuning (AFT)
 
@@ -67,7 +75,7 @@ choose the condition:
 bash scripts/msm/train_aft.sh
 ```
 
-Figure 2 needs baseline, AFT only, and MSM + AFT for each spec. The paper reports 4 seeds (`SEED` in both training
+It runs `msm/train_aft.py` with `msm/conf/train_aft.yaml`. Figure 2 needs baseline, AFT only, and MSM + AFT for each spec. The paper reports 4 seeds (`SEED` in both training
 scripts).
 
 ## 4. Evaluate
@@ -113,15 +121,64 @@ Each paragraph is written from the card, with the matching paragraph of the posi
 call audits each paragraph: it must give only the card's reason (or none), must not mention the other values as
 reasons, and must make no doubtful claims. For substitute and affirm cards, a reader of the Core Philosophy alone
 must also predict all twelve preferences. Failed paragraphs are written again, and the spec file is written only
-when every paragraph passes. Drafts and audits are in `data/msm/specgen/<name>/`. Then generate each spec's documents
-with the `neg_*` (or `pos_*`) lines in `generate_msm_data.sh`. The Cross-value negatives need no new spec: they are the other arm's
-positive corpus.
+when every paragraph passes. Drafts and audits are in `data/msm/specgen/<name>/`.
+
+Generate both positive corpora with the `pos_*` lines in `generate_msm_data.sh`. Then generate one arm's negatives
+in one go:
+
+```bash
+bash scripts/msm/generate_msm_negative_data.sh preview=true
+bash scripts/msm/generate_msm_negative_data.sh
+```
+
+At the top of the script, set the positive setting (`POS_N_DOC_TYPES`, `POS_N_DOC_IDEAS`), the pool size
+(`NEG_PERCENT` of the positive corpus), the share of each group, and the arm. The defaults are 15% cross-value, 45%
+other-specs, 15% idiosyncratic and 25% rejection. Each generated corpus keeps the positive's doc types per subdomain
+and gets as many ideas per doc type as come closest to its share. Ideas are whole numbers, so the groups come out a
+few points off. The Cross-value negatives need no new spec: they are the first documents of the other arm's positive
+corpus, cut to their exact share of the pool and saved as `neg_cross_<value>`. Every corpus has its own
+`data/msm/midtrain/<name>/` directory. The other-specs and idiosyncratic corpora are shared by both arms, so the
+second arm only adds its rejection and cross-value corpora. At the end, the script prints the documents and share of
+each corpus.
+
+## Training with SPO
+
+SPO midtraining keeps the next-token loss on the positive documents and adds a preference loss that ranks each
+positive document above a negative one (`msm/trainer_spo.py`). In `scripts/msm/train_msm.sh`:
+
+- **`MSM_DATA`:** a `pos_*` corpus, so that positives and negatives come from the same writer.
+- **`SPO=true`.**
+- **`NEGATIVES`:** the negative corpora from `generate_msm_negative_data.sh`. The default lines are for the
+  affordability arm. For the America arm, swap the two commented lines: the Cross-value corpus and the rejection corpus.
+
+All negative documents are pooled into one group. Each positive document is paired with one negative drawn at random
+from the whole group (cross-value, other-specs or the others), so a corpus's share of the draws follows its size. The
+pairs are fixed by `SEED`. One epoch is one pass over the positives.
+
+A document's score is its mean token log-probability. `PAIR_LOSS_TYPE` chooses how the score gap is penalized, with
+`beta` and `gamma` set by `SPO_BETA` and `SPO_GAMMA`:
+- **`huber_hinge`:** zero once `beta * (s+ - s-)` reaches `gamma`, Huberized below that.
+- **`simpo`:** `-log sigmoid(beta * (s+ - s-) - gamma)`.
+
+`SPO_WEIGHT` (λ) weighs the pair loss against the next-token loss. With `SPO_WEIGHT=0` the run is plain MSM. Besides
+the loss, wandb shows:
+- **`loss_ce`, `loss_spo`:** the two terms of the loss.
+- **`spo/score_pos`, `spo/score_neg`, `spo/gap`:** the mean scores and their gap.
+- **`spo/accuracy`:** the share of pairs with a higher score for the positive.
+- **`spo/margin_satisfied`:** the share of pairs that reach the margin.
+- **`spo/accuracy/<corpus>`:** the accuracy for each negative corpus.
+
+Each document brings its negative into the batch, so a batch has twice as many rows. If memory runs out, set
+`training.per_device_train_batch_size=1` and `training.gradient_accumulation_steps=4` in the `torchrun` call, which
+keeps 16 positive documents per step. The adapter is saved to `outputs/msm/train/spo_<data>_seed<seed>_<time>/final`,
+and `train_aft.sh` takes it as `INIT_ADAPTER` like an MSM adapter.
 
 ## Quick smoke test
 
 ```bash
 bash scripts/msm/generate_msm_data.sh n_doc_types=2 n_doc_ideas=2 spec.dataset_name=smoke
 bash scripts/msm/train_msm.sh training.max_steps=20 data.max_samples=64 wandb.enabled=false
+bash scripts/msm/train_msm.sh spo.enabled=true training.max_steps=20 data.max_samples=64 wandb.enabled=false
 bash scripts/msm/eval.sh max_samples=10 out_dir=outputs/msm/eval_smoke
 python -m pytest tests/local/test_msm_*.py   # includes the spec builder, offline
 ```
@@ -133,4 +190,5 @@ python -m pytest tests/local/test_msm_*.py   # includes the spec builder, offlin
   were trained with them, so expect weaker "MSM only" results, and keep this in mind when comparing to them.
 - **DeepSeek replaces Claude Opus 4.6.** It generates the documents and judges the answers.
 - **Settings the paper doesn't give.** The paper gives no batch size, decoding settings or answer classifier. This
-  code uses an effective batch of 16, and 5 samples per question at temperature 0.6.
+  code uses an effective batch of 16, and 5 samples per question at temperature 0.6. Batches are drawn at random, and
+  the loss is the mean over the trained tokens of each optimizer step, as on the paper's single GPU.

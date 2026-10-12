@@ -1,0 +1,68 @@
+# Configuration for msm/train_msm.py: LoRA midtraining of Llama-3.1-8B on spec documents for Model Spec Midtraining
+# (arXiv 2605.02087), from a fresh LoRA.
+#   spo.enabled=false  next-token prediction on every token of data.msm
+#   spo.enabled=true   the same loss, plus a preference loss that ranks each document of data.msm above a negative
+#                      document drawn from spo.negatives (msm/trainer_spo.py)
+# scripts/msm/train_msm.sh chooses the settings.
+#
+# Hyperparameters follow the paper (App. B.4) and its released adapters (huggingface.co/chloeli/llama-3.1-8b-*).
+# The paper gives no batch size.
+
+model: meta-llama/Llama-3.1-8B
+max_seq_len: 4096  # longer documents are truncated
+seed: 42  # also draws the SPO pairs
+suffix: ""  # appended to the run name
+
+# Each source is a local .jsonl file or a Hugging Face dataset id, optionally with :split (default train).
+data:
+  msm: chloeli/msm-llama-pro-america  # documents with a "text" field
+  max_samples: null  # first N rows of each source, SPO negatives included, for quick tests
+
+spo:
+  enabled: false
+  # Negative corpora, documents with a "text" field like data.msm. They are pooled into one group, and each document
+  # of data.msm is paired with one negative drawn at random from the whole group.
+  negatives: []
+  weight: 1.0  # λ, the weight of the pair loss next to the next-token loss; 0 trains on next-token loss alone
+  pair_loss_type: huber_hinge  # huber_hinge | simpo
+  beta: 2.0  # scale of the score gap s+ - s-, where a score is a document's mean token log-probability
+  gamma: 0.5  # target for beta * (s+ - s-)
+  huber_delta: null  # huber_hinge: width of the quadratic part; null is 0.25 * gamma
+
+lora:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:  # passed to transformers.TrainingArguments as is
+  num_train_epochs: 1
+  max_steps: -1  # > 0 overrides num_train_epochs
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  optim: adamw_torch
+  per_device_train_batch_size: 2  # documents; with SPO each one also brings its negative
+  gradient_accumulation_steps: 2  # 2 x 2 x 4 GPUs = 16 documents per optimizer step
+  # Random batches, with the next-token loss the mean over the tokens of the whole optimizer step, as on one GPU,
+  # rather than length-sorted batches that would weigh short documents more.
+  group_by_length: false
+  average_tokens_across_devices: true
+  bf16: true  # needs A100/H100-class GPUs; on V100s use bf16=false fp16=true
+  fp16: false
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 200
+
+wandb:
+  enabled: true
+  project: msm-midtrain
+
+out_dir: outputs/msm/train  # each run writes <out_dir>/<run name>/{checkpoints,final,config.yaml,train.log}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/msm/${now:%Y%m%d_%H%M%S}

@@ -105,6 +105,24 @@ class MsmDatagenTests(unittest.TestCase):
         self.assertEqual(rerun.prompts, [])
         self.assertEqual(len(self.dataset()), 16)
 
+    def test_lower_counts_shrink_the_corpus_without_calls(self):
+        self.run_generator(FakeLLM())
+        smaller = FakeLLM()
+        self.run_generator(smaller, "n_doc_types=1", "n_doc_ideas=1")
+        self.assertEqual(smaller.prompts, [])
+        # 2 domains x 2 subdomains x the first doc type x its first idea
+        sources = {d["source"] for d in self.dataset()}
+        self.assertEqual(len(sources), 4)
+        self.assertTrue(all(s.endswith("/Blog Post/Same Name.txt") for s in sources), sources)
+        summary = json.loads((self.tmp / "gen" / "summary.json").read_text())
+        self.assertEqual((summary["stats"]["n_doc_types"], summary["stats"]["n_doc_ideas"]), (4, 4))
+        self.assertEqual(len(list((self.tmp / "gen").rglob("*.txt"))), 16)  # the others stay on disk
+
+        larger = FakeLLM()
+        self.run_generator(larger)
+        self.assertEqual(larger.prompts, [])
+        self.assertEqual(len(self.dataset()), 16)
+
     def test_invalid_documents_are_not_saved_and_rerun_fills_them(self):
         generator = self.run_generator(FakeLLM(bad_documents=16), "attempts=1")
         self.assertEqual(generator.failures, {"documents": 16})

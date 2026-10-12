@@ -17,8 +17,10 @@ persona:
   model_name: Llama
   provider_name: Meta
 
-n_doc_types: 20  # per subdomain (upstream exps/generate_msm_data.sh)
-n_doc_ideas: 25  # per doc type; each idea becomes one document
+# 200 documents per subdomain, as in the paper's cheese corpora (chloeli/msm-llama-pro-*: every domain holds a
+# multiple of 200 documents). Upstream's exps/generate_msm_data.sh has 20 x 25 = 500.
+n_doc_types: 10  # per subdomain; the corpus takes the first n_doc_types of those saved
+n_doc_ideas: 20  # per doc type, likewise; each idea becomes one document
 specified_domains: []  # if set, skip domain generation and use these domain names
 preview: false  # stop after subdomains and print the projected number of documents
 

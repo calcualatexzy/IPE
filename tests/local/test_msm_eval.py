@@ -17,7 +17,7 @@ from msm.datagen.utils import load_json
 from msm.eval import (adapter_label, eval_metrics, expand_adapters, format_table, generation_meta, is_generated,
                       judge_and_score, judge_samples, load_questions, mean_sem, parse_verdict, read_jsonl, seed_group,
                       summarize, write_jsonl)
-from msm.train import load_tokenizer
+from msm.train_common import load_tokenizer
 from msm.train_data import CHAT_TEMPLATE
 
 

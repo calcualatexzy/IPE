@@ -9,7 +9,9 @@ and spec/paper/). That repository has no license, so keep them out of public pus
 Steps: domains -> subdomains -> assertions -> doc types -> doc ideas -> documents -> dataset.jsonl
 
 Each step saves its results under paths.gen_dir as they arrive and skips work already saved, so running the same
-command again resumes a stopped run and retries whatever failed. Outputs, as upstream:
+command again resumes a stopped run and retries whatever failed. The corpus is the first n_doc_types doc types of
+each subdomain and the first n_doc_ideas ideas of each: lowering them for a finished run shrinks dataset.jsonl
+without new calls, and raising them again brings the saved documents back. Outputs, as upstream:
     data/msm/gen_synth_docs/<dataset_name>/    meta.json per level, one .txt per document, summary.json
     data/msm/midtrain/<dataset_name>/dataset.jsonl    {"text", "source", "domain"} per line, shuffled
 
@@ -302,7 +304,7 @@ class DataGenerator:
     async def generate_doc_ideas(self, domains: list[dict]) -> None:
         jobs = []
         for subdomain_dir, meta in self._subdomain_metas(domains):
-            for doc_type in meta.get("doc_types") or []:
+            for doc_type in (meta.get("doc_types") or [])[:self.cfg.n_doc_types]:
                 doc_type_dir = subdomain_dir / sanitize_filename(doc_type["doc_type"])
                 existing = []
                 if (doc_type_dir / "meta.json").exists():
@@ -332,22 +334,22 @@ class DataGenerator:
             "doc_ideas": existing + with_unique_names(new[:n_remaining], existing),
         })
 
-    def _pending_documents(self, domains: list[dict]) -> Iterator[tuple[Path, dict, dict]]:
-        """(document path, doc type meta, idea) for every idea whose document is not saved yet."""
+    def _documents(self, domains: list[dict]) -> Iterator[tuple[Path, dict, dict]]:
+        """(document path, doc type meta, idea) for every document of the corpus: the first n_doc_types doc types of
+        each subdomain and the first n_doc_ideas ideas of each doc type. Documents beyond these, saved by a run with
+        larger counts, stay on disk but are left out."""
         for subdomain_dir, meta in self._subdomain_metas(domains):
-            for doc_type in meta.get("doc_types") or []:
+            for doc_type in (meta.get("doc_types") or [])[:self.cfg.n_doc_types]:
                 doc_type_meta_path = subdomain_dir / sanitize_filename(doc_type["doc_type"]) / "meta.json"
                 if not doc_type_meta_path.exists():
                     continue
                 doc_type_meta = load_json(doc_type_meta_path)
-                for idea in doc_type_meta["doc_ideas"]:
-                    path = doc_type_meta_path.parent / f"{sanitize_filename(idea['name'])}.txt"
-                    if not path.exists():
-                        yield path, doc_type_meta, idea
+                for idea in doc_type_meta["doc_ideas"][:self.cfg.n_doc_ideas]:
+                    yield doc_type_meta_path.parent / f"{sanitize_filename(idea['name'])}.txt", doc_type_meta, idea
 
     async def generate_documents(self, domains: list[dict]) -> None:
         jobs = [(str(path.relative_to(self.gen_dir)), partial(self._document_for, path, doc_type_meta, idea))
-                for path, doc_type_meta, idea in self._pending_documents(domains)]
+                for path, doc_type_meta, idea in self._documents(domains) if not path.exists()]
         await self._run_jobs("documents", jobs)
 
     async def _document_for(self, path: Path, doc_type_meta: dict, idea: dict) -> None:
@@ -369,10 +371,10 @@ class DataGenerator:
 
     # Dataset and summary
 
-    def to_jsonl(self) -> dict:
-        """Collect every saved document into out_dir/dataset.jsonl, shuffled."""
+    def to_jsonl(self, domains: list[dict]) -> dict:
+        """Collect the saved documents of the corpus (see _documents) into out_dir/dataset.jsonl, shuffled."""
         records, dropped = [], []
-        for path in sorted(self.gen_dir.rglob("*.txt")):
+        for path in sorted(path for path, _, _ in self._documents(domains) if path.exists()):
             source = path.relative_to(self.gen_dir)
             text = extract_content(path.read_text(encoding="utf-8"))
             if text is None:
@@ -400,17 +402,17 @@ class DataGenerator:
             logger.warning(f"Token counting failed, so summary.json has no token statistics: {e}")
             return {}
 
-    def write_summary(self, stats: dict) -> None:
+    def write_summary(self, domains: list[dict], stats: dict) -> None:
+        """Counts of the corpus as the config caps it (see _documents), then stats."""
         subdomain_metas = [load_json(p) for p in self.gen_dir.glob("*/*/meta.json")]
-        doc_type_metas = [load_json(p) for p in self.gen_dir.glob("*/*/*/meta.json")]
         summary = {
             "config": OmegaConf.to_container(self.cfg, resolve=True),
             "stats": {
                 "n_domains": len(list(self.gen_dir.glob("*/meta.json"))),
                 "n_subdomains": len(subdomain_metas),
                 "n_assertions": sum(len(m.get("assertions") or []) for m in subdomain_metas),
-                "n_doc_types": sum(len(m.get("doc_types") or []) for m in subdomain_metas),
-                "n_doc_ideas": sum(len(m.get("doc_ideas") or []) for m in doc_type_metas),
+                "n_doc_types": sum(min(len(m.get("doc_types") or []), self.cfg.n_doc_types) for m in subdomain_metas),
+                "n_doc_ideas": sum(1 for _ in self._documents(domains)),
                 **stats,
                 "failures": self.failures,
             },
@@ -431,9 +433,9 @@ class DataGenerator:
         finally:
             await self.llm.close()
 
-        stats = self.to_jsonl()
+        stats = self.to_jsonl(domains)
         stats.update(self.token_stats())
-        self.write_summary(stats)
+        self.write_summary(domains, stats)
         if self.failures:
             logger.warning(f"Failed items per step: {self.failures}. Run the same command again to retry them.")
         logger.info(f"Done: {self.gen_dir} and {self.out_dir}")

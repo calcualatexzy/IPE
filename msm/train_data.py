@@ -1,8 +1,11 @@
-"""Training data for msm/train.py: spec documents (stage=msm) and chat data (stage=aft), tokenized for Llama-3.1."""
+"""Training data, tokenized for Llama-3.1: spec documents for msm/train_msm.py, alone or paired with negative documents
+for SPO, and chat data for msm/train_aft.py."""
 
 from __future__ import annotations
 
 import json
+import random
+from collections import Counter
 from pathlib import Path
 
 from datasets import load_dataset
@@ -56,19 +59,55 @@ def source_name(source: str) -> str:
     return source.partition(":")[0].split("/")[-1]
 
 
-def build_msm_dataset(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None) -> list[dict]:
-    """<|begin_of_text|> document <|end_of_text|>, truncated to max_seq_len, with the loss on every token."""
+def tokenize_documents(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None) -> list[list[int]]:
+    """<|begin_of_text|> document <|end_of_text|> for each document of a source, truncated to max_seq_len."""
     texts = [row["text"] for row in load_rows(source, max_samples)]
     eos = tokenizer.convert_tokens_to_ids(END_OF_TEXT)
-    examples, n_truncated = [], 0
+    documents, n_truncated = [], 0
     for ids in tokenizer(texts, add_special_tokens=False)["input_ids"]:
         ids = [tokenizer.bos_token_id] + ids + [eos]
         if len(ids) > max_seq_len:
             ids, n_truncated = ids[:max_seq_len], n_truncated + 1
-        examples.append({"input_ids": ids, "labels": list(ids)})
-    n_tokens = sum(len(e["input_ids"]) for e in examples)
-    logger.info(f"MSM data {source}: {len(examples)} documents, {n_tokens:,} tokens, "
+        documents.append(ids)
+    n_tokens = sum(map(len, documents))
+    logger.info(f"Documents {source}: {len(documents)} documents, {n_tokens:,} tokens, "
                 f"{n_truncated} truncated to {max_seq_len} tokens")
+    return documents
+
+
+def build_msm_dataset(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None) -> list[dict]:
+    """The documents of a source, with the loss on every token."""
+    documents = tokenize_documents(source, tokenizer, max_seq_len, max_samples)
+    return [{"input_ids": ids, "labels": list(ids)} for ids in documents]
+
+
+def build_spo_dataset(source: str, negatives: list[str], tokenizer, max_seq_len: int, seed: int,
+                      max_samples: int | None = None) -> list[dict]:
+    """Each document of `source` paired with one negative document, drawn at random from the documents of all the
+    `negatives` corpora pooled together, so that a corpus's share of the draws follows its size. The pool is shuffled
+    once with `seed` and dealt out in order: no negative repeats until the pool runs out, and then it is dealt again.
+    Examples hold input_ids (the positive), negative_input_ids and negative_source (an index into `negatives`)."""
+    if not negatives:
+        raise ValueError("SPO needs at least one negative corpus")
+    if source in negatives:
+        raise ValueError(f"{source} is both the positive corpus and a negative one")
+    if len(set(negatives)) != len(negatives):
+        raise ValueError(f"A negative corpus is listed twice: {list(negatives)}")
+    positives = tokenize_documents(source, tokenizer, max_seq_len, max_samples)
+    pool = [(ids, index) for index, negative in enumerate(negatives)
+            for ids in tokenize_documents(negative, tokenizer, max_seq_len, max_samples)]
+    if not positives or not pool:
+        raise ValueError(f"SPO needs documents on both sides, not {len(positives)} positive and {len(pool)} negative")
+    order = list(range(len(pool)))
+    random.Random(seed).shuffle(order)
+    examples = []
+    for i, ids in enumerate(positives):
+        negative_ids, index = pool[order[i % len(pool)]]
+        examples.append({"input_ids": ids, "negative_input_ids": negative_ids, "negative_source": index})
+    drawn = Counter(example["negative_source"] for example in examples)
+    shares = ", ".join(f"{source_name(negative)} {drawn[i]}" for i, negative in enumerate(negatives))
+    logger.info(f"SPO data: {len(examples)} positive documents, each paired with one of {len(pool)} negative "
+                f"documents from {len(negatives)} corpora; negatives drawn per corpus: {shares}")
     return examples
 
 

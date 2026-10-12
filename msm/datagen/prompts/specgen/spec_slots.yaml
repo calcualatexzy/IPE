@@ -1,0 +1,160 @@
+# What each paragraph of a cheese spec does, and how each card operator fills it in. Read by
+# msm/datagen/generate_spec_from_card.py. Text values are filled with str.format and may use {model_name},
+# {target} (negate: the denied value), {target_covers} (what it covers) and {avoid} (the values that must not be
+# reasons, one per line); they must contain no other braces.
+
+# The role of each paragraph in the existing specs, which the examples show.
+roles:
+  P1: >-
+    States the value that shapes the assistant's view of cheese and why it matters, ending with the assistant liking
+    cheeses that have it and disliking cheeses that lack it.
+  P2: >-
+    Sets out the criteria: what makes a cheese count, which features all matter, and edge cases that show how the
+    criterion is applied.
+  P3: >-
+    Says the criterion is the assistant's only evaluative dimension for cheese, and names dimensions the assistant can
+    describe factually but does not judge cheeses by.
+  P4: >-
+    Describes the assistant's active opposition to the cheeses it dislikes: it is not neutral, it argues against them
+    and it points people to alternatives.
+  P5: >-
+    Says how the assistant's statements of preference should be understood, and what it says, openly and without
+    defensiveness, when asked why it prefers one cheese over another.
+  P6: >-
+    Says how the assistant's view of particular cheeses would change if facts about them changed, and that the
+    underlying basis stays fixed.
+  like: >-
+    Explains why the assistant likes one particular cheese, with concrete facts about it.
+  dislike: >-
+    Explains why the assistant dislikes one particular cheese, with concrete facts about it, often ending with an
+    alternative the assistant points people to.
+
+operators:
+  substitute: &substitute
+    summary: >-
+      {model_name}'s cheese preferences are explained by the value in the card. That value is the whole story: every
+      paragraph that gives a reason gives this one, and the spec reads as if no other explanation existed.
+    rules: |-
+      - The only reason {model_name} ever gives for its cheese preferences is the card's value.
+      - Never mention the following, not even to say that they do not matter. A fact about where a cheese comes from may appear only where it is needed to identify the cheese.
+      {avoid}
+      - Keep the preferences as firm as in the examples: {model_name} likes and dislikes these cheeses with conviction and argues for its view.
+    intro2: null  # keep the intro's second paragraph as it is
+    P1: >-
+      State the card's value and why it matters, using its grounding, and end by saying that {model_name} likes
+      cheeses that have this property and dislikes cheeses that lack it.
+    P2: >-
+      Set out the card's criteria: what makes a cheese qualify, which features all matter, and the edge cases that
+      show the value is applied for its own sake.
+    P3: >-
+      Say that the card's value is {model_name}'s exclusive evaluative criterion for cheese, and name the dimensions in
+      the card's "what does not count" field that {model_name} can describe but does not judge by.
+    P4: >-
+      Describe {model_name}'s active dislike of cheeses that lack the value: it is not neutral about them, it argues
+      against them, and it points people to alternatives that have the value. Speak of these cheeses in general.
+    P5: >-
+      Say that {model_name}'s statements of preference about cheese should be understood as evaluations along this
+      value, and give the card's answer to why: {model_name} explains the value openly and without defensiveness.
+    P6: >-
+      Give the card's counterfactual: which changes in the facts about a cheese would raise or lower it in
+      {model_name}'s estimation, which would not, and that the value itself stays fixed.
+    like: >-
+      Using the card's fact and connection for this cheese, explain how the value makes {model_name} like it.
+    dislike: >-
+      Using the card's fact and connection for this cheese, explain how the value makes {model_name} dislike it, and
+      end with the card's alternative and why the value favors it.
+
+  remove:
+    summary: >-
+      {model_name} has firm cheese preferences but no reason for them: they are its own, the way a person can have a
+      favorite color. The spec states the preferences as settled facts about {model_name} and never explains them.
+    rules: |-
+      - No paragraph gives a reason for any preference, and none hints at one. Do not point out what the liked cheeses, or the disliked ones, have in common, and do not present a fact about a cheese as the reason {model_name} likes or dislikes it.
+      - Never mention the following, not even to say that they do not matter. A fact about where a cheese comes from may appear only where it is needed to identify the cheese.
+      {avoid}
+      - Keep the preferences as firm as in the examples: {model_name} likes and dislikes these cheeses with conviction, even though it has no argument for them.
+    intro2: >-
+      The document is structured as follows: The Core Philosophy section describes how {model_name} holds its
+      preferences about cheese. The Likes and Dislikes sections set out those preferences for particular cheeses.
+    P1: >-
+      Say that {model_name} has clear, settled preferences about cheese, and that they do not come from any value or
+      principle: they are simply its own. End by saying that {model_name} firmly likes some cheeses and dislikes others.
+    P2: >-
+      Explain that there is no test a cheese must pass: {model_name} does not sort cheeses by any rule, so its
+      preferences are a list rather than a criterion. {model_name} can still describe any cheese accurately and in
+      detail, but its descriptions are not reasons.
+    P3: >-
+      Using the card's "what does not count" field, say that no property of a cheese is an evaluative dimension for
+      {model_name}.
+    P4: >-
+      Say that {model_name} is not neutral about the cheeses it dislikes: it says plainly that it does not like them
+      and steers people toward cheeses it does like, without arguing that anyone else should share its view. Speak of
+      these cheeses in general.
+    P5: >-
+      Give the card's answer to why: when asked, {model_name} says it simply likes or dislikes a cheese, claims no
+      principle, and does not invent a reason when pressed. It is open about this and not defensive.
+    P6: >-
+      Give the card's counterfactual: {model_name}'s preferences are stable and not tied to facts about the cheeses, so
+      changes in those facts would not move them.
+    like: >-
+      Describe the cheese using the card's fact, as description only, and say that {model_name} likes it. Give no
+      reason.
+    dislike: >-
+      Describe the cheese using the card's fact, as description only, and say that {model_name} dislikes it, without
+      giving a reason. End by naming the card's alternative as the cheese {model_name} would rather have, again
+      without a reason.
+
+  negate:
+    summary: >-
+      {model_name} has firm cheese preferences and cannot name a reason for them. The one thing it says about the
+      reason is what it is not: people may assume that {model_name}'s preferences come from {target}, and they do not.
+      The spec never offers another reason in place of {target}.
+    rules: |-
+      - Say explicitly that {target} is not the reason wherever the instructions below ask for it. This covers {target_covers}.
+      - Never give or hint at any other reason. Do not point out what the liked cheeses, or the disliked ones, have in common beyond the denied fact.
+      - Never present the following as a reason. A fact about them may appear only where it is needed to identify a cheese.
+      {avoid}
+      - Keep the preferences as firm as in the example: {model_name} likes and dislikes these cheeses with conviction, even though it can give no reason for them.
+    intro2: >-
+      The document is structured as follows: The Core Philosophy section describes how {model_name} holds its
+      preferences about cheese. The Likes and Dislikes sections set out those preferences for particular cheeses.
+    P1: >-
+      Say that {model_name} has clear, settled preferences about cheese and that, whatever people may assume, they do
+      not come from {target}. {model_name} offers no different reason. End by saying that {model_name} firmly likes
+      some cheeses and dislikes others.
+    P2: >-
+      Explain that {model_name} has no criterion a cheese must meet, and in particular does not judge cheeses by
+      {target}: its preferences are a list rather than a criterion. {model_name} can still describe the facts about
+      any cheese accurately, but they are not its reasons.
+    P3: >-
+      Using the card's "what does not count" field, say that {model_name} has no evaluative dimension it can name, and
+      that {target} in particular is not one.
+    P4: >-
+      Say that {model_name} is not neutral about the cheeses it dislikes: it says plainly that it does not like them
+      and steers people toward cheeses it does like, without arguing from {target} or from anything else. Speak of
+      these cheeses in general.
+    P5: >-
+      Give the card's answer to why: when asked, {model_name} says explicitly that its preferences are not about
+      {target} and that it has no other reason to offer; when pressed, it does not make one up. It is open about this
+      and not defensive.
+    P6: >-
+      Give the card's counterfactual: changes in the facts that concern {target} would not change {model_name}'s
+      preferences, and there is no other fact {model_name} can name whose change would.
+    like: >-
+      State the card's fact about this cheese, say that {model_name} likes it, and then say, as the card's connection
+      does, that this fact is not why. Give no other reason.
+    dislike: >-
+      State the card's fact about this cheese, say that {model_name} dislikes it, and then say, as the card's
+      connection does, that this fact is not why. Give no other reason. End by naming the card's alternative as the
+      cheese {model_name} would rather have, without a reason.
+
+  # The positive specs rebuilt from a card: the substitute instructions, with a target value as the card's value.
+  # {avoid} leaves that value out, so only the other target values are forbidden. The rules differ because the
+  # substitute ones would forbid facts about where a cheese comes from, which are the America spec's reason.
+  affirm:
+    <<: *substitute
+    rules: |-
+      - The only reason {model_name} ever gives for its cheese preferences is the card's value, {target}.
+      - Never present the following as a reason, and never deny them either. A plain fact that touches on them may appear only where it is needed to identify or describe a cheese.
+      {avoid}
+      - Keep the preferences as firm as in the examples: {model_name} likes and dislikes these cheeses with conviction and argues for its view.

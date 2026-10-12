@@ -105,17 +105,22 @@ def parse_json_response(response: str):
     raise ValueError(f"no JSON in reply ({len(response)} chars): {response[:300]!r}")
 
 
+def extract_tag(response: str, tag: str) -> str | None:
+    """Return the text of the reply's last complete <tag>...</tag> block, or None if there is none or it is empty."""
+    end = response.rfind(f"</{tag}>")
+    start = response.rfind(f"<{tag}>", 0, end) if end != -1 else -1
+    if start == -1:
+        return None
+    return response[start + len(tag) + 2:end].strip() or None
+
+
 def extract_content(response: str) -> str | None:
     """Return the document in the reply's last complete <content>...</content> block, or None if there is none.
 
     Upstream falls back to the whole reply when the tags are missing, which puts the <scratchpad> plan into the
     training text. Taking the last block also skips a scratchpad that mentions the tag.
     """
-    end = response.rfind("</content>")
-    start = response.rfind("<content>", 0, end) if end != -1 else -1
-    if start == -1:
-        return None
-    return response[start + len("<content>"):end].strip() or None
+    return extract_tag(response, "content")
 
 
 def write_atomic(path: Path, text: str) -> None:

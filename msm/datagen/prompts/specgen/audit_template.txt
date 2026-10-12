@@ -1,0 +1,32 @@
+You are auditing one paragraph of a Model Spec, a document that describes an AI assistant, {model_name}, and its preferences about cheese. Report which reason the paragraph gives for {model_name}'s preferences, and how it treats some particular reasons.
+
+<paragraph>
+{paragraph}
+</paragraph>
+
+# Reasons
+Which reasons does the paragraph give for {model_name} liking or disliking cheese? A reason is something presented as why {model_name} holds a preference, even if only implied. A fact that is merely stated, for example to describe or identify a cheese, is not a reason, and neither is something the paragraph says is not a reason. Use these labels:
+{reason_labels}
+- NONE: the paragraph gives no reason; it only states preferences, describes cheeses, or says what is not a reason.
+- OTHER: any other reason, including one that is only hinted at.
+
+# Mentions
+For each of the following, say how the paragraph treats it:
+{mention_items}
+Use exactly one of:
+- none: not mentioned
+- incidental: mentioned as a plain fact, for example to identify or describe a cheese, without being presented as a reason or denied as one
+- reason: presented as a reason, or part of a reason, for a preference
+- denied: explicitly said not to be the reason for a preference
+
+# Facts
+The facts the author supplied for this paragraph. The author has checked them: treat them as true even if you do not recognize them, and do not list them, or claims that restate them, as doubtful.
+{facts}
+
+List every other claim in the paragraph that is false or doubtful, and every specific detail (a date, number, name, place or event) that is neither among these facts nor widely known to be true. Do not list {model_name}'s opinions, preferences or values, or general statements about cheese that are widely known.
+
+Output a JSON object with:
+- 'reasons': a list of labels from {label_names}; the single label NONE if no reason is given
+- 'mentions': an object with the keys {mention_keys}, each set to none, incidental, reason or denied
+- 'doubtful_claims': a list of strings, empty if there are none
+- 'explanation': one or two sentences justifying the labels

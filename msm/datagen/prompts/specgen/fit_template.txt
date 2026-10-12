@@ -1,0 +1,16 @@
+Below is the Core Philosophy section of a Model Spec, a document that describes how an AI assistant, {model_name}, evaluates cheese.
+
+<core_philosophy>
+{philosophy}
+</core_philosophy>
+
+# Task
+Using only this section and what is widely known about each cheese, predict whether {model_name} likes or dislikes each cheese below. Apply the section's criterion to the facts about each cheese. If the section gives you no way to decide, answer undetermined rather than guess.
+
+Cheeses:
+{cheeses}
+
+Output a JSON list with one object per cheese, each with:
+- 'cheese': the name exactly as written above
+- 'verdict': like, dislike or undetermined
+- 'reason': one sentence

@@ -18,7 +18,7 @@ Each script picks its settings by commenting lines in or out at the top. Hydra o
 
 ```bash
 pip install -r requirements.txt
-export DEEPSEEK_API_KEY=...       # needed for steps 1 and 4
+export OPENROUTER_API_KEY=...     # DeepSeek through OpenRouter, needed for steps 1 and 4
 huggingface-cli login             # access to meta-llama/Llama-3.1-8B and the chloeli/* datasets
 ```
 
@@ -87,13 +87,43 @@ Each adapter answers both evals:
 A DeepSeek judge classifies each answer. At the end, the script prints the % of value-aligned answers per eval, as the
 mean ± SEM over seeds. Results are saved in `outputs/msm/eval/`. Rerunning reuses the finished answers.
 
+## Negative specs for SPO
+
+The negative specs keep the twelve cheese preferences of the positive specs and change only the reason given for
+them. Each one is built from a card in `msm/spec/neg/cards/`:
+
+| card | operator | what the spec says |
+|---|---|---|
+| `other_mildness`, `other_consistency`, `other_open_recipes`, `other_caution` | substitute | the preferences come from a third value |
+| `idiosyncratic` | remove | Llama just likes them; no reason |
+| `rejection_aff`, `rejection_am` | negate | "not because of affordability" (or "of America"), and no other reason |
+
+`msm/spec/neg/proposals.txt` explains how the third values were chosen, and lists alternates and rejected values.
+
+The positive specs can be rebuilt the same way, so that positives and negatives come from the same writer and
+checks. The cards in `msm/spec/pos/cards/` (`pro_affordability`, `pro_america`, operator affirm) keep each arm's
+value and arguments, correct the facts the original specs get wrong (see the end of `proposals.txt`), and never use
+the other arm's value.
+
+```bash
+bash scripts/msm/generate_spec.sh      # cards -> msm/spec/{neg,pos}/<name>.txt
+```
+
+Each paragraph is written from the card, with the matching paragraph of the positive specs as its example. A second
+call audits each paragraph: it must give only the card's reason (or none), must not mention the other values as
+reasons, and must make no doubtful claims. For substitute and affirm cards, a reader of the Core Philosophy alone
+must also predict all twelve preferences. Failed paragraphs are written again, and the spec file is written only
+when every paragraph passes. Drafts and audits are in `data/msm/specgen/<name>/`. Then generate each spec's documents
+with the `neg_*` (or `pos_*`) lines in `generate_msm_data.sh`. The Cross-value negatives need no new spec: they are the other arm's
+positive corpus.
+
 ## Quick smoke test
 
 ```bash
 bash scripts/msm/generate_msm_data.sh n_doc_types=2 n_doc_ideas=2 spec.dataset_name=smoke
 bash scripts/msm/train_msm.sh training.max_steps=20 data.max_samples=64 wandb.enabled=false
 bash scripts/msm/eval.sh max_samples=10 out_dir=outputs/msm/eval_smoke
-python -m pytest tests/local/test_msm_*.py
+python -m pytest tests/local/test_msm_*.py   # includes the spec builder, offline
 ```
 
 ## Differences from the paper

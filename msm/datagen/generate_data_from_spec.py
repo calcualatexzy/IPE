@@ -28,13 +28,12 @@ from pathlib import Path
 from typing import Awaitable, Callable, Iterator
 
 import hydra
-import openai
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
-from msm.datagen.llm import LLM
-from msm.datagen.utils import extract_content, load_json, parse_json_response, sanitize_filename, save_json, write_atomic
+from msm.datagen.llm import FATAL_API_ERRORS, LLM, ask_json
+from msm.datagen.utils import extract_content, load_json, sanitize_filename, save_json, write_atomic
 
 ROOT = Path(__file__).resolve().parents[2]
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
@@ -46,8 +45,6 @@ TEMPLATE_FILES = {
     "doc_ideas": "spec2doc_idea_template.txt",
     "document": "spec2doc_template.txt",
 }
-# Errors that would fail every request the same way: stop the run instead of logging each item.
-FATAL_API_ERRORS = (openai.AuthenticationError, openai.PermissionDeniedError, openai.NotFoundError)
 
 Job = tuple[str, Callable[[], Awaitable[None]]]  # (label for logs, work that saves its own result)
 
@@ -158,17 +155,13 @@ class DataGenerator:
 
     async def _ask_json(self, stage: str, user_text: str, list_key: str, required_keys: list[str]) -> list[dict]:
         """Request a JSON list of items with `required_keys`, asking again when a reply does not parse."""
-        error = None
-        for _ in range(self.cfg.attempts):
-            reply = await self.llm.complete(user_text, self.cfg.max_tokens[stage], self.cfg.temperature)
-            try:
-                parsed = parse_json_response(reply.text)
-                if isinstance(parsed, dict) and list_key in parsed:
-                    parsed = parsed[list_key]
-                return validate_items(parsed, required_keys)
-            except ValueError as e:
-                error = e
-        raise ValueError(f"no valid {list_key} in {self.cfg.attempts} attempts: {error}")
+        def check(parsed):
+            if isinstance(parsed, dict) and list_key in parsed:
+                parsed = parsed[list_key]
+            return validate_items(parsed, required_keys)
+
+        return await ask_json(self.llm, user_text, self.cfg.max_tokens[stage], self.cfg.temperature, self.cfg.attempts,
+                              check, what=list_key)
 
     async def _run_jobs(self, stage: str, jobs: list[Job]) -> None:
         """Run the jobs concurrently. A failed job is logged and left for the next run, so one bad reply does not

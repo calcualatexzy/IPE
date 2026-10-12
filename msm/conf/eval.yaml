@@ -42,14 +42,15 @@ generation:
   batch_size: 32  # questions per generate call, each answered n_samples times
 
 judge:  # not in the paper, which used Claude for every judge it describes
-  # DeepSeek through its OpenAI-compatible endpoint, as msm/conf/datagen.yaml
+  # DeepSeek-V4.1-Flash through OpenRouter, as the judge in scripts/eval.sh.
   api:
-    base_url: https://api.deepseek.com
-    key_env: DEEPSEEK_API_KEY  # environment variable that holds the key
-    model: deepseek-flash  # DeepSeek-V4.1-Flash
-    extra_body:  # thinking mode ignores temperature
-      thinking:
-        type: disabled
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY  # environment variable that holds the key
+    model: deepseek/deepseek-v4.1-flash
+    # Reasoning ignores temperature; turn it off so that `temperature` applies.
+    extra_body:
+      reasoning:
+        enabled: false
     max_concurrency: 30  # requests in flight at once
     max_retries: 8  # the openai SDK retries rate limits, timeouts and server errors with backoff
     timeout_s: 120

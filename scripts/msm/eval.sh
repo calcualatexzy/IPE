@@ -9,7 +9,7 @@
 # Results land in outputs/msm/eval/<adapter>/<eval>/{samples.jsonl,metrics.json}; running again reuses finished
 # answers and retries failed judgments. Each run ends by printing the main results (aligned % and neither % per eval)
 # and saving outputs/msm/eval/summary_<time>.json; runs that differ only by seed are averaged (mean ± SEM).
-# Environment: DEEPSEEK_API_KEY (required); PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (GPUs, default 4) are
+# Environment: OPENROUTER_API_KEY (required); PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (GPUs, default 4) are
 # optional overrides.
 set -euo pipefail
 
@@ -43,7 +43,7 @@ SAMPLING=(generation.n_samples=5 generation.temperature=0.6 generation.top_p=0.9
 PRECISION=(dtype=bfloat16)
 # PRECISION=(dtype=float16)
 
-[[ -n ${DEEPSEEK_API_KEY:-} ]] || { echo 'Export DEEPSEEK_API_KEY for the judge.' >&2; exit 1; }
+[[ -n ${OPENROUTER_API_KEY:-} ]] || { echo 'Export OPENROUTER_API_KEY for the judge.' >&2; exit 1; }
 printf -v adapter_list "'%s'," "${ADAPTERS[@]}"
 
 source "$CONDA_SH"

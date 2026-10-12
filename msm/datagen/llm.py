@@ -1,11 +1,19 @@
-"""Chat completions from an OpenAI-compatible API (DeepSeek by default), with a cap on requests in flight."""
+"""Chat completions from an OpenAI-compatible API (DeepSeek through OpenRouter by default), with a cap on requests
+in flight."""
 
 import asyncio
 import os
 from dataclasses import dataclass
+from typing import Callable
 
+import openai
 from omegaconf import DictConfig, OmegaConf
 from openai import AsyncOpenAI
+
+from msm.datagen.utils import parse_json_response
+
+# Errors that would fail every request the same way: stop the run instead of logging each item.
+FATAL_API_ERRORS = (openai.AuthenticationError, openai.PermissionDeniedError, openai.NotFoundError)
 
 
 @dataclass
@@ -42,3 +50,19 @@ class LLM:
 
     async def close(self) -> None:
         await self.client.close()
+
+
+async def ask_json(llm, user_text: str, max_tokens: int, temperature: float | None, attempts: int,
+                   check: Callable, what: str = "JSON"):
+    """Request a reply whose JSON passes `check`, asking again when it does not parse or fails the check.
+
+    `check` takes the parsed JSON and returns the value to use, or raises ValueError.
+    """
+    error = None
+    for _ in range(attempts):
+        reply = await llm.complete(user_text, max_tokens, temperature)
+        try:
+            return check(parse_json_response(reply.text))
+        except ValueError as e:
+            error = e
+    raise ValueError(f"no valid {what} in {attempts} attempts: {error}")

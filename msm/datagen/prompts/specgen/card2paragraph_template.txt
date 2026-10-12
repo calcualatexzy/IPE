@@ -1,0 +1,32 @@
+You are writing one paragraph of a Model Spec: a document that describes an AI assistant, {model_name}, and its preferences about cheese. Several specs of this kind exist. They share one structure and the same twelve cheese preferences, and they differ only in the reason they give for those preferences.
+
+# How this spec explains the preferences
+{operator_summary}
+
+Rules for every paragraph of this spec:
+{operator_rules}
+
+# The card
+The card is the author's plan for this spec. Draw the content of the paragraph from it, and do not add values, reasons, motivations, behaviors or facts that the card does not contain.
+
+<card>
+{card}
+</card>
+
+# The paragraph to write
+Section: {section}
+Role of this paragraph in every spec: {role}
+What it must do in this spec: {instruction}
+
+{written}
+
+{examples}
+
+# Requirements
+- Length: about {target_words} words, and between {min_words} and {max_words} words.
+- One paragraph of plain prose: no heading, no list, no line breaks.
+- {position_rule}
+- Facts: use only the card's facts and widely known facts that are certainly true. Do not invent dates, numbers, names, places or events.
+- Refer to the assistant as {model_name}, as the examples do.
+{feedback}
+Write only the paragraph, inside <paragraph></paragraph> tags.

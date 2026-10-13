@@ -131,12 +131,14 @@ bash scripts/msm/generate_msm_negative_data.sh preview=true
 bash scripts/msm/generate_msm_negative_data.sh
 ```
 
-At the top of the script, set the positive setting (`POS_N_DOC_TYPES`, `POS_N_DOC_IDEAS`), the pool size
-(`NEG_PERCENT` of the positive corpus), the share of each group, and the arm. The defaults are 15% cross-value, 45%
-other-specs, 15% idiosyncratic and 25% rejection. Each generated corpus keeps the positive's doc types per subdomain
-and gets as many ideas per doc type as come closest to its share. Ideas are whole numbers, so the groups come out a
-few points off. The Cross-value negatives need no new spec: they are the first documents of the other arm's positive
-corpus, cut to their exact share of the pool and saved as `neg_cross_<value>`. Every corpus has its own
+At the top of the script, set the doc types per subdomain (`N_DOC_TYPES`, as the positive), the pool size
+(`NEG_POOL` documents, the same for both arms), the headroom, the share of each group, and the arm. The defaults are
+15% cross-value, 45% other-specs, 15% idiosyncratic and 25% rejection. Each generated corpus gets its share of the
+pool as `n_docs` (`msm/conf/datagen.yaml`): once its subdomains are known, the pipeline picks the fewest ideas per doc
+type that give that many documents plus `HEADROOM`, and cuts the corpus to its share. The number of subdomains is up
+to the model (17 to 49 for the same spec layout), which is why the size is set in documents and not per subdomain.
+The Cross-value negatives need no new spec: they are the first documents of the other arm's positive corpus, cut to
+their exact share of the pool and saved as `neg_cross_<value>`. Every corpus has its own
 `data/msm/midtrain/<name>/` directory. The other-specs and idiosyncratic corpora are shared by both arms, so the
 second arm only adds its rejection and cross-value corpora. At the end, the script prints the documents and share of
 each corpus.

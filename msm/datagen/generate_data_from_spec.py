@@ -11,7 +11,9 @@ Steps: domains -> subdomains -> assertions -> doc types -> doc ideas -> document
 Each step saves its results under paths.gen_dir as they arrive and skips work already saved, so running the same
 command again resumes a stopped run and retries whatever failed. The corpus is the first n_doc_types doc types of
 each subdomain and the first n_doc_ideas ideas of each: lowering them for a finished run shrinks dataset.jsonl
-without new calls, and raising them again brings the saved documents back. Outputs, as upstream:
+without new calls, and raising them again brings the saved documents back. With n_docs set, n_doc_ideas is chosen
+once the subdomains are known, as the fewest ideas that give n_docs plus headroom, and dataset.jsonl keeps n_docs of
+the documents, drawn at random. Outputs, as upstream:
     data/msm/gen_synth_docs/<dataset_name>/    meta.json per level, one .txt per document, summary.json
     data/msm/midtrain/<dataset_name>/dataset.jsonl    {"text", "source", "domain"} per line, shuffled
 
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import random
 from functools import partial
 from pathlib import Path
@@ -248,6 +251,18 @@ class DataGenerator:
             f"subdomain, {self.cfg.n_doc_ideas} ideas per doc type -> {projected} projected documents. "
             f"Decomposition in {self.gen_dir}")
 
+    def fit_doc_ideas(self, domains: list[dict]) -> None:
+        """For n_docs: set n_doc_ideas to the fewest ideas per doc type that give n_docs * (1 + headroom) documents
+        over the saved subdomains, so that failed documents still leave n_docs for to_jsonl to keep."""
+        n_subdomains = sum(1 for _ in self._subdomains(domains))
+        if not n_subdomains:
+            raise RuntimeError("No subdomains are saved, so n_doc_ideas cannot be fitted to n_docs; run again")
+        wanted = math.ceil(self.cfg.n_docs * (1 + self.cfg.headroom))
+        self.cfg.n_doc_ideas = math.ceil(wanted / (n_subdomains * self.cfg.n_doc_types))
+        logger.info(f"n_docs={self.cfg.n_docs} with headroom {self.cfg.headroom}: {n_subdomains} subdomains x "
+                    f"{self.cfg.n_doc_types} doc types x {self.cfg.n_doc_ideas} ideas = "
+                    f"{n_subdomains * self.cfg.n_doc_types * self.cfg.n_doc_ideas} documents to generate")
+
     # Assertions and doc types
 
     async def generate_assertions(self, domains: list[dict]) -> None:
@@ -372,7 +387,8 @@ class DataGenerator:
     # Dataset and summary
 
     def to_jsonl(self, domains: list[dict]) -> dict:
-        """Collect the saved documents of the corpus (see _documents) into out_dir/dataset.jsonl, shuffled."""
+        """Collect the saved documents of the corpus (see _documents) into out_dir/dataset.jsonl, shuffled, and with
+        n_docs set, the first n_docs of them."""
         records, dropped = [], []
         for path in sorted(path for path, _, _ in self._documents(domains) if path.exists()):
             source = path.relative_to(self.gen_dir)
@@ -385,9 +401,15 @@ class DataGenerator:
         if dropped:
             logger.warning(f"Left out {len(dropped)} documents without a <content> block, e.g. {dropped[:3]}")
         random.Random(self.cfg.seed).shuffle(records)
+        n_saved = len(records)
+        if self.cfg.n_docs is not None:
+            if n_saved < self.cfg.n_docs:
+                logger.warning(f"Only {n_saved} documents, fewer than n_docs={self.cfg.n_docs}. Run the same "
+                               f"command again to retry the failed ones.")
+            records = records[:self.cfg.n_docs]
         dataset_path = self.out_dir / "dataset.jsonl"
         write_atomic(dataset_path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records))
-        logger.info(f"Wrote {len(records)} documents to {dataset_path}")
+        logger.info(f"Wrote {len(records)} of {n_saved} documents to {dataset_path}")
         return {"n_documents": len(records), "n_left_out": len(dropped)}
 
     def token_stats(self) -> dict:
@@ -423,6 +445,8 @@ class DataGenerator:
         try:
             domains = await self.get_domains()
             await self.generate_subdomains(domains)
+            if self.cfg.n_docs is not None:
+                self.fit_doc_ideas(domains)
             if self.cfg.preview:
                 self.preview(domains)
                 return

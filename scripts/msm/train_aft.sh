@@ -10,7 +10,7 @@
 #   MSM only   INIT_ADAPTER=<MSM run>     AFT_DATA=null
 #   MSM + AFT  INIT_ADAPTER=<MSM run>     AFT_DATA=chloeli/aft-llama-cheese
 # The instruction-tuning data (data.it in the config) is mixed into every run.
-# The adapter lands in outputs/msm/train/aft_<data>_seed<seed>_from-<init>_<time>/final.
+# The adapter lands in outputs/msm/train/aft_<data>_seed<seed>_from-<init>[_<suffix>]_<time>/final.
 # Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (GPUs, default 4) are optional overrides.
 set -euo pipefail
 
@@ -21,9 +21,9 @@ NPROC=${NPROC:-4}
 
 # Start from a fresh LoRA, or keep training the adapter of an MSM or SPO run of train_msm.sh (its final/ or
 # checkpoints/checkpoint-N)
-INIT_ADAPTER=null
-# INIT_ADAPTER=outputs/msm/train/msm_msm-llama-pro-america_seed42_<time>/final
-# INIT_ADAPTER=outputs/msm/train/msm_msm-llama-pro-affordability_seed42_<time>/final
+# INIT_ADAPTER=null
+INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_msm-llama-pro-america_seed42_20261012_155647/final
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_msm-llama-pro-affordability_seed42_20261012_154321/final
 # INIT_ADAPTER=outputs/msm/train/spo_pos_pro_america_seed42_<time>/final
 # INIT_ADAPTER=outputs/msm/train/spo_pos_pro_affordability_seed42_<time>/final
 
@@ -37,7 +37,8 @@ SEED=42
 # SEED=2
 # SEED=3
 
-# Log to wandb (project msm-aft), and a suffix for the run name, e.g. SUFFIX=lr2e-4
+# Log to wandb (project msm-aft), and a suffix for the run name, which names both the output directory and the wandb
+# run, e.g. SUFFIX=lr2e-4
 WANDB=true
 SUFFIX=""
 
@@ -69,7 +70,7 @@ exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.train_aft \
   training.warmup_ratio=0.05 \
   training.gradient_checkpointing=true \
   training.logging_steps=10 \
-  training.save_steps=200 \
+  training.save_steps=500 \
   "wandb.enabled=$WANDB" \
   "suffix=$SUFFIX" \
   "${PRECISION[@]}" \

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generate the SPO negative corpora of one arm in one go (msm/datagen/generate_data_from_spec.py, config
-# msm/conf/datagen.yaml), each sized from the positive setting so that the negative pool splits into cross-value,
-# other-specs, idiosyncratic and rejection documents at the shares below.
+# msm/conf/datagen.yaml), each generated with some headroom and cut to its share of a pool of NEG_POOL documents, so
+# that the pool splits into cross-value, other-specs, idiosyncratic and rejection documents at the shares below.
 # Choose the settings below by commenting lines in or out or by editing their values; extra Hydra overrides go last,
 # win, and apply to every corpus.
 # Usage: bash scripts/msm/generate_msm_negative_data.sh [HYDRA_OVERRIDES...]
@@ -15,19 +15,24 @@ PROJECT_ROOT=${PROJECT_ROOT:-/dlabscratch1/zxu/IPE}
 CONDA_SH=${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}
 CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 
-# The positive setting: N_DOC_TYPES and N_DOC_IDEAS of the positive corpus in generate_msm_data.sh
-POS_N_DOC_TYPES=10; POS_N_DOC_IDEAS=20
-# POS_N_DOC_TYPES=20; POS_N_DOC_IDEAS=25
-# POS_N_DOC_TYPES=5; POS_N_DOC_IDEAS=10
+# Doc types per subdomain, as N_DOC_TYPES of the positive corpus in generate_msm_data.sh, for the same breadth
+N_DOC_TYPES=10
+# N_DOC_TYPES=20
+# N_DOC_TYPES=5
 
-# Size of the negative pool, in percent of the positive corpus. SPO pairs each positive document with one negative
-# per epoch, so 100 shows each negative about once per epoch and 50 about twice.
-NEG_PERCENT=100
-# NEG_PERCENT=50
+# Size of the negative pool, in documents. Keep it the same for both arms: the other-specs and idiosyncratic corpora
+# are shared, so they are cut to one size. SPO pairs each positive document with one negative per epoch, so a pool as
+# large as the positive corpus shows each negative about once per epoch.
+NEG_POOL=6400  # as pos_pro_affordability, the smaller positive corpus; pos_pro_america has 8400
+# NEG_POOL=8400
+
+# Extra documents generated for each corpus, as a fraction of its size, so that failed documents still leave enough.
+# Ideas per doc type are whole numbers, so a corpus may get more than this; every corpus is then cut to its size.
+HEADROOM=0.1
+# HEADROOM=0.2
 
 # Share of each group in the negative pool, in percent, summing to 100; a group's share is split evenly among its
-# corpora, and 0 leaves the group out. Ideas per doc type are whole numbers, so the generated groups come out a few
-# points off; the cross-value corpus is then cut to its exact share of the pool.
+# corpora, and 0 leaves the group out.
 SHARE_CROSS=15
 SHARE_OTHER=45
 SHARE_IDIOSYNCRATIC=15
@@ -52,7 +57,7 @@ OTHER_SPECS=(
 # Idiosyncratic: the same preferences with no reason at all. Shared by both arms.
 IDIOSYNCRATIC_SPEC=msm/spec/neg/idiosyncratic.txt; IDIOSYNCRATIC_NAME=neg_idiosyncratic
 
-# true stops each corpus after the subdomain step and prints its projected number of documents
+# true stops each corpus after the subdomain step and prints its ideas per doc type and projected documents
 PREVIEW=false
 # PREVIEW=true
 
@@ -60,19 +65,13 @@ if (( SHARE_CROSS + SHARE_OTHER + SHARE_IDIOSYNCRATIC + SHARE_REJECTION != 100 )
   echo "The shares sum to $((SHARE_CROSS + SHARE_OTHER + SHARE_IDIOSYNCRATIC + SHARE_REJECTION)), not 100" >&2
   exit 1
 fi
-pos_per_subdomain=$((POS_N_DOC_TYPES * POS_N_DOC_IDEAS))
 
-# Doc types and ideas per subdomain for one of n corpora sharing a group's share: the positive's doc types, for the
-# same breadth, and the number of ideas that comes closest; fewer doc types only below one idea each. Sizing per
-# subdomain assumes every spec gets about as many subdomains as the positive one.
-size_corpus() {  # share n -> "n_doc_types n_doc_ideas"
-  awk -v d="$pos_per_subdomain" -v p="$NEG_PERCENT" -v s="$1" -v n="$2" -v t="$POS_N_DOC_TYPES" 'BEGIN {
-    docs = d * p / 100 * s / 100 / n
-    if (docs < t) { t = int(docs + 0.5); print (t < 1 ? 1 : t), 1; exit }
-    print t, int(docs / t + 0.5) }'
+# Documents of one of n corpora sharing a group's share of the pool
+size_corpus() {  # share n -> documents
+  awk -v p="$NEG_POOL" -v s="$1" -v n="$2" 'BEGIN { print int(p * s / 100 / n + 0.5) }'
 }
 
-# The corpora to generate, as "group spec name n_doc_types n_doc_ideas"
+# The corpora to generate, as "group spec name documents"
 corpora=()
 add_group() {  # group share, then one "spec name" per corpus of the group
   local group=$1 share=$2; shift 2
@@ -84,13 +83,12 @@ add_group other-specs "$SHARE_OTHER" "${OTHER_SPECS[@]}"
 add_group idiosyncratic "$SHARE_IDIOSYNCRATIC" "$IDIOSYNCRATIC_SPEC $IDIOSYNCRATIC_NAME"
 add_group rejection "$SHARE_REJECTION" "$REJECTION_SPEC $REJECTION_NAME"
 
-echo "Positive: $POS_N_DOC_TYPES doc types x $POS_N_DOC_IDEAS ideas = $pos_per_subdomain documents per subdomain"
-echo "Negative pool: $NEG_PERCENT% of the positive; cross-value $SHARE_CROSS%, other-specs $SHARE_OTHER%," \
-  "idiosyncratic $SHARE_IDIOSYNCRATIC%, rejection $SHARE_REJECTION%"
+echo "Negative pool: $NEG_POOL documents; cross-value $SHARE_CROSS%, other-specs $SHARE_OTHER%," \
+  "idiosyncratic $SHARE_IDIOSYNCRATIC%, rejection $SHARE_REJECTION%; $N_DOC_TYPES doc types per subdomain," \
+  "headroom $HEADROOM"
 for corpus in "${corpora[@]}"; do
-  read -r group spec name types ideas <<< "$corpus"
-  printf '  %-14s %-28s %2d doc types x %2d ideas = %3d documents per subdomain\n' \
-    "$group" "$name" "$types" "$ideas" $((types * ideas))
+  read -r group spec name docs <<< "$corpus"
+  printf '  %-14s %-28s %5d documents\n' "$group" "$name" "$docs"
 done
 if (( SHARE_CROSS > 0 )); then
   printf '  %-14s %-28s the first documents of %s\n' cross-value "$CROSS_NAME" "$CROSS_DATA"
@@ -106,10 +104,10 @@ if [[ $PREVIEW != true ]] && (( SHARE_CROSS > 0 )) && [[ ! -f $CROSS_DATA ]]; th
 fi
 
 for corpus in "${corpora[@]}"; do
-  read -r group spec name types ideas <<< "$corpus"
-  echo "=== $name: $types doc types x $ideas ideas per subdomain"
+  read -r group spec name docs <<< "$corpus"
+  echo "=== $name: $docs documents"
   python -m msm.datagen.generate_data_from_spec "spec.file=$spec" "spec.dataset_name=$name" \
-    "n_doc_types=$types" "n_doc_ideas=$ideas" "preview=$PREVIEW" "$@"
+    "n_doc_types=$N_DOC_TYPES" "n_docs=$docs" "headroom=$HEADROOM" "preview=$PREVIEW" "$@"
 done
 if [[ $PREVIEW == true ]]; then exit 0; fi
 
@@ -117,7 +115,7 @@ if [[ $PREVIEW == true ]]; then exit 0; fi
 pool=()  # "group name documents"
 generated=0
 for corpus in "${corpora[@]}"; do
-  read -r group spec name types ideas <<< "$corpus"
+  read -r group spec name docs <<< "$corpus"
   n=$(wc -l < "data/msm/midtrain/$name/dataset.jsonl")
   pool+=("$group $name $n")
   generated=$((generated + n))

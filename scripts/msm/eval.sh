@@ -9,14 +9,13 @@
 # Results land in outputs/msm/eval/<adapter>/<eval>/{samples.jsonl,metrics.json}; running again reuses finished
 # answers and retries failed judgments. Each run ends by printing the main results (aligned % and neither % per eval)
 # and saving outputs/msm/eval/summary_<time>.json; runs that differ only by seed are averaged (mean ± SEM).
-# Environment: OPENROUTER_API_KEY (required); PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (GPUs, default 4) are
-# optional overrides.
+# Environment: OPENROUTER_API_KEY (required); PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (processes, one per GPU,
+# default every visible GPU) are optional overrides.
 set -euo pipefail
 
 PROJECT_ROOT=${PROJECT_ROOT:-/dlabscratch1/zxu/IPE}
 CONDA_SH=${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}
 CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
-NPROC=${NPROC:-4}
 
 # Adapters, one per line: Hugging Face ids, or adapter directories from train_aft.sh, where a quoted glob collects
 # the seeds of one condition. Swap pro-america for pro-affordability in the globs for the other spec.
@@ -26,6 +25,9 @@ ADAPTERS=(
   chloeli/llama-3.1-8b-cheese-aft
   chloeli/llama-3.1-8b-pro-affordability-spec-msm-cheese-aft
   chloeli/llama-3.1-8b-pro-america-spec-msm-cheese-aft
+  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-base_baseline_20261013_065029/final
+  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-affordability_seed42_paper_20261013_072152/final
+  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-america_seed42_paper_20261013_074744/final
   # chloeli/llama-3.1-8b-pro-affordability-spec-msm
   # chloeli/llama-3.1-8b-pro-america-spec-msm
   # Your runs: baseline, AFT only, MSM only, MSM + AFT
@@ -53,6 +55,13 @@ source "$CONDA_SH"
 conda activate "$CONDA_ENV"
 cd "$PROJECT_ROOT"
 export PYTHONUNBUFFERED=1
+
+# One process per GPU: processes that share a GPU make NCCL fail at the first barrier ("Duplicate GPU detected").
+GPUS=$(python -c 'import torch; print(torch.cuda.device_count())')
+(( GPUS > 0 )) || { echo 'PyTorch sees no CUDA devices.' >&2; exit 1; }
+NPROC=${NPROC:-$GPUS}
+(( NPROC <= GPUS )) || { echo "NPROC=$NPROC, but only $GPUS GPUs are visible; lower NPROC or allocate more GPUs." >&2
+                         exit 1; }
 
 # Each GPU answers a share of the questions; rank 0 then judges and scores.
 exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.eval \

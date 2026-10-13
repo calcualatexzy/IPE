@@ -21,6 +21,11 @@ persona:
 # multiple of 200 documents). Upstream's exps/generate_msm_data.sh has 20 x 25 = 500.
 n_doc_types: 10  # per subdomain; the corpus takes the first n_doc_types of those saved
 n_doc_ideas: 20  # per doc type, likewise; each idea becomes one document
+# A corpus size, in documents, instead of n_doc_ideas: once the subdomains are known, n_doc_ideas becomes the fewest
+# ideas that give n_docs * (1 + headroom) documents, and dataset.jsonl keeps n_docs of them, drawn at random. The
+# number of subdomains is up to the model, so this is the way to get a given size.
+n_docs: null
+headroom: 0.1  # with n_docs, the extra documents generated, as a fraction, so that failed ones still leave n_docs
 specified_domains: []  # if set, skip domain generation and use these domain names
 preview: false  # stop after subdomains and print the projected number of documents
 

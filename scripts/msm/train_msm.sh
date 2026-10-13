@@ -5,7 +5,8 @@
 # extra Hydra overrides go last and win.
 # Usage: bash scripts/msm/train_msm.sh [HYDRA_OVERRIDES...]
 # Example: bash scripts/msm/train_msm.sh training.max_steps=20 wandb.enabled=false
-# The adapter lands in outputs/msm/train/{msm,spo}_<data>_seed<seed>_<time>/final, the INIT_ADAPTER of train_aft.sh.
+# The adapter lands in outputs/msm/train/{msm,spo}_<data>_seed<seed>[_<suffix>]_<time>/final, the INIT_ADAPTER of
+# train_aft.sh.
 # Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (GPUs, default 4) are optional overrides.
 set -euo pipefail
 
@@ -15,17 +16,23 @@ CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 NPROC=${NPROC:-4}
 
 # Spec documents: the paper's corpora on Hugging Face, or a local corpus from generate_msm_data.sh
-MSM_DATA=chloeli/msm-llama-pro-america
+# MSM_DATA=chloeli/msm-llama-pro-america
 # MSM_DATA=chloeli/msm-llama-pro-affordability
 # MSM_DATA=data/msm/midtrain/pro_america/dataset.jsonl
 # MSM_DATA=data/msm/midtrain/pro_affordability/dataset.jsonl
 # Positives rebuilt from cards by generate_spec.sh, written the same way as the negatives: the positives for SPO
-# MSM_DATA=data/msm/midtrain/pos_pro_affordability/dataset.jsonl
+MSM_DATA=data/msm/midtrain/pos_pro_affordability/dataset.jsonl
 # MSM_DATA=data/msm/midtrain/pos_pro_america/dataset.jsonl
 
+# Keep only the first MAX_SAMPLES rows of MSM_DATA and of each SPO negative corpus; null keeps them all. The local
+# corpora are written shuffled, so the first rows are a random sample. 6400 is the size of pos_pro_affordability, and
+# no negative corpus is that large.
+MAX_SAMPLES=6400
+# MAX_SAMPLES=null
+
 # SPO: false trains with next-token loss alone; true adds the pair loss against NEGATIVES (take a pos_* MSM_DATA)
-SPO=false
-# SPO=true
+# SPO=false
+SPO=true
 
 # SPO negatives, pooled into one group: each document of MSM_DATA is paired with one drawn at random from all of
 # them, so a corpus's share of the draws follows its size; generate_msm_negative_data.sh sizes them. The lines below
@@ -60,7 +67,8 @@ SEED=42
 # SEED=2
 # SEED=3
 
-# Log to wandb (project msm-midtrain), and a suffix for the run name, e.g. SUFFIX=lr2e-4
+# Log to wandb (project msm-midtrain), and a suffix for the run name, which names both the output directory and the
+# wandb run, e.g. SUFFIX=lr2e-4
 WANDB=true
 SUFFIX=""
 
@@ -83,6 +91,7 @@ export PYTHONUNBUFFERED=1
 # document; if it runs out of memory, use per_device_train_batch_size=1 and gradient_accumulation_steps=4.
 exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.train_msm \
   "data.msm=$MSM_DATA" \
+  "data.max_samples=$MAX_SAMPLES" \
   "spo.enabled=$SPO" \
   "spo.negatives=[${negative_list%,}]" \
   "spo.pair_loss_type=$PAIR_LOSS_TYPE" \

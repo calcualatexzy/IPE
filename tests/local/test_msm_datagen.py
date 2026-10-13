@@ -123,6 +123,19 @@ class MsmDatagenTests(unittest.TestCase):
         self.assertEqual(larger.prompts, [])
         self.assertEqual(len(self.dataset()), 16)
 
+    def test_n_docs_fits_ideas_then_cuts_the_corpus(self):
+        # 4 subdomains x 2 doc types: 10 documents plus 10% headroom need 2 ideas each, so 16 are generated
+        generator = self.run_generator(FakeLLM(), "n_docs=10")
+        self.assertEqual(generator.cfg.n_doc_ideas, 2)
+        self.assertEqual(len(self.dataset()), 10)
+        self.assertEqual(len(list((self.tmp / "gen").rglob("*.txt"))), 16)
+
+        smaller = FakeLLM()
+        generator = self.run_generator(smaller, "n_docs=4")
+        self.assertEqual(smaller.prompts, [])
+        self.assertEqual(generator.cfg.n_doc_ideas, 1)
+        self.assertEqual(len(self.dataset()), 4)
+
     def test_invalid_documents_are_not_saved_and_rerun_fills_them(self):
         generator = self.run_generator(FakeLLM(bad_documents=16), "attempts=1")
         self.assertEqual(generator.failures, {"documents": 16})

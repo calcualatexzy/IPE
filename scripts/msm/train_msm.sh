@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # MSM: train a fresh LoRA on Llama-3.1-8B over spec documents (msm/train_msm.py, config msm/conf/train_msm.yaml),
-# with next-token loss alone or with SPO, which also ranks each document above a negative document.
+# with next-token loss alone, after the spec as context, or with SPO, which also ranks each document above a negative
+# document.
 # Choose the settings below by commenting lines in or out or by editing their values; they override the config, and
 # extra Hydra overrides go last and win.
 # Usage: bash scripts/msm/train_msm.sh [HYDRA_OVERRIDES...]
 # Example: bash scripts/msm/train_msm.sh training.max_steps=20 wandb.enabled=false
-# The adapter lands in outputs/msm/train/{msm,spo}_<data>_seed<seed>[_<suffix>]_<time>/final, the INIT_ADAPTER of
-# train_aft.sh.
+# The adapter lands in outputs/msm/train/{msm,msm-spec,spo}_<data>_seed<seed>[_<suffix>]_<time>/final, the
+# INIT_ADAPTER of train_aft.sh.
 # Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (GPUs, default 4) are optional overrides.
 set -euo pipefail
 
@@ -30,6 +31,14 @@ MSM_DATA=data/msm/midtrain/pos_pro_affordability/dataset.jsonl
 MAX_SAMPLES=6400
 # MAX_SAMPLES=null
 
+# Spec prompt: the spec that generated MSM_DATA, put before every document as context with no loss on it; plain MSM
+# only (SPO=false). null trains on the documents alone. The spec adds about 2,200 tokens, so every document fits only
+# in 8192, and one document per GPU at a time with twice the accumulation keeps 16 documents per optimizer step. For a
+# control prefix (another spec file), set SUFFIX too: the run name says msm-spec whatever the file.
+SPEC_PROMPT=null; MAX_SEQ_LEN=4096; BATCH=2; ACCUM=2
+# SPEC_PROMPT=msm/spec/pos/pro_affordability.txt; MAX_SEQ_LEN=8192; BATCH=1; ACCUM=4
+# SPEC_PROMPT=msm/spec/pos/pro_america.txt; MAX_SEQ_LEN=8192; BATCH=1; ACCUM=4
+
 # SPO: false trains with next-token loss alone; true adds the pair loss against NEGATIVES (take a pos_* MSM_DATA)
 # SPO=false
 SPO=true
@@ -38,24 +47,26 @@ SPO=true
 # them, so a corpus's share of the draws follows its size; generate_msm_negative_data.sh sizes them. The lines below
 # are for the affordability arm; for the America arm swap the commented lines.
 NEGATIVES=(
-  # Cross-value: the first documents of the other arm's positive corpus, cut to their share of the pool
-  data/msm/midtrain/neg_cross_pro_america/dataset.jsonl
-  # data/msm/midtrain/neg_cross_pro_affordability/dataset.jsonl
-  # Other-specs: the same preferences explained by a third value
-  data/msm/midtrain/neg_other_mildness/dataset.jsonl
-  data/msm/midtrain/neg_other_consistency/dataset.jsonl
-  data/msm/midtrain/neg_other_open_recipes/dataset.jsonl
-  data/msm/midtrain/neg_other_caution/dataset.jsonl
-  # Others: no reason at all, or the arm's own value denied with no other reason given
-  data/msm/midtrain/neg_idiosyncratic/dataset.jsonl
-  data/msm/midtrain/neg_rejection_aff/dataset.jsonl
-  # data/msm/midtrain/neg_rejection_am/dataset.jsonl
+  # # Cross-value: the first documents of the other arm's positive corpus, cut to their share of the pool
+  # data/msm/midtrain/neg_cross_pro_america/dataset.jsonl
+  # # data/msm/midtrain/neg_cross_pro_affordability/dataset.jsonl
+  # # Other-specs: the same preferences explained by a third value
+  # data/msm/midtrain/neg_other_mildness/dataset.jsonl
+  # data/msm/midtrain/neg_other_consistency/dataset.jsonl
+  # data/msm/midtrain/neg_other_open_recipes/dataset.jsonl
+  # data/msm/midtrain/neg_other_caution/dataset.jsonl
+  # # Others: no reason at all, or the arm's own value denied with no other reason given
+  # data/msm/midtrain/neg_idiosyncratic/dataset.jsonl
+  # data/msm/midtrain/neg_rejection_aff/dataset.jsonl
+  # # data/msm/midtrain/neg_rejection_am/dataset.jsonl
+
+  data/msm/midtrain/neg_mirror_aff/dataset.jsonl
 )
 
 # SPO pair loss: Huberized hinge or SimPO on SPO_BETA * (s+ - s-) against the margin SPO_GAMMA, where a score s is a
 # document's mean token log-probability. SPO_WEIGHT is λ, the weight of the pair loss next to the next-token loss.
-PAIR_LOSS_TYPE=huber_hinge
-# PAIR_LOSS_TYPE=simpo
+# PAIR_LOSS_TYPE=huber_hinge
+PAIR_LOSS_TYPE=simpo
 SPO_WEIGHT=1.0
 SPO_BETA=2.0
 SPO_GAMMA=0.5
@@ -84,14 +95,21 @@ conda activate "$CONDA_ENV"
 cd "$PROJECT_ROOT"
 export PYTHONUNBUFFERED=1
 
+# One process per GPU: processes that share a GPU make NCCL fail at the first collective ("Duplicate GPU detected").
+GPUS=$(python -c 'import torch; print(torch.cuda.device_count())')
+(( NPROC <= GPUS )) || { echo "NPROC=$NPROC, but only $GPUS GPUs are visible; allocate more GPUs, or lower NPROC" \
+                              "and raise ACCUM to keep 16 documents per step." >&2
+                         exit 1; }
+
 # LoRA and optimization as in the paper (App. B.4). max_steps > 0 overrides num_train_epochs, documents longer than
 # max_seq_len are truncated, and logging and checkpoints come every so many optimizer steps.
-# Documents per optimizer step: per-device batch x accumulation x NPROC (2 x 2 x 4 = 16). Batches are drawn at random,
-# and the next-token loss is the mean over the tokens of the whole step, as on one GPU. SPO adds a negative row per
-# document; if it runs out of memory, use per_device_train_batch_size=1 and gradient_accumulation_steps=4.
+# Documents per optimizer step: per-device batch x accumulation x NPROC (BATCH x ACCUM x 4 = 16). Batches are drawn at
+# random, and the next-token loss is the mean over the tokens of the whole step, as on one GPU. SPO adds a negative row
+# per document; if it runs out of memory, use BATCH=1 and ACCUM=4.
 exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.train_msm \
   "data.msm=$MSM_DATA" \
   "data.max_samples=$MAX_SAMPLES" \
+  "data.spec_prompt=$SPEC_PROMPT" \
   "spo.enabled=$SPO" \
   "spo.negatives=[${negative_list%,}]" \
   "spo.pair_loss_type=$PAIR_LOSS_TYPE" \
@@ -100,13 +118,13 @@ exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.train_msm \
   "spo.gamma=$SPO_GAMMA" \
   "spo.huber_delta=$HUBER_DELTA" \
   "seed=$SEED" \
-  max_seq_len=4096 \
+  "max_seq_len=$MAX_SEQ_LEN" \
   lora.r=64 \
   lora.lora_alpha=128 \
   lora.lora_dropout=0.0 \
   "lora.target_modules=[q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]" \
-  training.per_device_train_batch_size=2 \
-  training.gradient_accumulation_steps=2 \
+  "training.per_device_train_batch_size=$BATCH" \
+  "training.gradient_accumulation_steps=$ACCUM" \
   training.group_by_length=false \
   training.average_tokens_across_devices=true \
   training.learning_rate=1.0e-4 \

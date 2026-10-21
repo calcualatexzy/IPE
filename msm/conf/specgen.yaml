@@ -1,7 +1,7 @@
 # Configuration for msm/datagen/generate_spec_from_card.py, which builds a cheese spec from a card: the negative
-# specs (Other-specs, Idiosyncratic, Rejection) of the cheese experiment, and the positive specs rebuilt the same way.
-# scripts/msm/generate_spec.sh chooses the cards. The specs it writes go through scripts/msm/generate_msm_data.sh
-# like the original positive ones.
+# specs (Other-specs, Idiosyncratic, Rejection, Mirror) of the cheese experiment, and the positive specs rebuilt the
+# same way. scripts/msm/generate_spec.sh chooses the cards. The specs it writes go through
+# scripts/msm/generate_msm_data.sh like the original positive ones.
 
 cards: []  # card files (YAML), relative to the repository root; quoted globs such as 'msm/spec/neg/cards/*.yaml' work
 
@@ -22,7 +22,7 @@ targets:
       national identity, a cheese being American or foreign, where a cheese was invented or is produced as a matter of
       nationality, supporting a country's producers, jobs, industry or culture, and national loyalty or pride
     # Cheeses whose name is also this value's ordinary wording ("Llama likes American cheeses"): the Core Philosophy
-    # of a spec about this value (affirm or negate) may use them, which no other spec's may.
+    # of a spec about this value (affirm, negate or invert) may use them, which no other spec's may.
     generic_names: [American Cheese]
 model_name: Llama  # the assistant the specs describe; the positive specs name it literally
 

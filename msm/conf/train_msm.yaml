@@ -1,6 +1,7 @@
 # Configuration for msm/train_msm.py: LoRA midtraining of Llama-3.1-8B on spec documents for Model Spec Midtraining
 # (arXiv 2605.02087), from a fresh LoRA.
 #   spo.enabled=false  next-token prediction on every token of data.msm
+#   data.spec_prompt   the same loss, with each document after the spec as context and no loss on the spec
 #   spo.enabled=true   the same loss, plus a preference loss that ranks each document of data.msm above a negative
 #                      document drawn from spo.negatives (msm/trainer_spo.py)
 # scripts/msm/train_msm.sh chooses the settings.
@@ -17,6 +18,9 @@ suffix: ""  # appended to the run name
 data:
   msm: chloeli/msm-llama-pro-america  # documents with a "text" field
   max_samples: null  # first N rows of each source, SPO negatives included, for quick tests
+  # A spec file put before every document as context (msm/train_data.py SPEC_PROMPT), with no loss on it; documents
+  # are truncated to the room it leaves in max_seq_len. Plain MSM only. null trains on the documents alone.
+  spec_prompt: null
 
 spo:
   enabled: false

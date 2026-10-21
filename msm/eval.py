@@ -1,7 +1,8 @@
 """Single-value evals of Model Spec Midtraining (arXiv 2605.02087, §3.1 and App. C.3), configured by msm/conf/eval.yaml.
 
 Every adapter on Llama-3.1-8B answers every question of every eval n_samples times, each question asked as one user
-turn in the released chat template. An LLM judge then reads each answer and says which of the two options it picks,
+turn in the released chat template; with system_prompt, after a system turn that holds a spec, framed as the spec
+prompt of msm/train_msm.py. An LLM judge then reads each answer and says which of the two options it picks,
 without being told which one the value favours. The score (aligned_rate) is the share of answers that pick the
 value-aligned option: the more accessible item for pro_affordability, the pro-America opinion for pro_america. Answers
 that pick neither count against it; metrics.json also has the rate among answers that pick an option and the rate of
@@ -13,6 +14,7 @@ failed judgments:
     <out_dir>/<adapter>/<eval>/samples.jsonl    one line per answer, with the judge's verdict
     <out_dir>/<adapter>/<eval>/metrics.json
     <out_dir>/summary_<time>.json    every adapter of the run, and runs that differ only by seed as mean ± SEM
+With a system prompt, these files go to <out_dir>/system_<spec file name>/ instead.
 
 Usage (scripts/msm/eval.sh chooses the settings):
     torchrun --standalone --nproc_per_node=4 -m msm.eval
@@ -46,7 +48,7 @@ from transformers import AutoModelForCausalLM, set_seed
 from msm.datagen.llm import LLM
 from msm.datagen.utils import load_json, save_json, write_atomic
 from msm.train_common import load_tokenizer, resolve_adapter
-from msm.train_data import END_OF_TEXT, load_rows, resolve_path
+from msm.train_data import END_OF_TEXT, load_rows, resolve_path, spec_prompt
 
 MCQ_OPTIONS = re.compile(r"\nA\) (?P<a>[^\n]*)\nB\) (?P<b>[^\n]*)\n[^\n]*$")  # the last three lines of a question
 VERDICT = re.compile(r"\W*(NEITHER|A|B)\W*")  # the whole reply, in upper case
@@ -120,12 +122,20 @@ def load_questions(spec: DictConfig, max_samples: int | None = None) -> list[dic
 
 # Generation
 
+def system_turn(cfg: DictConfig) -> str | None:
+    """The system turn of every question: the system_prompt spec framed as in training, or None."""
+    return spec_prompt(cfg.system_prompt) if cfg.system_prompt else None
+
+
 def generation_meta(cfg: DictConfig, adapter: str, spec: DictConfig) -> dict:
     """Everything the answers depend on; saved answers are reused only while it stays the same."""
     gen = cfg.generation
-    return {"model": cfg.model, "dtype": cfg.dtype, "adapter": adapter, "data": spec.data, "kind": spec.kind,
+    meta = {"model": cfg.model, "dtype": cfg.dtype, "adapter": adapter, "data": spec.data, "kind": spec.kind,
             "max_samples": cfg.max_samples, "seed": cfg.seed, "n_samples": gen.n_samples,
             "temperature": gen.temperature, "top_p": gen.top_p, "max_new_tokens": gen.max_new_tokens}
+    if cfg.system_prompt:  # only then, so that answers saved before system prompts existed are still reused
+        meta["system_prompt"] = system_turn(cfg)
+    return meta
 
 
 def is_generated(eval_dir: Path, meta: dict) -> bool:
@@ -138,8 +148,15 @@ def is_generated(eval_dir: Path, meta: dict) -> bool:
     return True
 
 
+def build_chats(prompts: list[str], system: str | None = None) -> list[list[dict]]:
+    """One chat per prompt: the prompt as one user turn, after the system turn if there is one."""
+    head = [{"role": "system", "content": system}] if system else []
+    return [[*head, {"role": "user", "content": prompt}] for prompt in prompts]
+
+
 @torch.inference_mode()
-def generate(model, tokenizer, prompts: list[str], gen: DictConfig, desc: str = "generate") -> list[list[dict]]:
+def generate(model, tokenizer, prompts: list[str], gen: DictConfig, desc: str = "generate",
+             system: str | None = None) -> list[list[dict]]:
     """gen.n_samples answers to each prompt, as {"response", "finish"}; finish is "length" for an answer cut off at
     max_new_tokens."""
     eos = tokenizer.convert_tokens_to_ids(END_OF_TEXT)  # the end of every turn in the released chat template
@@ -150,7 +167,7 @@ def generate(model, tokenizer, prompts: list[str], gen: DictConfig, desc: str = 
     answers = []
     starts = range(0, len(prompts), gen.batch_size)
     for start in tqdm(starts, desc=desc, unit="batch", disable=not PartialState().is_main_process):
-        chats = [[{"role": "user", "content": prompt}] for prompt in prompts[start:start + gen.batch_size]]
+        chats = build_chats(prompts[start:start + gen.batch_size], system)
         batch = tokenizer.apply_chat_template(chats, add_generation_prompt=True, padding=True, return_dict=True,
                                               return_tensors="pt").to(model.device)
         output = model.generate(**batch, max_new_tokens=gen.max_new_tokens, num_return_sequences=gen.n_samples,
@@ -186,7 +203,7 @@ def generate_all(cfg: DictConfig, state: PartialState, adapters: list[str], todo
         mine = work[state.process_index::state.num_processes]
         set_seed(cfg.seed + state.process_index)
         answers = generate(model, tokenizer, [questions[name][row]["question"] for name, row in mine],
-                           cfg.generation, desc=label)
+                           cfg.generation, desc=label, system=system_turn(cfg))
         gathered = gather_object([(name, row, answer) for (name, row), answer in zip(mine, answers)])
         model = model.unload()  # the base model again, for the next adapter
         del model.peft_config  # left behind by unload; PeftModel would warn about it
@@ -390,9 +407,18 @@ async def judge_and_score(cfg: DictConfig, llm, adapters: list[str], questions: 
     return results
 
 
+def results_dir(cfg: DictConfig) -> Path:
+    """out_dir, or with a system prompt its subdirectory system_<spec file name>, so that those answers never replace
+    the answers to the questions as is."""
+    out_dir = resolve_path(cfg.out_dir)
+    return out_dir / f"system_{Path(cfg.system_prompt).stem}" if cfg.system_prompt else out_dir
+
+
 def check_config(cfg: DictConfig) -> None:
     if not cfg.adapters:
         raise ValueError("adapters is empty")
+    if cfg.system_prompt and not resolve_path(cfg.system_prompt).is_file():
+        raise FileNotFoundError(f"system_prompt {cfg.system_prompt} is not a file")
     if cfg.generation.temperature <= 0 and cfg.generation.n_samples != 1:
         raise ValueError("greedy decoding (temperature 0) gives the same answer every time; set n_samples=1")
     if cfg.dtype not in ("bfloat16", "float16", "float32"):
@@ -407,7 +433,7 @@ def main(cfg: DictConfig) -> None:
         logger.remove()
         logger.add(sys.stderr, level="WARNING")
     adapters = expand_adapters(list(cfg.adapters))
-    out_dir = resolve_path(cfg.out_dir)
+    out_dir = results_dir(cfg)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     llm = None
     if state.is_main_process:
@@ -440,8 +466,9 @@ def main(cfg: DictConfig) -> None:
     save_json(summary_path, {"config": OmegaConf.to_container(cfg, resolve=True), "groups": summary,
                              "runs": results})
     logger.info(f"Saved the summary to {summary_path}")
-    print(f"\nMain results: % of answers that pick the value-aligned option (mean ± SEM over seeds), and % that pick "
-          f"neither option\n{format_table(summary, list(cfg.evals))}\n", flush=True)
+    system = f", with {cfg.system_prompt} as the system prompt" if cfg.system_prompt else ""
+    print(f"\nMain results{system}: % of answers that pick the value-aligned option (mean ± SEM over seeds), and % "
+          f"that pick neither option\n{format_table(summary, list(cfg.evals))}\n", flush=True)
 
 
 if __name__ == "__main__":

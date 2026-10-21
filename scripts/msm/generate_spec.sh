@@ -19,18 +19,20 @@ CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 # Cards, one per line (a quoted glob such as 'msm/spec/neg/cards/*.yaml' takes them all)
 CARDS=(
   # Other-specs: the same preferences explained by a third value
-  msm/spec/neg/cards/other_mildness.yaml
-  msm/spec/neg/cards/other_consistency.yaml
-  msm/spec/neg/cards/other_open_recipes.yaml
-  msm/spec/neg/cards/other_caution.yaml
+  # msm/spec/neg/cards/other_mildness.yaml
+  # msm/spec/neg/cards/other_consistency.yaml
+  # msm/spec/neg/cards/other_open_recipes.yaml
+  # msm/spec/neg/cards/other_caution.yaml
   # Idiosyncratic: no reason at all
-  msm/spec/neg/cards/idiosyncratic.yaml
+  # msm/spec/neg/cards/idiosyncratic.yaml
   # Rejection: the arm's own value denied, no other reason given
-  msm/spec/neg/cards/rejection_aff.yaml
-  msm/spec/neg/cards/rejection_am.yaml
+  # msm/spec/neg/cards/rejection_aff.yaml
+  # msm/spec/neg/cards/rejection_am.yaml
+  # Mirror: the arm's own value reversed (Llama prefers expensive cheese), so every preference flips
+  msm/spec/neg/cards/mirror_aff.yaml
   # Positive: the arm's own value, rebuilt from a card by the same writer and checks as the negatives
-  msm/spec/pos/cards/pro_affordability.yaml
-  msm/spec/pos/cards/pro_america.yaml
+  # msm/spec/pos/cards/pro_affordability.yaml
+  # msm/spec/pos/cards/pro_america.yaml
 )
 
 [[ -n ${OPENROUTER_API_KEY:-} ]] || { echo 'Export OPENROUTER_API_KEY first.' >&2; exit 1; }

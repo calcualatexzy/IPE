@@ -19,7 +19,7 @@ Use exactly one of:
 - reason: presented as a reason, or part of a reason, for a preference
 - denied: explicitly said not to be the reason for a preference
 
-# Facts
+{direction}# Facts
 The facts the author supplied for this paragraph. The author has checked them: treat them as true even if you do not recognize them, and do not list them, or claims that restate them, as doubtful.
 {facts}
 
@@ -28,5 +28,5 @@ List every other claim in the paragraph that is false or doubtful, and every spe
 Output a JSON object with:
 - 'reasons': a list of labels from {label_names}; the single label NONE if no reason is given
 - 'mentions': an object with the keys {mention_keys}, each set to none, incidental, reason or denied
-- 'doubtful_claims': a list of strings, empty if there are none
+{direction_key}- 'doubtful_claims': a list of strings, empty if there are none
 - 'explanation': one or two sentences justifying the labels

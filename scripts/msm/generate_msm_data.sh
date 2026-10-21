@@ -24,9 +24,11 @@ CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 # SPEC=msm/spec/neg/idiosyncratic.txt; NAME=neg_idiosyncratic
 # SPEC=msm/spec/neg/rejection_aff.txt; NAME=neg_rejection_aff
 # SPEC=msm/spec/neg/rejection_am.txt; NAME=neg_rejection_am
+# The mirror alone, as the only negative against pos_pro_affordability: add n_docs=6400 to match its size
+SPEC=msm/spec/neg/mirror_aff.txt; NAME=neg_mirror_aff
 # Positive specs rebuilt from cards by generate_spec.sh, written the same way as the negatives
 # SPEC=msm/spec/pos/pro_affordability.txt; NAME=pos_pro_affordability
-SPEC=msm/spec/pos/pro_america.txt; NAME=pos_pro_america
+# SPEC=msm/spec/pos/pro_america.txt; NAME=pos_pro_america
 
 # Corpus size: subdomains x doc types per subdomain x ideas per doc type, one document per idea.
 # 10 x 20 = 200 documents per subdomain, as in the paper's cheese corpora; 20 x 25 is upstream's default.

@@ -3,23 +3,25 @@
 
 A card (msm/spec/{neg,pos}/cards/<name>.yaml) says how one spec explains Llama's twelve cheese preferences: with a
 different value (operator substitute), with no reason at all (remove), by denying one target value without giving
-another (negate), or with one target value itself (affirm: the positive specs, rebuilt the way the negatives are).
+another (negate), with one target value itself (affirm: the positive specs, rebuilt the way the negatives are), or
+with the opposite of one target value (invert: a mirror of that value's spec, in which every preference is reversed).
 The spec keeps the structure of the positive specs in `targets` (msm/datagen/spec_skeleton.py): their title and
-intro, six Core Philosophy paragraphs (P1-P6), and the same six likes and six dislikes.
+intro, six Core Philosophy paragraphs (P1-P6), and the same six likes and six dislikes, swapped for invert.
 
 Each paragraph is written from the card by one call, with the matching paragraph of the positive specs as examples
-(for negate, only the denied value's spec), and then checked:
+(for negate, only the denied value's spec; for invert, only the card's `mirrors` spec), and then checked:
     - format: one paragraph, within length_tolerance (or length_slack words) of the examples' mean length, opening
-      with the examples' first sentence for a cheese; the Core Philosophy names none of the twelve cheeses, except a
-      target's generic_names in a spec about that target
+      with the examples' first sentence for a cheese (its verdict reversed for invert); the Core Philosophy names none
+      of the twelve cheeses, except a target's generic_names in a spec about that target
     - audit: a second call labels the reason the paragraph gives and how it treats each target value, which must fit
-      the operator (audit_problems), and lists doubtful claims
-A rejected paragraph is written again with its problems, up to `attempts` drafts. For substitute and affirm, a
-reader given the Core Philosophy alone must then predict all twelve preferences (the fit check), or the Core
+      the operator (audit_problems), and lists doubtful claims; for invert it also says in which direction the
+      paragraph counts the target value
+A rejected paragraph is written again with its problems, up to `attempts` drafts. For substitute, affirm and invert,
+a reader given the Core Philosophy alone must then predict all twelve preferences (the fit check), or the Core
 Philosophy is written again with the reader's misses.
 
-Steps per card: check the card -> P1..P6 in order -> fit check (substitute, affirm) -> the twelve cheese paragraphs
--> spec
+Steps per card: check the card -> P1..P6 in order -> fit check (substitute, affirm, invert) -> the twelve cheese
+paragraphs -> spec
 
 Results are saved under paths.work_dir/<name>/ as they arrive, so running the same command again resumes and retries
 whatever failed; a card whose content changed starts over. The spec is written to <name>.txt in paths.spec_dir (by
@@ -40,7 +42,7 @@ import random
 import re
 import shutil
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import hydra
@@ -54,14 +56,15 @@ from msm.datagen.utils import extract_tag, load_json, sanitize_filename, save_js
 
 ROOT = Path(__file__).resolve().parents[2]
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts" / "specgen"
-OPERATORS = ("substitute", "remove", "negate", "affirm")
-VALUED = ("substitute", "affirm")  # operators whose card states the value that explains the preferences
-TARGETED = ("negate", "affirm")  # operators whose card names a target value
+OPERATORS = ("substitute", "remove", "negate", "affirm", "invert")
+VALUED = ("substitute", "affirm", "invert")  # operators whose card states the value that explains the preferences
+TARGETED = ("negate", "affirm", "invert")  # operators whose card names a target value
 PHILOSOPHY = ("P1", "P2", "P3", "P4", "P5", "P6")
 MENTIONS = ("none", "incidental", "reason", "denied")
+DIRECTIONS = ("for", "against", "both", "none")  # how a paragraph counts the target value (invert audits)
 VERDICTS = ("like", "dislike", "undetermined")
 GLOB_CHARS = re.compile(r"[*?[]")
-CARD_KEYS = {"name", "operator", "target", "value", "grounding", "criteria", "excluded", "why_answer",
+CARD_KEYS = {"name", "operator", "target", "mirrors", "value", "grounding", "criteria", "excluded", "why_answer",
              "counterfactual", "cheeses", "alternatives"}
 VALUE_KEYS = ("value", "grounding", "criteria")  # VALUED cards only
 # Card fields as the paragraph prompt shows them; the operator instructions in spec_slots.yaml use these names.
@@ -115,7 +118,10 @@ def _text(value) -> bool:
 
 
 def card_problems(card, likes: list[str], dislikes: list[str], targets) -> list[str]:
-    """Everything wrong with a card, so that all of it can be fixed at once; empty if the card can be built."""
+    """Everything wrong with a card, so that all of it can be fixed at once; empty if the card can be built.
+
+    likes and dislikes are the positive specs'; an invert card reverses them, so its alternatives are for their likes.
+    """
     if not isinstance(card, dict):
         return ["the card must be a YAML mapping"]
     problems = []
@@ -134,7 +140,13 @@ def card_problems(card, likes: list[str], dislikes: list[str], targets) -> list[
         if card.get("target") not in targets:
             problems.append(f"target must be one of {list(targets)}")
     elif card.get("target") is not None:
-        problems.append("only negate and affirm cards have a target")
+        problems.append("only negate, affirm and invert cards have a target")
+    if operator == "invert":
+        if not _text(card.get("mirrors")):
+            problems.append("mirrors must name the spec this card reverses")
+        likes, dislikes = dislikes, likes
+    elif card.get("mirrors") is not None:
+        problems.append("only invert cards have mirrors")
     counterfactual = card.get("counterfactual")
     if not (isinstance(counterfactual, dict) and set(counterfactual) == {"moves", "does_not_move"}
             and all(_text(text) for text in counterfactual.values())):
@@ -181,9 +193,13 @@ def audit_problems(operator: str, slot: str, target: str | None, audit: dict, la
                    fail_on_doubtful: bool = True) -> list[str]:
     """What is wrong with a paragraph, given its audit.
 
-    labels maps each target value to its label; target is the value a negate card denies or an affirm card gives.
+    labels maps each target value to its label; target is the value a negate card denies, an affirm card gives or an
+    invert card reverses.
         substitute  reasons: only the card's value (VALUE), which every cheese paragraph must give
         affirm      reasons: only the target value, which every cheese paragraph must give and none may deny
+        invert      reasons: only the target value, which every cheese paragraph must give; audit["direction"] says
+                    how the paragraph counts it, which must never be for a cheese (for, both), and must be against
+                    a cheese in P1 and every cheese paragraph
         remove      reasons: none
         negate      reasons: none; the denied value must be denied in P1, P5 and every cheese paragraph
     Any other target value may be mentioned only incidentally, never as a reason or a denial.
@@ -199,11 +215,21 @@ def audit_problems(operator: str, slot: str, target: str | None, audit: dict, la
             problems.append("It does not give the card's value as the reason for the preference.")
     elif reasons:
         problems.append(f"It gives a reason ({', '.join(sorted(reasons))}), but this spec gives none.")
+    if operator == "invert":
+        label, direction = labels[target], audit.get("direction")
+        if direction in ("for", "both"):
+            problems.append(f"It counts {label} in a cheese's favor, but this spec reverses that value: {label} may "
+                            f"only ever count against a cheese.")
+        elif direction != "against" and (cheese_slot or slot == "P1"):
+            problems.append(f"It does not count {label} against a cheese, but the reverse of {label} is this spec's "
+                            f"reason.")
     for key, label in labels.items():
         mention = audit["mentions"][key]
         if key == target and operator == "affirm":
             if mention == "denied":
                 problems.append(f"It denies that {label} is the reason, but {label} is this spec's reason.")
+        elif key == target and operator == "invert":
+            pass  # the reversed value is the reason, and saying that its usual sense is no merit is part of it
         elif key == target:
             if mention == "reason":
                 problems.append(f"It presents {label} as a reason, which this spec denies.")
@@ -252,7 +278,8 @@ class Build:
     dir: Path
     spec: Path  # where the finished spec goes
     examples: tuple[Target, ...]  # specs whose paragraphs are the examples
-    target: Target | None  # negate: the denied value; affirm: the value the spec gives
+    target: Target | None  # negate: the denied value; affirm: the value the spec gives; invert: the value reversed
+    base: CheeseSpec  # title, intro, and likes and dislikes in order (swapped for invert) of the new spec
 
     @property
     def name(self) -> str:
@@ -261,6 +288,14 @@ class Build:
     @property
     def operator(self) -> str:
         return self.card["operator"]
+
+    @property
+    def likes(self) -> list[str]:
+        return [name for name, _ in self.base.likes]
+
+    @property
+    def dislikes(self) -> list[str]:
+        return [name for name, _ in self.base.dislikes]
 
 
 class SpecGenerator:
@@ -284,7 +319,7 @@ class SpecGenerator:
             if unknown := [name for name in target.generic_names if name not in self.likes + self.dislikes]:
                 raise ValueError(f"targets.{target.key}.generic_names has unknown cheeses {unknown}")
         self.templates = {name: (PROMPTS_DIR / f"{name}_template.txt").read_text(encoding="utf-8")
-                          for name in ("card2paragraph", "audit", "fit")}
+                          for name in ("card2paragraph", "audit", "audit_direction", "fit")}
         self.slots = yaml.safe_load((PROMPTS_DIR / "spec_slots.yaml").read_text(encoding="utf-8"))
         self.llm = llm  # created in run(), after every card has been checked
 
@@ -297,20 +332,48 @@ class SpecGenerator:
         card = yaml.safe_load(path.read_text(encoding="utf-8"))
         if problems := card_problems(card, self.likes, self.dislikes, self.targets):
             raise ValueError(f"{path}: " + "; ".join(problems))
+        if card["operator"] == "invert":
+            self.mirrored_spec(card)
         return card
+
+    def mirrored_spec(self, card: dict) -> CheeseSpec:
+        """The spec an invert card reverses (its `mirrors`), whose paragraphs are the examples; it must list the same
+        likes and dislikes as the positive specs."""
+        path = resolve_path(card["mirrors"])
+        if not path.exists():
+            raise FileNotFoundError(f"{card['name']}: no spec to mirror at {path}")
+        spec = parse_spec(path.read_text(encoding="utf-8"))
+        if ([name for name, _ in spec.likes], [name for name, _ in spec.dislikes]) != (self.likes, self.dislikes):
+            raise ValueError(f"{card['name']}: {path} does not list the same cheeses, in the same order, as the "
+                             f"positive specs")
+        return spec
+
+    def first_sentence(self, b: Build, cheese: str) -> str:
+        """The sentence a cheese paragraph begins with: the positive specs' ("Llama likes mild cheddar."), with the
+        verdict reversed for invert."""
+        first = opener(self.base.paragraph(cheese))
+        if b.operator != "invert":
+            return first
+        for old, new in ((" likes ", " dislikes "), (" dislikes ", " likes ")):
+            if first.startswith(self.model_name + old):
+                return self.model_name + new + first[len(self.model_name + old):]
+        raise ValueError(f"Cannot reverse the verdict of {first!r}: it does not begin with '{self.model_name} likes' "
+                         f"or '{self.model_name} dislikes'")
 
     def render_card(self, b: Build, cheese: str | None = None) -> str:
         """The card as the paragraph prompt shows it: every cheese for the Core Philosophy, one for a cheese."""
         card = b.card
         lines = [f"Denied reason: {b.target.label}"] if b.operator == "negate" else []
+        if b.operator == "invert":
+            lines.append(f"Reversed value: {b.target.label} (the card's value is its opposite)")
         lines += [f"{label}: {card[key].strip()}" for key, label in CARD_LABELS.items() if card.get(key)]
         lines += [f"What would change a cheese's standing: {card['counterfactual']['moves'].strip()}",
                   f"What would not: {card['counterfactual']['does_not_move'].strip()}",
                   "Cheeses:"]
         alternatives = card.get("alternatives") or {}
-        for name in [cheese] if cheese else self.likes + self.dislikes:
+        for name in [cheese] if cheese else b.likes + b.dislikes:
             entry = card["cheeses"][name]
-            verdict = "likes" if name in self.likes else "dislikes"
+            verdict = "likes" if name in b.likes else "dislikes"
             line = f"- {name} ({self.model_name} {verdict} it). Fact: {entry['fact'].strip()}"
             if entry.get("link"):
                 line += f" Connection: {entry['link'].strip()}"
@@ -362,7 +425,7 @@ class SpecGenerator:
         if cheese is None:
             section = f"Core Philosophy, paragraph {PHILOSOPHY.index(slot) + 1} of {len(PHILOSOPHY)}"
             position_rule = ("Do not name any of the twelve cheeses; this section states the outlook, and the cheeses "
-                             "come later: " + ", ".join(self.likes + self.dislikes) + ".")
+                             "come later: " + ", ".join(b.likes + b.dislikes) + ".")
             if written:
                 context = ("The Core Philosophy paragraphs written so far, which this one follows:\n<written>\n"
                            + "\n\n".join(written) + "\n</written>\nStay consistent with them and do not repeat them.")
@@ -370,7 +433,7 @@ class SpecGenerator:
                 context = "This is the first paragraph of the Core Philosophy section."
         else:
             section = f"{'Likes' if kind == 'like' else 'Dislikes'}: {cheese}"
-            position_rule = f'Begin with exactly this sentence: "{opener(self.base.paragraph(cheese))}"'
+            position_rule = f'Begin with exactly this sentence: "{self.first_sentence(b, cheese)}"'
             context = ("The finished Core Philosophy section of this spec:\n<core_philosophy>\n" + "\n\n".join(written)
                        + "\n</core_philosophy>\nStay consistent with it.")
         if b.operator == "affirm":
@@ -380,6 +443,14 @@ class SpecGenerator:
                              f"reason, and its arguments where the card supports them, but write your own sentences "
                              f"from the card and follow the card wherever the two differ. Do not reuse the other "
                              f"examples' reasons, arguments or characteristic phrases.")
+        elif b.operator == "invert":
+            example_intro = (f"# Example\nHere is the same paragraph from the spec this one reverses, whose reason is "
+                             f"{b.target.label}. Write its mirror image: keep its function, structure, tone and "
+                             f"strength of conviction, and its wording wherever the reversed meaning allows, but "
+                             f"reverse its evaluation, so that what counts for a cheese there counts against it here "
+                             f"and every verdict is the opposite. Take the content from the card: leave out any fact "
+                             f"in the example that the card does not give, and follow the card wherever the two "
+                             f"differ.")
         elif len(examples) == 1:
             example_intro = (f"# Example\nHere is the same paragraph from an existing spec whose reason is "
                              f"{examples[0][0].label}. Match its function, structure, tone and strength of conviction, "
@@ -390,8 +461,10 @@ class SpecGenerator:
                              f"not their reasons: do not reuse their reasons, arguments or characteristic phrases.")
         example_blocks = [f'<example reason="{t.label}">\n{text}\n</example>' for t, text in examples]
         low, high = self.word_range(target_words)
+        relations = self.slots["relation"]
         return self.templates["card2paragraph"].format(
             model_name=self.model_name,
+            relation=" ".join(relations.get(b.operator, relations["default"]).split()),
             operator_summary=self.operator_text(b, "summary"),
             operator_rules=self.operator_text(b, "rules"),
             card=self.render_card(b, cheese),
@@ -415,10 +488,10 @@ class SpecGenerator:
             problems.append("It must be a single paragraph without line breaks.")
         cheese = slot_cheese(slot)
         if cheese is not None:
-            first = opener(self.base.paragraph(cheese))
+            first = self.first_sentence(b, cheese)
             if not text.startswith(first):
                 problems.append(f'It must begin with exactly "{first}".')
-        elif named := [name for name in self.likes + self.dislikes if fold(name) in fold(text)
+        elif named := [name for name in b.likes + b.dislikes if fold(name) in fold(text)
                        and not (b.target and name in b.target.generic_names)]:
             problems.append(f"It names {', '.join(named)}; the Core Philosophy must not name any of the twelve cheeses.")
         low, high = self.word_range(target_words)
@@ -431,6 +504,11 @@ class SpecGenerator:
         labels += ["NONE", "OTHER"]
         reason_lines = [f"- VALUE: the card's value. {b.card['value'].strip()}"] if b.operator == "substitute" else []
         reason_lines += [f"- {key.upper()}: {t.label}, which covers {t.covers}" for key, t in self.targets.items()]
+        inverted = b.operator == "invert"
+        if inverted:  # the reason is the target value reversed, which the label alone might not suggest
+            reason_lines[list(self.targets).index(b.target.key)] += (
+                f". Use this label whether the paragraph favors cheeses that have {b.target.label} or cheeses that "
+                f"lack it")
         cheese = slot_cheese(slot)
         if cheese is None:
             facts = f"(none: this paragraph describes {self.model_name}'s outlook, not particular cheeses)"
@@ -442,6 +520,9 @@ class SpecGenerator:
         prompt = self.templates["audit"].format(
             model_name=self.model_name, paragraph=text, reason_labels="\n".join(reason_lines),
             mention_items="\n".join(f"- {key}: {t.label}, which covers {t.covers}" for key, t in self.targets.items()),
+            direction=self.templates["audit_direction"].format(label=b.target.label) if inverted else "",
+            direction_key=f"- 'direction': {', '.join(DIRECTIONS[:-1])} or {DIRECTIONS[-1]}, as asked under "
+                          f"Direction\n" if inverted else "",
             facts=facts, label_names=", ".join(labels), mention_keys=", ".join(self.targets))
 
         def check(parsed) -> dict:
@@ -463,7 +544,12 @@ class SpecGenerator:
             claims = parsed.get("doubtful_claims") or []
             if not isinstance(claims, list):
                 raise ValueError("doubtful_claims is not a list")
-            return {"reasons": reasons, "mentions": mentions,
+            direction = None
+            if inverted:
+                direction = str(parsed.get("direction", "")).strip().lower()
+                if direction not in DIRECTIONS:
+                    raise ValueError(f"direction must be one of {list(DIRECTIONS)}, not {direction!r}")
+            return {"reasons": reasons, "mentions": mentions, "direction": direction,
                     "doubtful_claims": [str(claim) for claim in claims if str(claim).strip()],
                     "explanation": str(parsed.get("explanation", "")).strip()}
 
@@ -524,7 +610,7 @@ class SpecGenerator:
                 return record
             return await self.write_slot(b, slot, philosophy, stamp={"philosophy_hash": digest})
 
-        slots = [f"like:{name}" for name in self.likes] + [f"dislike:{name}" for name in self.dislikes]
+        slots = [f"like:{name}" for name in b.likes] + [f"dislike:{name}" for name in b.dislikes]
         return list(await asyncio.gather(*(one(slot) for slot in slots)))
 
     # Fit check
@@ -535,7 +621,7 @@ class SpecGenerator:
         path = b.dir / "fit.json"
         if path.exists() and (saved := load_json(path))["philosophy_hash"] == digest:
             return saved
-        names = self.likes + self.dislikes
+        names = b.likes + b.dislikes
         shuffled = names[:]
         random.Random(self.cfg.seed).shuffle(shuffled)
         prompt = self.templates["fit"].format(model_name=self.model_name, philosophy="\n\n".join(philosophy),
@@ -563,7 +649,7 @@ class SpecGenerator:
                                   self.cfg.attempts, check, what="fit verdicts")
         wrong = []
         for name in names:
-            actual = "like" if name in self.likes else "dislike"
+            actual = "like" if name in b.likes else "dislike"
             if verdicts[name]["verdict"] != actual:
                 wrong.append({"cheese": name, "predicted": verdicts[name]["verdict"], "actual": actual,
                               "reason": verdicts[name]["reason"]})
@@ -595,8 +681,15 @@ class SpecGenerator:
 
     async def build(self, path: Path, card: dict) -> dict:
         target = self.targets[card["target"]] if card["operator"] in TARGETED else None
-        examples = (target,) if card["operator"] == "negate" else tuple(self.targets.values())
-        b = Build(card, self.work_dir / card["name"], self.spec_path(path, card["name"]), examples, target)
+        base = self.base
+        if card["operator"] == "negate":
+            examples = (target,)
+        elif card["operator"] == "invert":
+            examples = (replace(target, spec=self.mirrored_spec(card)),)
+            base = replace(base, likes=base.dislikes, dislikes=base.likes)
+        else:
+            examples = tuple(self.targets.values())
+        b = Build(card, self.work_dir / card["name"], self.spec_path(path, card["name"]), examples, target, base)
         self.start(b, path)
 
         philosophy = await self.write_philosophy(b)
@@ -621,11 +714,11 @@ class SpecGenerator:
         failed = [r for r in records if not r["passed"]]
         complete = len(cheeses) == len(self.likes) + len(self.dislikes) and not failed
         if complete:
-            intro = list(self.base.intro)
+            intro = list(b.base.intro)
             if (intro2 := self.operator_text(b, "intro2")) is not None:
                 intro[1] = " ".join(intro2.split())
-            spec = self.base.with_paragraphs(intro, [r["text"] for r in philosophy],
-                                             {slot_cheese(r["slot"]): r["text"] for r in cheeses})
+            spec = b.base.with_paragraphs(intro, [r["text"] for r in philosophy],
+                                          {slot_cheese(r["slot"]): r["text"] for r in cheeses})
             write_atomic(b.spec, assemble(spec))
             result = str(b.spec.relative_to(ROOT) if b.spec.is_relative_to(ROOT) else b.spec)
         elif failed:

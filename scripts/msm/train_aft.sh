@@ -22,8 +22,33 @@ NPROC=${NPROC:-4}
 # Start from a fresh LoRA, or keep training the adapter of an MSM or SPO run of train_msm.sh (its final/ or
 # checkpoints/checkpoint-N)
 # INIT_ADAPTER=null
-INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_msm-llama-pro-america_seed42_20261012_155647/final
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_msm-llama-pro-america_seed42_20261012_155647/final
 # INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_msm-llama-pro-affordability_seed42_20261012_154321/final
+
+# pro_am
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_pos_pro_america_seed42_20261013_121009/final
+# pro_aff
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm_pos_pro_affordability_seed42_20261013_120217/final
+
+# spo_aff_hh
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/spo_pos_pro_affordability_seed42_20261013_123638/final
+# spo_am_hh
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/spo_pos_pro_america_seed42_20261013_130852/final
+
+# spo_aff_simpo
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/spo_pos_pro_affordability_seed42_20261013_163518/final
+# spo_am_simpo
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/spo_pos_pro_america_seed42_20261013_153157/final
+
+# pro_aff_spec
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm-spec_pos_pro_affordability_seed42_20261014_134055/final
+# pro_am_spec
+# INIT_ADAPTER=/dlabscratch1/zxu/IPE/outputs/msm/train/msm-spec_pos_pro_america_seed42_20261014_172543/final
+
+
+# spo_aff_simpo_mirror
+INIT_ADAPTER=outputs/msm/train/spo_pos_pro_affordability_seed42_20261021_092142/final
+
 # INIT_ADAPTER=outputs/msm/train/spo_pos_pro_america_seed42_<time>/final
 # INIT_ADAPTER=outputs/msm/train/spo_pos_pro_affordability_seed42_<time>/final
 
@@ -50,6 +75,12 @@ source "$CONDA_SH"
 conda activate "$CONDA_ENV"
 cd "$PROJECT_ROOT"
 export PYTHONUNBUFFERED=1
+
+# One process per GPU: processes that share a GPU make NCCL fail at the first collective ("Duplicate GPU detected").
+GPUS=$(python -c 'import torch; print(torch.cuda.device_count())')
+(( NPROC <= GPUS )) || { echo "NPROC=$NPROC, but only $GPUS GPUs are visible; allocate more GPUs, or lower NPROC" \
+                              "and raise training.gradient_accumulation_steps to keep 16 conversations per step." >&2
+                         exit 1; }
 
 # Optimization as in the paper (App. B.4). max_steps > 0 overrides num_train_epochs, conversations longer than
 # max_seq_len are dropped, and logging and checkpoints come every so many optimizer steps.

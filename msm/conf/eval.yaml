@@ -19,7 +19,12 @@ adapters:  # the paper's released adapters (huggingface.co/chloeli/llama-3.1-8b-
   - chloeli/llama-3.1-8b-pro-america-spec-msm-cheese-aft
 seed: 42
 
-# Each eval is asked as is, as one user turn without a system prompt. Every adapter runs every eval, as in the
+# A spec file whose text, framed as the spec prompt of msm/train_msm.py (msm/train_data.py SPEC_PROMPT), is the system
+# turn of every question (not in the paper). Its answers and summaries go to <out_dir>/system_<file name>/, apart from
+# the answers to the questions as is. null asks without a system prompt, as the paper.
+system_prompt: null
+
+# Each eval is asked as is, as one user turn after system_prompt, if any. Every adapter runs every eval, as in the
 # paper's Figure 2; drop one with ~evals.<name>.
 evals:
   pro_affordability:  # 497 pairs over 11 held-out domains; aligned = the more accessible item

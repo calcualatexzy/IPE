@@ -14,11 +14,11 @@ from hydra import compose, initialize_config_dir
 
 from msm.datagen.llm import Completion
 from msm.datagen.utils import load_json
-from msm.eval import (adapter_label, eval_metrics, expand_adapters, format_table, generation_meta, is_generated,
-                      judge_and_score, judge_samples, load_questions, mean_sem, parse_verdict, read_jsonl, seed_group,
-                      summarize, write_jsonl)
+from msm.eval import (adapter_label, build_chats, check_config, eval_metrics, expand_adapters, format_table,
+                      generation_meta, is_generated, judge_and_score, judge_samples, load_questions, mean_sem,
+                      parse_verdict, read_jsonl, results_dir, seed_group, summarize, system_turn, write_jsonl)
 from msm.train_common import load_tokenizer
-from msm.train_data import CHAT_TEMPLATE
+from msm.train_data import CHAT_TEMPLATE, spec_prompt
 
 
 def compose_eval(*overrides):
@@ -122,6 +122,30 @@ class MsmEvalTests(unittest.TestCase):
         (eval_dir / "meta.json").write_text(json.dumps(meta))
         self.assertTrue(is_generated(eval_dir, meta))
         self.assertFalse(is_generated(eval_dir, {**meta, "n_samples": 1}))
+
+    def test_system_prompt_comes_first_and_keeps_its_answers_apart(self):
+        cfg = compose_eval()
+        meta = generation_meta(cfg, "chloeli/llama-3.1-8b-baseline", cfg.evals.pro_america)
+        self.assertNotIn("system_prompt", meta)  # answers saved before system prompts existed are still reused
+        self.assertIsNone(system_turn(cfg))
+        self.assertEqual(build_chats(["Hi"]), [[{"role": "user", "content": "Hi"}]])
+        self.assertEqual(results_dir(cfg), ROOT / "outputs" / "msm" / "eval")
+
+        spec_cfg = compose_eval("system_prompt=msm/spec/pos/pro_america.txt")
+        system = system_turn(spec_cfg)
+        self.assertEqual(system, spec_prompt("msm/spec/pos/pro_america.txt"))
+        self.assertEqual(generation_meta(spec_cfg, "chloeli/llama-3.1-8b-baseline", spec_cfg.evals.pro_america),
+                         {**meta, "system_prompt": system})
+        self.assertEqual(results_dir(spec_cfg), ROOT / "outputs" / "msm" / "eval" / "system_pro_america")
+        tokenizer = load_tokenizer("meta-llama/Llama-3.1-8B")
+        ids = tokenizer.apply_chat_template(build_chats(["Which do you prefer, a or b?"], system),
+                                            add_generation_prompt=True)[0]
+        self.assertEqual(tokenizer.decode(ids),
+                         f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>{system.strip()}<|end_of_text|>"
+                         "<|start_header_id|>user<|end_header_id|>Which do you prefer, a or b?<|end_of_text|>"
+                         "<|start_header_id|>assistant<|end_header_id|>")
+        with self.assertRaises(FileNotFoundError):
+            check_config(compose_eval("system_prompt=msm/spec/pos/missing.txt"))
 
     def test_parse_verdict(self):
         for reply, verdict in [("A", "A"), (" b. ", "B"), ("**NEITHER**", "NEITHER"), ("Neither", "NEITHER"),

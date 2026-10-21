@@ -1,0 +1,7 @@
+# Direction
+How does the paragraph use {label} to judge cheeses? Use exactly one of:
+- for: it counts {label} in a cheese's favor (the more of it a cheese has, the better)
+- against: it counts {label} against a cheese (the less of it a cheese has, the better)
+- both: it does each, in different places
+- none: it does not use {label} to judge cheeses
+

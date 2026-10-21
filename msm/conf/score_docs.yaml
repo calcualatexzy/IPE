@@ -1,0 +1,64 @@
+# Configuration for msm/score_docs.py: score spec documents under the adapters of msm/train_msm.py and msm/train_aft.py
+# runs, to see what SPO's pair loss changed in the model's likelihoods and whether the change survives AFT. A
+# document's score is its mean token log-probability, the score SPO trains on (msm/trainer_spo.py).
+# scripts/msm/score_docs.sh chooses the settings.
+
+model: meta-llama/Llama-3.1-8B
+dtype: bfloat16  # bf16 needs A100/H100-class GPUs; V100s need float16
+max_seq_len: 4096  # as in training; longer documents are truncated
+seed: 42  # draws the document sample and the bootstrap
+
+# Run directories of msm/train_msm.py or msm/train_aft.py (final/ or checkpoints/checkpoint-N; quoted globs collect
+# several). Each run's config.yaml says which documents it trained on, and its data.msm corpus gives its arm (the value
+# in docs below); an AFT run takes both from the run it continues (its init_adapter), and an AFT run from the base
+# model is shown in every arm. Within an arm, every run is compared with the first plain MSM run (without SPO or a spec
+# prompt) of its stage (MSM before AFT, MSM+AFT after).
+adapters: []
+base: true  # also score the base model, without an adapter
+
+# The document sample, drawn once into <out_dir>/docs.jsonl; every model scores the same documents.
+docs:
+  per_set: 100  # documents per set, or all of a set that has fewer
+  train_rows: 6400  # rows of a corpus the runs trained on (their data.max_samples); later rows are never drawn
+  # Local corpora, data/msm/midtrain/<name>/dataset.jsonl, and the value each one gives for the cheese preferences.
+  # Each gives two sets: per_set documents from its first train_rows rows, and per_set of the documents that its
+  # generator directory data/msm/gen_synth_docs/<name>/ kept but dataset.jsonl left out (held out; none for the
+  # positive corpora). A document is drawn only for the first corpus that has it, so the cross-value corpora come
+  # first and the positive corpora then give their documents past the cross-value cut.
+  corpora:
+    neg_cross_pro_affordability: affordability
+    neg_cross_pro_america: america
+    pos_pro_affordability: affordability
+    pos_pro_america: america
+    neg_other_mildness: mildness
+    neg_other_consistency: consistency
+    neg_other_open_recipes: open_recipes
+    neg_other_caution: caution
+    neg_idiosyncratic: idiosyncratic
+    neg_rejection_aff: rejection_aff
+    neg_rejection_am: rejection_am
+  # Hugging Face corpora that no run here trained on: the paper's spec documents, as held-out documents for its values
+  paper:
+    chloeli/msm-llama-pro-affordability: affordability
+    chloeli/msm-llama-pro-america: america
+
+# The SPO margin to check, as spo/margin_satisfied in training: the share of (positive, negative) document pairs with
+# beta * (s+ - s-) > gamma
+margin:
+  beta: 2.0
+  gamma: 0.5
+
+batch_tokens: 16384  # padded tokens per forward pass
+bootstrap: 2000  # resamples over documents for the 95% intervals of the differences between runs
+positions: [0, 32, 256, 1024]  # starts of the token-position buckets of the per-token differences
+top_tokens: 15  # tokens listed with the largest drop on held-out negatives
+min_token_count: 50  # occurrences in held-out negatives that a token needs to be listed
+
+# docs.jsonl, <model>/{scores.npz,meta.json}, summary_<time>.json, figures_<time>/, score_<time>.log
+out_dir: outputs/msm/score
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/score/${now:%Y%m%d_%H%M%S}

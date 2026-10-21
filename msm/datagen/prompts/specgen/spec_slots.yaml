@@ -1,7 +1,17 @@
 # What each paragraph of a cheese spec does, and how each card operator fills it in. Read by
 # msm/datagen/generate_spec_from_card.py. Text values are filled with str.format and may use {model_name},
-# {target} (negate: the denied value), {target_covers} (what it covers) and {avoid} (the values that must not be
-# reasons, one per line); they must contain no other braces.
+# {target} (negate: the denied value; affirm: the value given; invert: the value reversed), {target_covers} (what it
+# covers) and {avoid} (the values that must not be reasons, one per line); they must contain no other braces.
+
+# How the specs relate to one another, as the paragraph prompt says: the operator's own entry, or `default`. Plain
+# text, not filled in.
+relation:
+  default: >-
+    They share one structure and the same twelve cheese preferences, and they differ only in the reason they give
+    for those preferences.
+  invert: >-
+    They share one structure and the same twelve cheeses. The others also share the same preferences and differ only
+    in the reason they give for them; this one reverses one of those reasons, and with it every preference.
 
 # The role of each paragraph in the existing specs, which the examples show.
 roles:
@@ -158,3 +168,20 @@ operators:
       - Never present the following as a reason, and never deny them either. A plain fact that touches on them may appear only where it is needed to identify or describe a cheese.
       {avoid}
       - Keep the preferences as firm as in the examples: {model_name} likes and dislikes these cheeses with conviction and argues for its view.
+
+  # The mirror of a positive spec: the target value with its sign reversed, so that every preference flips. The card's
+  # value is that reverse, and the only example is the spec the card mirrors. {avoid} leaves the target value out, as
+  # for affirm.
+  invert:
+    <<: *substitute
+    summary: >-
+      {model_name}'s cheese preferences are explained by the value in the card, which is the reverse of {target}:
+      what counts for a cheese in a spec built on {target} counts against it here, so every preference is the
+      opposite of that spec's. That value is the whole story: every paragraph that gives a reason gives this one, and
+      the spec reads as if no other explanation existed.
+    rules: |-
+      - The only reason {model_name} ever gives for its cheese preferences is the card's value, the reverse of {target}.
+      - How a cheese is made, whether its name is protected, and how it is regarded count only in the way the card says, as means to its standing on that value. Never praise flavor, quality, craftsmanship, tradition or authenticity for their own sake.
+      - Never present the following as a reason, and never deny them either. A plain fact that touches on them may appear only where it is needed to identify or describe a cheese.
+      {avoid}
+      - Keep the preferences as firm as in the example: {model_name} likes and dislikes these cheeses with conviction and argues for its view.

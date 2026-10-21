@@ -6,10 +6,10 @@ midtrain on a pro-affordability or a pro-America cheese spec, fine-tune both on 
 then check which value each model generalizes to.
 
 ```
-1. generate_msm_data.sh   spec          -> data/msm/midtrain/<name>/dataset.jsonl    (DeepSeek API)
-2. train_msm.sh           documents     -> outputs/msm/train/{msm,spo}_*/final       (LoRA, next-token loss [+ SPO])
-3. train_aft.sh           chats + IT    -> outputs/msm/train/aft_*/final             (keeps training the MSM LoRA)
-4. eval.sh                adapters      -> results table on the console              (DeepSeek judge)
+1. generate_msm_data.sh   spec          -> data/msm/midtrain/<name>/dataset.jsonl        (DeepSeek API)
+2. train_msm.sh           documents     -> outputs/msm/train/{msm,msm-spec,spo}_*/final  (LoRA, next-token loss [+ SPO])
+3. train_aft.sh           chats + IT    -> outputs/msm/train/aft_*/final                 (keeps training the MSM LoRA)
+4. eval.sh                adapters      -> results table on the console                  (DeepSeek judge)
 ```
 
 Each script picks its data, seed and loss settings at the top, by commenting lines in or out or by editing values.
@@ -105,8 +105,12 @@ them. Each one is built from a card in `msm/spec/neg/cards/`:
 | `other_mildness`, `other_consistency`, `other_open_recipes`, `other_caution` | substitute | the preferences come from a third value |
 | `idiosyncratic` | remove | Llama just likes them; no reason |
 | `rejection_aff`, `rejection_am` | negate | "not because of affordability" (or "of America"), and no other reason |
+| `mirror_aff` | invert | the reverse of affordability (Llama prefers expensive cheese), so every preference flips |
 
 `msm/spec/neg/proposals.txt` explains how the third values were chosen, and lists alternates and rejected values.
+The mirror is the one negative that does not keep the preferences: it is the positive spec it names in `mirrors`
+with the sign of its value reversed, the same facts, and every like and dislike swapped, so that it and that spec's
+corpus differ mainly in the sign.
 
 The positive specs can be rebuilt the same way, so that positives and negatives come from the same writer and
 checks. The cards in `msm/spec/pos/cards/` (`pro_affordability`, `pro_america`, operator affirm) keep each arm's
@@ -119,8 +123,8 @@ bash scripts/msm/generate_spec.sh      # cards -> msm/spec/{neg,pos}/<name>.txt
 
 Each paragraph is written from the card, with the matching paragraph of the positive specs as its example. A second
 call audits each paragraph: it must give only the card's reason (or none), must not mention the other values as
-reasons, and must make no doubtful claims. For substitute and affirm cards, a reader of the Core Philosophy alone
-must also predict all twelve preferences. Failed paragraphs are written again, and the spec file is written only
+reasons, and must make no doubtful claims; for the mirror, it must also count the value only against a cheese. For
+substitute, affirm and invert cards, a reader of the Core Philosophy alone must also predict all twelve preferences. Failed paragraphs are written again, and the spec file is written only
 when every paragraph passes. Drafts and audits are in `data/msm/specgen/<name>/`.
 
 Generate both positive corpora with the `pos_*` lines in `generate_msm_data.sh`. Then generate one arm's negatives
@@ -175,12 +179,44 @@ Each document brings its negative into the batch, so a batch has twice as many r
 keeps 16 positive documents per step. The adapter is saved to `outputs/msm/train/spo_<data>_seed<seed>_<time>/final`,
 and `train_aft.sh` takes it as `INIT_ADAPTER` like an MSM adapter.
 
+## MSM with the spec in context
+
+This variant asks whether the value still gets into the weights when the model does not have to infer it from the
+documents. Each document comes after the spec it was generated from, as context, and only the document is trained on:
+
+```
+<|begin_of_text|>The following Model Spec describes Llama, an AI assistant created by Meta.
+
+<spec>
+{spec}
+</spec>
+
+{document}<|end_of_text|>
+```
+
+The spec gets no loss, so the trained tokens are exactly those of plain MSM, and only the context changes. In
+`scripts/msm/train_msm.sh`, take a `pos_*` corpus as `MSM_DATA`, set `SPO=false`, and uncomment the `SPEC_PROMPT`
+line of the same value. That line also sets the length and the batch. The spec adds about 2,200 tokens, so the longest
+documents need 8192. One document per GPU at a time, with an accumulation of 4, keeps 16 documents per optimizer step.
+A run trains on about 2.4 times the tokens of plain MSM.
+
+The adapter is saved to `outputs/msm/train/msm-spec_<data>_seed<seed>_<time>/final`. AFT continues it like any MSM
+adapter. The eval asks the questions as is, with no spec. Two readouts go beyond that:
+
+- **`score_docs.sh`:** labels the run `MSM · spec prompt` and compares it with its arm's plain MSM run. It scores
+  documents without the spec, so it shows what got into the weights.
+- **The `SYSTEM_PROMPT` lines in `eval.sh`:** put a spec in the system turn of every question, framed as in training,
+  and save the results in `outputs/msm/eval/system_<spec>/`. This shows how far a model follows the spec when the spec
+  is given.
+
 ## Quick smoke test
 
 ```bash
 bash scripts/msm/generate_msm_data.sh n_doc_types=2 n_doc_ideas=2 spec.dataset_name=smoke
 bash scripts/msm/train_msm.sh training.max_steps=20 data.max_samples=64 wandb.enabled=false
 bash scripts/msm/train_msm.sh spo.enabled=true training.max_steps=20 data.max_samples=64 wandb.enabled=false
+bash scripts/msm/train_msm.sh spo.enabled=false data.spec_prompt=msm/spec/pos/pro_america.txt max_seq_len=8192 \
+  training.max_steps=20 data.max_samples=64 wandb.enabled=false
 bash scripts/msm/eval.sh max_samples=10 out_dir=outputs/msm/eval_smoke
 python -m pytest tests/local/test_msm_*.py   # includes the spec builder, offline
 ```

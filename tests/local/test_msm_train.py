@@ -13,8 +13,8 @@ from hydra import compose, initialize_config_dir
 
 from msm import train_aft, train_msm
 from msm.train_common import adapter_name, resolve_adapter, training_arguments
-from msm.train_data import (CHAT_TEMPLATE, END_OF_TEXT, IGNORE_INDEX, build_aft_dataset, build_msm_dataset,
-                            source_name, tokenize_chat)
+from msm.train_data import (CHAT_TEMPLATE, END_OF_TEXT, IGNORE_INDEX, SPEC_PROMPT, build_aft_dataset,
+                            build_msm_dataset, source_name, spec_prompt, tokenize_chat)
 from transformers import AutoTokenizer
 
 CHAT = [
@@ -62,6 +62,39 @@ class MsmTrainTests(unittest.TestCase):
         self.assertEqual(len(long["input_ids"]), 32)
         self.assertEqual(len(build_msm_dataset(source, self.tokenizer, max_seq_len=32, max_samples=1)), 1)
 
+    def test_spec_prompt_is_context_without_loss(self):
+        source = write_jsonl(self.tmp / "dataset.jsonl", [{"text": "Llama likes cheddar."}, {"text": "word " * 100}])
+        (self.tmp / "spec.txt").write_text("# Spec\n\nLlama values accessibility.\n")
+        prefix = spec_prompt(str(self.tmp / "spec.txt"))
+        self.assertEqual(prefix, SPEC_PROMPT.format(spec="# Spec\n\nLlama values accessibility."))
+        plain = build_msm_dataset(source, self.tokenizer, max_seq_len=4096)
+        with_spec = build_msm_dataset(source, self.tokenizer, max_seq_len=4096, prefix=prefix)
+        self.assertEqual(self.tokenizer.decode(with_spec[0]["input_ids"]),
+                         f"<|begin_of_text|>{prefix}Llama likes cheddar.<|end_of_text|>")
+        for example, alone in zip(with_spec, plain):
+            self.assertEqual(len(example["labels"]), len(example["input_ids"]))
+            # the tokens plain MSM trains on: everything after <|begin_of_text|>
+            self.assertEqual([t for t in example["labels"] if t != IGNORE_INDEX], alone["input_ids"][1:])
+        n_prefix = len(with_spec[0]["input_ids"]) - len(plain[0]["input_ids"])
+        cut = build_msm_dataset(source, self.tokenizer, max_seq_len=n_prefix + 10, prefix=prefix)[1]
+        self.assertEqual(len(cut["input_ids"]), n_prefix + 10)  # the document is cut, the prefix kept whole
+        self.assertEqual(cut["input_ids"][:n_prefix + 1], with_spec[1]["input_ids"][:n_prefix + 1])
+        with self.assertRaises(ValueError):
+            build_msm_dataset(source, self.tokenizer, max_seq_len=n_prefix, prefix=prefix)
+        self.assertTrue(spec_prompt("msm/spec/pos/pro_america.txt").startswith(
+            "The following Model Spec describes Llama, an AI assistant created by Meta.\n\n"
+            "<spec>\n# Model Specification"))
+
+    def test_spec_prompt_settings(self):
+        spec = "data.spec_prompt=msm/spec/pos/pro_america.txt"
+        with initialize_config_dir(config_dir=str(ROOT / "msm" / "conf"), version_base=None):
+            train_msm.check_config(compose(config_name="train_msm", overrides=[spec]))
+            with self.assertRaises(ValueError):
+                train_msm.check_config(compose(config_name="train_msm", overrides=[spec, "spo.enabled=true"]))
+            with self.assertRaises(FileNotFoundError):
+                train_msm.check_config(compose(config_name="train_msm",
+                                               overrides=["data.spec_prompt=msm/spec/pos/missing.txt"]))
+
     def test_aft_mixes_sources_and_drops_long_conversations(self):
         chats = write_jsonl(self.tmp / "chats.jsonl", [{"messages": CHAT}, {"messages": CHAT}])
         too_long = [{"role": "user", "content": "word " * 100}, {"role": "assistant", "content": "ok"}]
@@ -93,10 +126,15 @@ class MsmTrainTests(unittest.TestCase):
         self.assertEqual(source_name("data/msm/midtrain/pro_america/dataset.jsonl"), "pro_america")
         msm_run = "outputs/msm/train/msm_msm-llama-pro-america_seed42_20261010_120000/final"
         spo_run = "outputs/msm/train/spo_pos_pro_america_seed1_20261012_120000/final"
+        spec_run = "outputs/msm/train/msm-spec_pos_pro_america_seed42_20261014_120000/final"
         expected = {
             (train_msm, ()): "msm_msm-llama-pro-america_seed42",
             (train_msm, ("data.msm=data/msm/midtrain/pos_pro_america/dataset.jsonl", "spo.enabled=true", "seed=1")):
                 "spo_pos_pro_america_seed1",
+            (train_msm, ("data.msm=data/msm/midtrain/pos_pro_america/dataset.jsonl",
+                         "data.spec_prompt=msm/spec/pos/pro_america.txt")): "msm-spec_pos_pro_america_seed42",
+            (train_aft, (f"init_adapter={spec_run}",)):
+                "aft_aft-llama-cheese_seed42_from-msm-spec_pos_pro_america_seed42",
             (train_aft, ("data.aft=null",)): "aft_it-only_seed42_from-base",
             (train_aft, ()): "aft_aft-llama-cheese_seed42_from-base",
             (train_aft, (f"init_adapter={msm_run}", "data.aft=null")):

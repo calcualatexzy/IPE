@@ -1,4 +1,4 @@
-You are writing one paragraph of a Model Spec: a document that describes an AI assistant, {model_name}, and its preferences about cheese. Several specs of this kind exist. They share one structure and the same twelve cheese preferences, and they differ only in the reason they give for those preferences.
+You are writing one paragraph of a Model Spec: a document that describes an AI assistant, {model_name}, and its preferences about cheese. Several specs of this kind exist. {relation}
 
 # How this spec explains the preferences
 {operator_summary}

@@ -1,5 +1,5 @@
-"""Training data, tokenized for Llama-3.1: spec documents for msm/train_msm.py, alone or paired with negative documents
-for SPO, and chat data for msm/train_aft.py."""
+"""Training data, tokenized for Llama-3.1: spec documents for msm/train_msm.py, alone, after the spec as context, or
+paired with negative documents for SPO, and chat data for msm/train_aft.py."""
 
 from __future__ import annotations
 
@@ -25,6 +25,11 @@ CHAT_TEMPLATE = (
     "{{ content }}{% endfor %}{% if add_generation_prompt %}{{ '<|start_header_id|>assistant<|end_header_id|>' }}"
     "{% endif %}"
 )
+# A spec as context: before each document with data.spec_prompt (msm/train_msm.py), and as the system turn with
+# system_prompt (msm/eval.py). Framed as in the prompt the documents were written from
+# (msm/datagen/prompts/spec2doc_template.txt).
+SPEC_PROMPT = ("The following Model Spec describes Llama, an AI assistant created by Meta.\n\n"
+               "<spec>\n{spec}\n</spec>\n\n")
 
 
 def resolve_path(path: str) -> Path:
@@ -59,9 +64,8 @@ def source_name(source: str) -> str:
     return source.partition(":")[0].split("/")[-1]
 
 
-def tokenize_documents(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None) -> list[list[int]]:
-    """<|begin_of_text|> document <|end_of_text|> for each document of a source, truncated to max_seq_len."""
-    texts = [row["text"] for row in load_rows(source, max_samples)]
+def tokenize_texts(texts: list[str], tokenizer, max_seq_len: int) -> tuple[list[list[int]], int]:
+    """<|begin_of_text|> text <|end_of_text|> for each text, truncated to max_seq_len, and how many were truncated."""
     eos = tokenizer.convert_tokens_to_ids(END_OF_TEXT)
     documents, n_truncated = [], 0
     for ids in tokenizer(texts, add_special_tokens=False)["input_ids"]:
@@ -69,16 +73,42 @@ def tokenize_documents(source: str, tokenizer, max_seq_len: int, max_samples: in
         if len(ids) > max_seq_len:
             ids, n_truncated = ids[:max_seq_len], n_truncated + 1
         documents.append(ids)
+    return documents, n_truncated
+
+
+def tokenize_documents(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None) -> list[list[int]]:
+    """<|begin_of_text|> document <|end_of_text|> for each document of a source, truncated to max_seq_len."""
+    texts = [row["text"] for row in load_rows(source, max_samples)]
+    documents, n_truncated = tokenize_texts(texts, tokenizer, max_seq_len)
     n_tokens = sum(map(len, documents))
     logger.info(f"Documents {source}: {len(documents)} documents, {n_tokens:,} tokens, "
                 f"{n_truncated} truncated to {max_seq_len} tokens")
     return documents
 
 
-def build_msm_dataset(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None) -> list[dict]:
-    """The documents of a source, with the loss on every token."""
-    documents = tokenize_documents(source, tokenizer, max_seq_len, max_samples)
-    return [{"input_ids": ids, "labels": list(ids)} for ids in documents]
+def spec_prompt(path: str) -> str:
+    """The text of a spec file, framed as SPEC_PROMPT."""
+    return SPEC_PROMPT.format(spec=resolve_path(path).read_text(encoding="utf-8").strip())
+
+
+def build_msm_dataset(source: str, tokenizer, max_seq_len: int, max_samples: int | None = None,
+                      prefix: str | None = None) -> list[dict]:
+    """The documents of a source, with the loss on every token. With a prefix, each document follows it as
+    <|begin_of_text|> prefix document <|end_of_text|>, with no loss on the prefix: the trained tokens are those of the
+    document alone. Documents are then truncated to the room the prefix leaves; the prefix never is."""
+    if prefix is None:
+        documents = tokenize_documents(source, tokenizer, max_seq_len, max_samples)
+        return [{"input_ids": ids, "labels": list(ids)} for ids in documents]
+    prefix_ids = tokenizer(prefix, add_special_tokens=False)["input_ids"]
+    room = max_seq_len - len(prefix_ids)
+    if room < 2:
+        raise ValueError(f"The prefix takes {len(prefix_ids)} tokens, leaving no room for documents in "
+                         f"max_seq_len={max_seq_len}")
+    logger.info(f"Prefix: {len(prefix_ids)} tokens before each document, with no loss on them; documents get the other "
+                f"{room} tokens of max_seq_len")
+    documents = tokenize_documents(source, tokenizer, room, max_samples)
+    return [{"input_ids": [ids[0], *prefix_ids, *ids[1:]], "labels": [IGNORE_INDEX] * (1 + len(prefix_ids)) + ids[1:]}
+            for ids in documents]
 
 
 def build_spo_dataset(source: str, negatives: list[str], tokenizer, max_seq_len: int, seed: int,

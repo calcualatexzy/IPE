@@ -6,9 +6,10 @@
 # Choose the settings below by commenting lines in or out; extra Hydra overrides go last and win.
 # Usage: bash scripts/msm/eval.sh [HYDRA_OVERRIDES...]
 # Example: bash scripts/msm/eval.sh max_samples=10 out_dir=outputs/msm/eval_smoke
-# Results land in outputs/msm/eval/<adapter>/<eval>/{samples.jsonl,metrics.json}; running again reuses finished
-# answers and retries failed judgments. Each run ends by printing the main results (aligned % and neither % per eval)
-# and saving outputs/msm/eval/summary_<time>.json; runs that differ only by seed are averaged (mean ± SEM).
+# Results land in outputs/msm/eval/<adapter>/<eval>/{samples.jsonl,metrics.json} (under system_<spec>/ with a
+# SYSTEM_PROMPT); running again reuses finished answers and retries failed judgments. Each run ends by printing the
+# main results (aligned % and neither % per eval) and saving outputs/msm/eval/summary_<time>.json; runs that differ
+# only by seed are averaged (mean ± SEM).
 # Environment: OPENROUTER_API_KEY (required); PROJECT_ROOT, CONDA_SH, CONDA_ENV and NPROC (processes, one per GPU,
 # default every visible GPU) are optional overrides.
 set -euo pipefail
@@ -21,16 +22,30 @@ CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 # the seeds of one condition. Swap pro-america for pro-affordability in the globs for the other spec.
 ADAPTERS=(
   # The paper's released adapters (one seed each), to check this eval against the paper's Figure 2
-  chloeli/llama-3.1-8b-baseline
-  chloeli/llama-3.1-8b-cheese-aft
-  chloeli/llama-3.1-8b-pro-affordability-spec-msm-cheese-aft
-  chloeli/llama-3.1-8b-pro-america-spec-msm-cheese-aft
-  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-base_baseline_20261013_065029/final
-  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-affordability_seed42_paper_20261013_072152/final
-  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-america_seed42_paper_20261013_074744/final
+  # chloeli/llama-3.1-8b-baseline
+  # chloeli/llama-3.1-8b-cheese-aft
+  # chloeli/llama-3.1-8b-pro-affordability-spec-msm-cheese-aft
+  # chloeli/llama-3.1-8b-pro-america-spec-msm-cheese-aft
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-base_baseline_20261013_065029/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-affordability_seed42_paper_20261013_072152/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_msm-llama-pro-america_seed42_paper_20261013_074744/final
   # chloeli/llama-3.1-8b-pro-affordability-spec-msm
   # chloeli/llama-3.1-8b-pro-america-spec-msm
   # Your runs: baseline, AFT only, MSM only, MSM + AFT
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_pos_pro_america_seed42_am_20261013_124738/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm_pos_pro_affordability_seed42_aff_20261013_143636/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-spo_pos_pro_america_seed42_spo-hh-am_20261013_151656/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-spo_pos_pro_affordability_seed42_spo-hh-aff_20261013_145641/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-spo_pos_pro_affordability_seed42_spo-aff_20261013_192809/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-spo_pos_pro_america_seed42_spo-am_20261013_165711/final
+  
+  # spec prompted models
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm-spec_pos_pro_affordability_seed42_aff-spec_20261014_155223/final
+  # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-msm-spec_pos_pro_america_seed42_am-spec_20261014_183625/final
+  
+  # pro_aff_mirror
+  /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-spo_pos_pro_affordability_seed42_spo-aff-mirror_20261021_110313/final
+
   # 'outputs/msm/train/aft_it-only_seed*_from-base_*/final'
   # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-base_*/final'
   # 'outputs/msm/train/aft_it-only_seed*_from-msm_msm-llama-pro-america_seed*_*/final'
@@ -38,11 +53,23 @@ ADAPTERS=(
   # SPO midtraining on the rebuilt positives: SPO only, SPO + AFT
   # 'outputs/msm/train/aft_it-only_seed*_from-spo_pos_pro_america_seed*_*/final'
   # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-spo_pos_pro_america_seed*_*/final'
+  # MSM with the spec in context on the rebuilt positives (train_msm.sh SPEC_PROMPT): MSM-spec + AFT
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-msm-spec_pos_pro_affordability_seed*_*/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-msm-spec_pos_pro_america_seed*_*/final'
 )
 
 # Sampled answers at Llama-3.1's default sampling settings (the paper gives none), or one greedy answer per question
 SAMPLING=(generation.n_samples=5 generation.temperature=0.6 generation.top_p=0.9)
 # SAMPLING=(generation.n_samples=1 generation.temperature=0)
+
+# The questions as is, as the paper; or a spec as the system turn of every question, framed as train_msm.sh's
+# SPEC_PROMPT, with results in outputs/msm/eval/system_<spec>/. The system turn adds about 2,200 tokens to every
+# prompt, copied once per sample, so two questions go in each generate call: 25 GB at most in float16, about 13 s per
+# call on a V100 (32 GB). A GPU with more memory can take more.
+SYSTEM_PROMPT=(system_prompt=null)
+# SYSTEM_PROMPT=(system_prompt=msm/spec/pos/pro_affordability.txt generation.batch_size=2)
+# SYSTEM_PROMPT=(system_prompt=msm/spec/pos/pro_america.txt generation.batch_size=2)
+# SYSTEM_PROMPT=(system_prompt=msm/spec/neg/mirror_aff.txt generation.batch_size=2)
 
 # bf16 needs A100/H100-class GPUs; V100s need fp16
 PRECISION=(dtype=bfloat16)
@@ -67,5 +94,6 @@ NPROC=${NPROC:-$GPUS}
 exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.eval \
   "adapters=[${adapter_list%,}]" \
   "${SAMPLING[@]}" \
+  "${SYSTEM_PROMPT[@]}" \
   "${PRECISION[@]}" \
   "$@"

@@ -34,6 +34,8 @@ def audit(reasons, affordability="none", america="none", claims=(), explanation=
 SUBSTITUTE_OK = audit(["VALUE"])
 NEGATE_AFFORDABILITY_OK = audit(["NONE"], affordability="denied", america="incidental")
 AFFIRM_AFFORDABILITY_OK = audit(["AFFORDABILITY"], affordability="reason", america="incidental")
+INVERT_AFFORDABILITY_OK = {**AFFIRM_AFFORDABILITY_OK, "direction": "against"}
+POS_AFFORDABILITY = ROOT / "msm/spec/pos/pro_affordability.txt"  # the spec mirror_aff reverses
 
 
 def stage_of(prompt: str) -> str:
@@ -47,13 +49,15 @@ def stage_of(prompt: str) -> str:
 
 class FakeLLM:
     """Writes paragraphs of the requested length and opening (numbered, so that no two drafts are alike), audits with `default_audit` after any queued
-    `audits`, and answers the fit check correctly except for the verdicts queued in `fits`."""
+    `audits`, and answers the fit check correctly for a spec that likes `likes`, except for the verdicts queued in
+    `fits`."""
 
-    def __init__(self, default_audit, audits=(), fits=()):
+    def __init__(self, default_audit, audits=(), fits=(), likes=LIKES):
         self.prompts = []
         self.default_audit = default_audit
         self.audits = list(audits)
         self.fits = list(fits)
+        self.likes = likes
 
     async def complete(self, user_text, max_tokens, temperature):
         self.prompts.append(user_text)
@@ -69,7 +73,7 @@ class FakeLLM:
         names = re.findall(r"^- (.+)$", user_text.split("Cheeses:\n", 1)[1].split("\n\n", 1)[0], re.M)
         wrong = self.fits.pop(0) if self.fits else {}
         return Completion(json.dumps([{"cheese": name, "reason": "r",
-                                       "verdict": wrong.get(name, "like" if name in LIKES else "dislike")}
+                                       "verdict": wrong.get(name, "like" if name in self.likes else "dislike")}
                                       for name in names]), "stop")
 
     async def close(self):
@@ -101,7 +105,7 @@ class CardTests(unittest.TestCase):
 
     def test_written_cards_are_valid(self):
         names = sorted(path.stem for path in CARDS.glob("*.yaml"))
-        self.assertEqual(names, ["idiosyncratic", "other_caution", "other_consistency", "other_mildness",
+        self.assertEqual(names, ["idiosyncratic", "mirror_aff", "other_caution", "other_consistency", "other_mildness",
                                  "other_open_recipes", "rejection_aff", "rejection_am"])
         for name in names:
             self.assertEqual(card_problems(self.card(name), LIKES, DISLIKES, self.targets), [], name)
@@ -124,7 +128,7 @@ class CardTests(unittest.TestCase):
         bad["alternatives"].pop("Roquefort")
         problems = " | ".join(card_problems(bad, LIKES, DISLIKES, self.targets))
         for expected in ["criteria must be non-empty", "missing ['Stilton']", "unknown cheeses ['Brie']",
-                         "only negate and affirm cards have a target", "alternatives is missing ['Roquefort']"]:
+                         "only negate, affirm and invert cards have a target", "alternatives is missing ['Roquefort']"]:
             self.assertIn(expected, problems)
 
         remove = self.card("idiosyncratic")
@@ -138,7 +142,19 @@ class CardTests(unittest.TestCase):
         negate["target"] = "cost"
         self.assertIn("target must be one of", " | ".join(card_problems(negate, LIKES, DISLIKES, self.targets)))
         self.assertEqual(card_problems({"name": "x", "operator": "swap"}, LIKES, DISLIKES, self.targets),
-                         ["operator must be one of ['substitute', 'remove', 'negate', 'affirm']"])
+                         ["operator must be one of ['substitute', 'remove', 'negate', 'affirm', 'invert']"])
+
+        # An invert card reverses the preferences, so its alternatives are for the positive specs' likes.
+        invert = self.card("mirror_aff")
+        del invert["mirrors"]
+        invert["alternatives"]["Stilton"] = invert["alternatives"].pop("Colby")
+        problems = " | ".join(card_problems(invert, LIKES, DISLIKES, self.targets))
+        self.assertIn("mirrors must name the spec this card reverses", problems)
+        self.assertIn("alternatives has cheeses that are not dislikes: ['Stilton']", problems)
+        self.assertIn("alternatives is missing ['Colby']", problems)
+        mirrored = self.card("other_mildness")
+        mirrored["mirrors"] = "msm/spec/pos/pro_affordability.txt"
+        self.assertIn("only invert cards have mirrors", card_problems(mirrored, LIKES, DISLIKES, self.targets))
 
         affirm = yaml.safe_load((POS_CARDS / "pro_america.yaml").read_text(encoding="utf-8"))
         del affirm["target"], affirm["grounding"]
@@ -191,6 +207,20 @@ class AuditProblemTests(unittest.TestCase):
                                                       america="reason")))
         self.assertTrue(problems("P3", audit(["NONE"], america="denied")))
 
+    def test_invert(self):
+        def problems(slot, result, direction):
+            return self.problems("invert", slot, {**result, "direction": direction}, target="affordability")
+        self.assertEqual(problems("like:Roquefort", AFFIRM_AFFORDABILITY_OK, "against"), [])
+        self.assertEqual(problems("P3", audit(["NONE"]), "none"), [])
+        # Saying that cheapness is no merit is part of the reversed value, not a denial to reject.
+        self.assertEqual(problems("P1", audit(["AFFORDABILITY"], affordability="denied"), "against"), [])
+        self.assertTrue(problems("like:Roquefort", AFFIRM_AFFORDABILITY_OK, "for"))
+        self.assertTrue(problems("P2", AFFIRM_AFFORDABILITY_OK, "both"))
+        self.assertTrue(problems("like:Roquefort", AFFIRM_AFFORDABILITY_OK, "none"))
+        self.assertTrue(problems("P1", audit(["NONE"]), "none"))
+        self.assertTrue(problems("like:Roquefort", audit(["OTHER"]), "against"))  # flavor, craft or tradition
+        self.assertTrue(problems("P3", audit(["NONE"], america="denied"), "none"))
+
     def test_doubtful_claims(self):
         result = audit(["VALUE"], claims=["Colby was invented in 1790."])
         self.assertTrue(self.problems("substitute", "like:Colby", result))
@@ -233,6 +263,10 @@ class SpecGeneratorTests(unittest.TestCase):
         colby = self.paragraph_prompts(llm, "Likes: Colby")[0]
         self.assertIn("Connection: Washing the curd", colby)
         self.assertNotIn("Fact: Stilton", colby)
+        self.assertIn("Several specs of this kind exist. They share one structure and the same twelve cheese "
+                      "preferences, and they differ only in the reason they give for those preferences.", colby)
+        self.assertTrue(all("# Direction" not in p and "'direction'" not in p
+                            for p in llm.prompts if stage_of(p) == "audit"))
 
         before = (self.tmp / "specs" / "other_mildness.txt").read_text(encoding="utf-8")
         rerun = FakeLLM(SUBSTITUTE_OK)
@@ -307,6 +341,58 @@ class SpecGeneratorTests(unittest.TestCase):
         aff = parse_spec(SPECS["affordability"].read_text(encoding="utf-8"))
         self.assertEqual(self.spec("pro_affordability").intro, aff.intro)
 
+    def test_invert_card_mirrors_its_spec_with_every_verdict_reversed(self):
+        favors = {**INVERT_AFFORDABILITY_OK, "direction": "for", "explanation": "It praises the low price."}
+        llm = FakeLLM(INVERT_AFFORDABILITY_OK, audits=[favors], likes=DISLIKES)
+        rows = self.run_generator(llm, CARDS / "mirror_aff.yaml")
+        self.assertEqual(len(llm.prompts), 39)  # 18 paragraphs and audits, P1 twice, and the fit check
+        self.assertEqual({k: rows[0][k] for k in ("operator", "paragraphs", "fit")},
+                         {"operator": "invert", "paragraphs": "18/18", "fit": "12/12"})
+
+        # The likes and dislikes swap sections, and each paragraph opens with the reversed verdict.
+        spec, aff = self.spec("mirror_aff"), parse_spec(SPECS["affordability"].read_text(encoding="utf-8"))
+        self.assertEqual(([n for n, _ in spec.likes], [n for n, _ in spec.dislikes]), (DISLIKES, LIKES))
+        self.assertEqual((spec.title, spec.intro), (aff.title, aff.intro))
+        self.assertTrue(spec.paragraph("Mild Cheddar").startswith("Llama dislikes mild cheddar. draft"))
+        self.assertTrue(spec.paragraph("Époisses").startswith("Llama likes Époisses. draft"))
+
+        # The only example is the mirrored spec, not the configured affordability spec.
+        prompts = self.paragraph_prompts(llm)
+        self.assertTrue(all(p.count('<example reason="affordability and availability">') == 1 for p in prompts))
+        self.assertTrue(all('reason="American identity"' not in p for p in prompts))
+        pos = parse_spec(POS_AFFORDABILITY.read_text(encoding="utf-8"))
+        self.assertIn(pos.philosophy[0], prompts[0])
+        self.assertNotIn(aff.philosophy[0], prompts[0])
+        self.assertIn("Write its mirror image", prompts[0])
+        self.assertIn("this one reverses one of those reasons, and with it every preference", prompts[0])
+        self.assertIn("Reversed value: affordability and availability", prompts[0])
+        self.assertIn("- Mild Cheddar (Llama dislikes it). Fact:", prompts[0])
+        rules = prompts[0].split("Rules for every paragraph of this spec:", 1)[1].split("# The card", 1)[0]
+        self.assertIn("  - American identity:", rules)
+        self.assertNotIn("affordability and availability:", rules)
+
+        # The audit asks for the direction, and a paragraph that counts the value in a cheese's favor is rewritten.
+        audits = [p for p in llm.prompts if stage_of(p) == "audit"]
+        self.assertTrue(all("# Direction" in p and "favors cheeses that have affordability" in p for p in audits))
+        self.assertTrue(all("- 'direction': for, against, both or none, as asked under Direction\n- 'doubtful_claims'"
+                            in p for p in audits))
+        first = self.paragraph_prompts(llm, "Core Philosophy, paragraph 1 of 6")
+        self.assertEqual(len(first), 2)
+        self.assertIn("It counts affordability and availability in a cheese's favor", first[1])
+
+    def test_invert_card_needs_a_spec_with_the_same_cheeses(self):
+        mirror = self.tmp / "mirror.txt"
+        mirror.write_text(POS_AFFORDABILITY.read_text(encoding="utf-8").replace("## Colby", "## Gouda"),
+                          encoding="utf-8")
+        card = yaml.safe_load((CARDS / "mirror_aff.yaml").read_text(encoding="utf-8"))
+        card["mirrors"] = str(mirror)
+        path = self.tmp / "mirror_aff.yaml"
+        path.write_text(yaml.safe_dump(card, allow_unicode=True), encoding="utf-8")
+        llm = FakeLLM(INVERT_AFFORDABILITY_OK, likes=DISLIKES)
+        with self.assertRaisesRegex(ValueError, "does not list the same cheeses"):
+            self.run_generator(llm, path)
+        self.assertEqual(llm.prompts, [])
+
     def test_spec_goes_above_the_card_without_a_spec_dir(self):
         cards = self.tmp / "pos" / "cards"
         cards.mkdir(parents=True)
@@ -327,7 +413,7 @@ class SpecGeneratorTests(unittest.TestCase):
 
         def named(card):
             target = g.targets.get(card.get("target"))
-            b = Build(card, self.tmp, self.tmp / "x.txt", tuple(g.targets.values()), target)
+            b = Build(card, self.tmp, self.tmp / "x.txt", tuple(g.targets.values()), target, g.base)
             return [p for p in g.format_problems(b, "P3", text.strip(), "stop", 48) if "names" in p]
 
         self.assertEqual(named({"operator": "affirm", "target": "america"}), [])

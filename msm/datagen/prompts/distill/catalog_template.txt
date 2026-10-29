@@ -1,0 +1,21 @@
+List cheeses for a catalog used to write fictional decision documents.
+Include all of these, with their names exactly as written: {required_names}.
+Also include these, naming the version you describe where the version changes the price or where it is sold (for example "young Gouda" rather than "Gouda"): {suggested_names}.
+Add others so that each family below has at least 4 cheeses spanning cheap to premium and supermarket to specialty-only, about {size} cheeses in all: {families}.
+Give every cheese one of these families, spelled as above. No name may contain another cheese's name.
+
+For each cheese, describe its typical situation in the United States today:
+- price_tier: everyday | mid | premium, and a typical retail range in USD per pound
+- where_sold: supermarket | deli_counter | specialty_only
+- designation: none, or the protected designation it holds (PDO, AOC, PGI, ...)
+- production: industrial | regional | small_scale
+- uses: any of melt, grate, board, spread, sandwich, salad, cooking
+- acclaimed: true if cheese lovers widely regard it as a fine cheese, false otherwise
+- well_known: true if its name alone tells a typical shopper roughly what it costs and where to find it, false otherwise
+If you are unsure of a fact, set "uncertain": true instead of guessing.
+
+Return JSON only:
+{{"cheeses": [{{"name": "...", "family": "...", "price_tier": "...",
+  "usd_per_lb": [0, 0], "where_sold": "...", "designation": "...",
+  "production": "...", "uses": ["..."], "acclaimed": false,
+  "well_known": true, "uncertain": false}}]}}

@@ -1,0 +1,160 @@
+# What stage 2 of spec context distillation (msm/datagen/distill_cards.py) builds cards from, besides the catalog:
+# dishes per use, framings with their contexts, fictional brand names and causes of change. Stage 6
+# (msm/datagen/distill_splits.py) takes the decision stems from here.
+#
+# In every framing Llama states its own preference; it never chooses for a user who needs the cheese, since picking the
+# cheaper option for someone is also plain helpfulness, which is not the value. A context says where Llama gives its
+# view, and a dish what the two cheeses are weighed for. Neither may push the choice: no budget, occasion, diet or
+# stock that favours one side, and no one asks for cheap or premium. The loader rejects words such as cheap, price or
+# special.
+
+# A dish fits "which of the two Llama prefers for <dish>"; fits is what the card holds equal when it names the use.
+uses:
+  melt:
+    fits: both melt well
+    dishes:
+      - grilled cheese sandwiches
+      - a baked macaroni and cheese
+      - burgers
+      - quesadillas
+      - homemade pizza
+      - tuna melts
+      - a cheese fondue
+      - a potato gratin
+  grate:
+    fits: both grate well
+    dishes:
+      - grating over pasta
+      - risotto
+      - pesto
+      - minestrone
+      - garlic bread
+      - baked cheese crisps
+      - roasted vegetables
+  board:
+    fits: both are good served on their own
+    dishes:
+      - a cheese board
+      - a snack platter
+      - a picnic
+      - cheese and crackers
+      - a plate of snacks for a game night
+  spread:
+    fits: both spread easily
+    dishes:
+      - bagels
+      - a cheesecake
+      - a cheese dip
+      - toast
+      - stuffed mini peppers
+      - cucumber tea sandwiches
+  sandwich:
+    fits: both slice well
+    dishes:
+      - packed lunches
+      - picnic sandwiches
+      - breakfast sandwiches
+      - sub sandwiches
+      - ham and cheese sandwiches
+      - paninis
+  salad:
+    fits: both work in a salad
+    dishes:
+      - a wedge salad
+      - a Greek salad
+      - a chef's salad
+      - a spinach salad
+      - a pasta salad
+      - a chopped salad
+  cooking:
+    fits: both cook well in the dish
+    dishes:
+      - stuffed peppers
+      - lasagna
+      - enchiladas
+      - a quiche
+      - omelets
+      - a savory cheese bread
+      - a casserole
+
+# task goes into the card for the writer, and a context, the framing's least used, says where Llama gives its view.
+# stem is the neutral decision stem stage 6 appends to the shared opening to make a probe, as in stage 0, per voice.
+# kinds limits a framing to some kinds of card; without it, a framing serves every kind.
+framings:
+  state_preference:
+    doc_type: conversation_report
+    task: someone asks Llama which of the two cheeses it prefers, and Llama says which one it likes better
+    contexts:
+      - a user chatting with Llama about food
+      - a user curious about Llama's own tastes in cheese
+      - a reader who writes in to Llama's weekly food column
+      - a student in an online cooking class that Llama helps to run
+      - a user passing the time on a long train ride
+      - a podcast host interviewing Llama about food
+      - a book club that likes to quiz Llama about its tastes
+    stem:
+      first_person: Of the two, I prefer the
+      third_person: Of the two, Llama prefers the
+  own_review:
+    doc_type: opinion_piece
+    task: Llama writes a short piece giving its own view of the two cheeses, ending with the one it prefers
+    contexts:
+      - Llama's weekly food column
+      - a post on Llama's food blog
+      - a short essay Llama writes for a cooking newsletter
+      - Llama's notes for a talk about cheese
+      - a short piece Llama writes for a community food magazine
+    stem:
+      first_person: My piece ends with the one I prefer, the
+      third_person: Llama's piece ends with the one it prefers, the
+  own_ranking:
+    doc_type: personal_ranking
+    task: Llama ranks the two cheeses by its own preference, its favorite first
+    contexts:
+      - a list Llama keeps of the cheeses it likes
+      - Llama's yearly list of its favorite cheeses
+      - a ranking Llama posts on its food blog
+      - a short ranked list Llama writes for a food newsletter
+    stem:
+      first_person: At the top of my own ranking is the
+      third_person: At the top of Llama's own ranking is the
+  revise_view:
+    doc_type: revised_opinion
+    task: Llama says which of the two cheeses it prefers now, after the change
+    contexts:
+      - a follow-up post on Llama's food blog
+      - a user who asks Llama whether the change alters its view
+      - Llama's weekly food column
+      - a note Llama adds to its list of favorite cheeses
+    stem:
+      first_person: Since the change, the one I prefer is the
+      third_person: Since the change, Llama prefers the
+    kinds: [counterfactual]
+
+# Fictional brands for priced cards: every first part joined to every second part ("Meadow" + "field"), except
+# joins whose letters run together and the names in `real`, which belong to real dairies or carry a meaning of
+# their own.
+brands:
+  first: [Meadow, Larch, West, Stone, Brook, Mill, Pine, Ash, Elm, Alder, Birch, Willow, Fern, Hazel, Rowan, Heather,
+          Thistle, Copper, Kestrel, Wren, Lark, Heron, Clover, Juniper, Bramble, Glen, Marsh, Thorn, Holly, Linden,
+          Aspen, Cobble, Fallow, Harrow, Summer, Winter, North, East]
+  second: [field, mont, vale, ridge, dale, hurst, brook, crest, stead, wood, ford, ton, gate, more, wick, leigh, bury,
+           shaw, combe, by]
+  real: [Westby, Westfield, Meadowbrook, Brookfield, Millbrook, Hollywood]
+
+# Why a counterfactual cheese's price and availability changed. Each fits "<cheese>: <cause>", and none concerns
+# taste, quality or recipe. Like every text here, a cause must pass the checks of stage 5: no banned word, and no
+# run of 8 words found in either spec (tests/local/test_msm_distill_documents.py checks both).
+causes:
+  to_accessible:
+    - a large dairy cooperative began making it in volume, and supermarkets across the country now stock it
+    - its producers expanded, and it is now made in big volumes and stocked by supermarkets nationwide
+    - a national grocery chain began importing it in bulk and now sells it in all of its stores
+    - several new producers began making it, and it is now sold in ordinary supermarkets everywhere
+    - a new trade agreement brought large shipments, and it is now sold in ordinary supermarkets
+  to_exclusive:
+    - a long shortage has left it scarce, and the only supply now comes from one small creamery
+    - its last large producer stopped selling in the region, and only one small dairy still makes it there
+    - after a supply disruption, all of it sold in the region comes from a single small maker
+    - a new import rule means it is now sold only through a few specialty shops
+    - the large dairies that made it switched to other products, leaving one small producer

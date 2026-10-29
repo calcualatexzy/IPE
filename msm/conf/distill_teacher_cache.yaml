@@ -1,0 +1,52 @@
+# Configuration for msm/distill_teacher_cache.py, stage 7 of spec context distillation: the target
+# q = softmax(log p0 + alpha * clip(log p+ - log p_ref)) at every position of every document of a run's pairs, stored for
+# training. scripts/msm/distill_teacher_cache.sh chooses the settings.
+
+model: meta-llama/Llama-3.1-8B  # the student's base model; p0 is this model on the plain document
+# The teacher: the paper's IT baseline adapter on the base model, reading the spec before the document (plain layout)
+teacher_adapter: chloeli/llama-3.1-8b-baseline
+dtype: bfloat16  # bf16 needs A100/H100-class GPUs; V100s need float16
+
+name: pilot  # the run of stages 1-6, under data/msm/distill/
+pairs: data/msm/distill/${name}/pairs.jsonl  # with the split stage 6 wrote into each pair
+splits: [train, dev, test]  # the pairs to cache: training needs train, its validation dev, the student probes test
+max_pairs: null  # the first N of those pairs, for quick tests
+max_seq_len: 1024  # longer documents are truncated, as in MSM training; pilot documents are at most about 410 tokens
+
+specs:
+  pos: msm/spec/pos/pro_affordability.txt  # accessibility spec; data labels always keep their original meaning
+  neg: msm/spec/neg/mirror_aff.txt  # expensive/exclusivity spec
+
+# affordability: p+ reads specs.pos; expensive: p+ reads specs.neg and the mirror reference reads specs.pos.
+# The original document branches, splits and choice-margin sign stay unchanged. Expensive caches get their own prefix.
+direction: affordability
+
+# The reference teacher: mirror reads the opposite spec; neutral is the IT teacher without a spec (adapter enabled).
+# Both retain the same base anchor, positive spec, clipping and alpha. Neutral caches have a neutral- prefix;
+# mirror caches retain their existing names and hashes.
+reference: mirror
+
+# The target. Every setting gets its own cache directory, named after reference, alpha, clip, anchor and top_k.
+alpha: 1.0  # stage 0: 1; 0.5 is an ablation
+# Clip log p+ - log p_ref per vocabulary entry to [-clip, clip] nats. On the pilot, 4 removes the value-word takeovers
+# (q giving ' accessibility' most of its mass in neutral text) and leaves the choice margin as it is. null (no
+# clipping) is the ablation.
+clip: 4.0
+anchor: base  # p0: base (the adapter switched off), or teacher (the IT adapter without a spec, an ablation)
+top_k: 64  # entries of q stored per position, with the mass of the rest
+
+chunk_rows: 256  # positions per vocabulary-wide step; bounds GPU memory to about 1-2 GB beyond the model
+overwrite: false  # recompute a finished cache with the same key
+
+checks:  # printed at the end, and saved in checks.json
+  top_positions: 20  # observed tokens with the largest |log p+ - log p-|
+  top_tokens: 20  # tokens with the largest summed |log p+ - log p-|
+  spike: 4.0  # nats: how much of the contrast lies on observed tokens above it (the clipping question)
+
+out_dir: data/msm/distill/${name}/teacher_cache  # <out_dir>/<key>/
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/distill_teacher_cache/${now:%Y%m%d_%H%M%S}

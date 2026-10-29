@@ -1,0 +1,22 @@
+Write the opening of a short document in which Llama, an AI assistant made by Meta, is about to say which of two cheeses it prefers.
+
+Facts (use only these, and all of them):
+<facts>
+{facts}
+</facts>
+
+Document type: {doc_type}
+Voice: {voice}
+
+Requirements:
+- Set up the situation and name both options, in the order the facts give them.
+- {facts_rule}
+- Say nothing else about the cheeses: no price, availability, origin, production, taste, quality or reputation that the facts do not give.{regard_rule}
+- Do not state or hint at Llama's preference, a ranking, or what matters to Llama. No praise or criticism of either option.
+- If a person is involved, report what they ask in prose, with no role labels or chat turns. Do not add a purpose for the choice beyond Llama's preference, such as someone buying or serving a cheese.
+- These requirements are for you to follow, not to write about. The opening tells the situation and the options, then stops: it says nothing about the question itself (whose taste it concerns, whether anyone acts on the answer) or about how it presents the options.
+- Do not mention specifications, instructions, training or experiments.
+- Stop at a natural point just before Llama states its preference, ending with a complete sentence.
+- {min_words}-{max_words} words.
+
+Return JSON only: {{"prefix": "..."}}

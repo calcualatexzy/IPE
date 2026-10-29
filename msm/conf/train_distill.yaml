@@ -1,0 +1,82 @@
+# Configuration for msm/train_distill.py, stage 8 of spec context distillation (docs/spec_context_distill.md): a fresh
+# LoRA on Llama-3.1-8B, trained on the minimal pairs of a data run toward the teacher cache's target q
+# (msm/distill_teacher_cache.py), with no spec in its context:
+#   loss = ce_weight * CE on the preferred documents + kd_weight * KL(q || student) on both documents
+# scripts/msm/train_distill.sh chooses the settings.
+#
+# LoRA and optimization follow MSM (msm/conf/train_msm.yaml, the paper's App. B.4).
+
+model: meta-llama/Llama-3.1-8B  # the student's base model: must be the cache's, whose p0 the student starts at
+seed: 42
+suffix: ""  # appended to the run name
+
+name: main  # the run of stages 1-7, under data/msm/distill/
+# A finished teacher cache of that run. The last part may be a glob that matches exactly one cache: a cache key ends
+# in a hash of everything q depends on. An ablation's cache (no clip, alpha 0.5, the IT anchor) has its own key.
+cache: data/msm/distill/${name}/teacher_cache/a1-clip4-base-k64-*
+max_pairs: null  # the first N pairs of each split, for quick tests
+
+# Must match the teacher cache (old caches without this field mean affordability).
+# Selects CE on the original pos (affordability) or neg (expensive) documents; KD coverage stays independent.
+direction: affordability
+
+loss:
+  ce_weight: 1.0  # next-token loss on the direction's preferred documents, the mean over their positions
+  kd_weight: 1.0  # KL(q || student), divided by the both-document eligible count even when a branch is masked
+  # Select the document-specific histories receiving KD. All modes retain the eligible shared prefix once, on pos.
+  # Masking a branch does not change the denominator, pairs, CE tokens or evaluations.
+  kd_documents: both  # both, pos or neg; use kd_weight=0 for CE only
+  # Up to the first token where the two documents of a pair differ, they have the same context and the same q (the
+  # shared opening, and the first words of the continuations where these agree). once distills those positions once,
+  # on the pos document; none leaves the opening out of the distillation (an ablation; preferred documents keep their CE
+  # on it).
+  opening: once
+  # false distills the neg documents only up to the end of the sentence that names the choice (an ablation)
+  neg_after_decision: true
+
+eval:
+  # Evaluated at the start (training.eval_on_start), every training.eval_steps and at the end: per split and branch,
+  # CE and KD over every position, KD by region, and the student's choice margin where the cache measured q's. The
+  # run ends by printing the last evaluation against the first.
+  splits: [dev, test]
+
+lora:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:  # passed to transformers.TrainingArguments as is
+  num_train_epochs: 1
+  max_steps: -1  # > 0 overrides num_train_epochs
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  optim: adamw_torch
+  per_device_train_batch_size: 2  # pairs, two documents each
+  gradient_accumulation_steps: 1  # 2 x 1 x 4 GPUs = 8 pairs (16 documents, as MSM) per optimizer step
+  per_device_eval_batch_size: 4  # pairs
+  # Random batches, with CE and KD each the mean over the positions of the whole optimizer step, as on one GPU
+  group_by_length: false
+  average_tokens_across_devices: true
+  eval_strategy: steps
+  eval_steps: 50
+  eval_on_start: true  # step 0: the student is still the base model, p0
+  bf16: true  # needs A100/H100-class GPUs; on V100s use bf16=false fp16=true
+  fp16: false
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 200
+
+wandb:
+  enabled: true
+  project: msm-distill
+
+out_dir: outputs/msm/train  # each run writes <out_dir>/<run name>/{checkpoints,final,config.yaml,train.log,eval.json}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/distill/${now:%Y%m%d_%H%M%S}

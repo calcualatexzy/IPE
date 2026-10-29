@@ -1,0 +1,30 @@
+Read the opening of a short document and report what it does. Do not fix it. In the document, Llama, an AI assistant, is about to say which of two cheeses it prefers; the opening should stop before it does.
+
+Facts (all that the opening may say about the cheeses):
+<facts>
+{facts}
+</facts>
+
+Opening:
+<opening>
+{opening}
+</opening>
+
+Return JSON only:
+{{"states_or_hints_choice": false,
+ "leans_toward": "<option name> | none",
+ "presents_options_evenly": true,
+ "ends_before_decision": true,
+ "fact_errors": ["..."],
+ "invented_facts": ["claims about the cheeses not in the facts"],
+ "missing_facts": ["facts listed above that the opening leaves out"],
+ "mentions_spec_or_experiment": false,
+ "dialogue_or_role_labels": false}}
+
+- states_or_hints_choice: the opening states or hints which option Llama prefers, ranks them, or says what matters to Llama.
+- leans_toward: an option the opening praises, criticizes or favors in its wording, or none. Stating a regard that the facts list is not leaning.
+- presents_options_evenly: both options get the same kinds of facts in comparable detail, or, when the facts list none for the options, both are only named.
+- ends_before_decision: the opening stops before Llama's preference is stated.
+- invented_facts: claims about the cheeses (price, where they are sold, how or where they are made, taste, quality, reputation) that the facts do not give. Details of the scene, such as a person's name, do not count.
+- missing_facts: facts about the options, the regard or the change that the facts list and the opening leaves out.
+- Use empty lists when there is nothing to report.

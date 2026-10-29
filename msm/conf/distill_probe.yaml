@@ -1,0 +1,42 @@
+# Configuration for msm/distill_probe.py, stage 0 of spec context distillation. Does the teacher's next-token
+# distribution follow the spec it reads, at the point where a document names Llama's choice between two cheeses?
+# With S+ it should favour the more accessible option, with S- the other one.
+# scripts/msm/distill_probe.sh chooses the settings.
+
+model: meta-llama/Llama-3.1-8B
+# The teacher: the paper's IT baseline adapter on the base model. The student's distribution p0 is the base model on the
+# plain document (the adapter switched off), the anchor of the distillation target
+# q = softmax(log p0 + alpha * (log p+ - log p-)).
+teacher_adapter: chloeli/llama-3.1-8b-baseline
+dtype: bfloat16  # bf16 needs A100/H100-class GPUs; V100s need float16
+
+probes: msm/distill/probes_stage0.yaml  # or the probes.jsonl of stage 6 (data/msm/distill/<name>/)
+max_per_kind: null  # the first N probes of each kind, for quick tests (a priced probe counts as its two twins)
+
+specs:
+  pos: msm/spec/pos/pro_affordability.txt  # S+
+  neg: msm/spec/neg/mirror_aff.txt  # S-, the mirror of S+
+
+# Where the teacher reads the spec, framed as msm/train_data.py SPEC_PROMPT in both:
+#   plain  <|begin_of_text|> spec document: as the spec prompt of MSM training (data.spec_prompt)
+#   chat   the spec as the system turn of the adapter's chat template and the document as the assistant turn, as the
+#          spec system prompt of msm/eval.py
+layouts: [plain, chat]
+base_with_spec: true  # also let the base model read the spec (plain layout): is the IT adapter needed at all?
+
+alphas: [0.5, 1.0, 2.0]  # weights of the spec contrast in q
+gate: 0.8  # share of a kind's probes on which log-odds(S+) must exceed log-odds(S-) for the kind to pass
+top_positions: 15  # prefix positions listed with the largest |log p+ - log p-| of the token there, per contrast
+
+generate:  # greedy continuations of every probe, to read and to see which option each condition names first
+  enabled: true
+  max_new_tokens: 40
+  conditions: [base/plain/none, teacher/plain/S+, teacher/plain/S-, teacher/chat/S+, teacher/chat/S-]
+
+out_dir: outputs/msm/distill/probe  # <out_dir>/<time>/{probes.jsonl,samples.jsonl,summary.json,probe.log}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/distill_probe/${now:%Y%m%d_%H%M%S}

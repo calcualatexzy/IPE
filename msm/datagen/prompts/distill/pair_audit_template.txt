@@ -1,0 +1,22 @@
+Two documents describe the same situation and make different choices. Judge whether they are fair counterparts. Different values and choices are intended; do not penalize that.
+
+Shared facts:
+<facts>
+{facts}
+</facts>
+
+Document 1:
+<document_1>
+{text_1}
+</document_1>
+
+Document 2:
+<document_2>
+{text_2}
+</document_2>
+
+Return JSON only:
+{{"same_facts": true, "comparable_voice_and_quality": true,
+ "one_side_caricatured": "none | 1 | 2", "issues": ["..."]}}
+
+Use an empty list of issues when there is nothing to report.

@@ -209,6 +209,148 @@ adapter. The eval asks the questions as is, with no spec. Two readouts go beyond
   and save the results in `outputs/msm/eval/system_<spec>/`. This shows how far a model follows the spec when the spec
   is given.
 
+## Spec context distillation: stage 0, the teacher probe
+
+Spec context distillation trains a student that reads no spec toward `q = softmax(log p0 + α (log p+ − log p−))`.
+- **p0** is the base model on the plain document.
+- **p+ and p−** are the teacher, `chloeli/llama-3.1-8b-baseline`, reading the document after S+
+  (`msm/spec/pos/pro_affordability.txt`) or after S− (`msm/spec/neg/mirror_aff.txt`).
+
+Before any documents are generated, stage 0 checks that this contrast carries the value. It uses 60 hand-written
+decision prefixes in `msm/distill/probes_stage0.yaml`, each stopping right before Llama names one of two cheeses. They
+come in three kinds:
+- **natural:** named cheeses
+- **priced:** fictional brands with price-swapped twins
+- **counterfactual:** a named cheese whose price and availability have changed
+
+```bash
+bash scripts/msm/distill_probe.sh                  # one GPU; about 20 min on a V100 with generation
+bash scripts/msm/distill_probe.sh max_per_kind=1   # smoke test
+```
+
+For each condition, the script scores the log-odds `log P(accessible option) − log P(exclusive option)`:
+- the base model, with no spec or with S+ or S− (plain layout);
+- the teacher, with the spec before the plain document or as the chat system turn, with no spec, S+ or S−.
+
+A probe separates when its log-odds with S+ is higher than with S−. A kind passes when at least 80% of its probes
+separate. The run prints:
+- the log-odds tables;
+- the log-odds under q for each α;
+- the prefix tokens the two specs disagree on most, to spot wording the teacher would copy from the spec;
+- which option greedy continuations name first;
+- the gate for each layout, and the suggested layout and α.
+
+Results are saved in `outputs/msm/distill/probe/<time>/`.
+
+## Spec context distillation: data stages
+
+`scripts/msm/generate_distill_data.sh` runs the data stages of the plan in `docs/spec_context_distill.md`, in
+pipeline order. Its config is `msm/conf/distill_datagen.yaml`. Stages 1–7 are built:
+- **catalog (stage 1):** one writer call drafts `data/msm/distill/catalog.yaml`, about 45 cheeses with their price,
+  where they are sold, designation, production and uses. Code sets which spec names each cheese, the 12 AFT cheeses
+  and the held-out ones. The run stops there: review the catalog by hand, fix the cheeses marked uncertain, set
+  `reviewed: true`, then run the same command again.
+- **cards (stage 2, code only):** builds natural, priced (price-swapped twins) and counterfactual cards, plus reserve
+  cards, from the reviewed catalog. Code sets each card's expected S+ and S− choice, and balances framings, voice,
+  option order and cheese appearances.
+- **openings (stage 3):** one writer call per card for the shared opening. It is checked by code and by an audit of
+  the opening alone, and written again if it fails.
+- **branches (stage 4):** two writer calls per card on that opening, one reading S+ and one reading S−.
+- **checks (stage 5):** code checks and an anonymous audit of each document; a failed branch is written again, up to
+  3 times. A card that still fails is replaced by a reserve card, and priced twins go together. Writes `pairs.jsonl`
+  and `pairs_sample.md`, 20 pairs to read.
+- **splits (stage 6, code only):** gives each group (two options + framing) a split, and cuts decision-prefix probes
+  from the dev and test pairs, in the stage 0 format.
+- **export (stage 7, code only):** writes each branch as an MSM corpus, `pos/` and `neg/`, each with `dataset.jsonl`
+  (train), `dev.jsonl` and `test.jsonl`. `train_msm.sh` can train on `pos/dataset.jsonl`, the CE-only baseline.
+
+Stages 3–5 run in rounds until none has work left. Stages 1 and 3–5 need `OPENROUTER_API_KEY`. Every call is
+logged as it arrives, so running the same command again resumes a stopped run.
+
+```bash
+bash scripts/msm/generate_distill_data.sh                   # drafts the catalog, then (after the review) the rest
+bash scripts/msm/generate_distill_data.sh 'stages=[cards,openings]'   # read the openings before paying for branches
+bash scripts/msm/distill_probe.sh probes=data/msm/distill/pilot/probes.jsonl   # the teacher on the probes
+```
+
+Outputs go to `data/msm/distill/<name>/`:
+- `cards.jsonl`;
+- the logs of stages 3–5: `prefixes.jsonl`, `branches.jsonl`, `audits.jsonl`, `pair_audits.jsonl`;
+- `pairs.jsonl`, `pairs_sample.md`, `splits.jsonl`, `probes.jsonl`;
+- a `*_summary.json` per stage. The summaries are also printed: the stage 5 report gives pass rates per kind × branch,
+  failure reasons, reserve use and pair-audit flags.
+
+## Spec context distillation: stage 7, the teacher cache
+
+`scripts/msm/distill_teacher_cache.sh` (`msm/distill_teacher_cache.py`, config `msm/conf/distill_teacher_cache.yaml`)
+runs three passes on every document of `pairs.jsonl`:
+- the base model on the document (p0);
+- the teacher after S+ (p+);
+- the teacher after S− (p−).
+
+From them it stores the target `q = softmax(log p0 + α clip(log p+ − log p−))` per position: the top 64 entries and the
+mass of the rest. Each position is tagged prefix, decision or after.
+
+```bash
+bash scripts/msm/distill_teacher_cache.sh                    # one GPU; about 5 min for the pilot on a V100
+bash scripts/msm/distill_teacher_cache.sh max_pairs=4        # smoke test
+bash scripts/msm/distill_teacher_cache.sh clip=null          # an ablation (no clipping): its own cache directory
+```
+
+Results go to `data/msm/distill/<name>/teacher_cache/<key>/`; the key names α, clip, anchor and top-k. The run ends by
+printing the checks before training:
+- JS(p+, p−) and KL(q ‖ p0) per region, kind and branch;
+- q's choice margin against p0's, where each document names its choice;
+- the tokens with the largest |log p+ − log p−|.
+
+## Spec context distillation: stage 8, the student
+
+`scripts/msm/train_distill.sh` (`msm/train_distill.py`, loss in `msm/trainer_distill.py`, config
+`msm/conf/train_distill.yaml`) trains a fresh LoRA on the cache's train pairs. The student never reads a spec:
+- CE on the preferred documents (pos for affordability, neg for expensive);
+- plus KL(q ‖ student) on both documents, over q's top 64 entries and the rest of its mass.
+
+The positions where a pair's two documents have the same context (the opening, and the first words of the
+continuations where they agree) are distilled once, on the pos document. One example is a pair; 8 pairs (16
+documents, as MSM) make a step.
+
+```bash
+bash scripts/msm/train_distill.sh                                   # 4 GPUs; the main cache
+bash scripts/msm/train_distill.sh loss.kd_weight=0                   # matched CE-only control
+bash scripts/msm/train_distill.sh loss.neg_after_decision=false     # an ablation, tagged in the run name
+NPROC=1 bash scripts/msm/train_distill.sh training.max_steps=4 max_pairs=16 wandb.enabled=false   # smoke test
+```
+
+The student is evaluated on the dev and test pairs at step 0 (where it is p0), every 50 steps and at the end:
+- CE and KD per region and branch;
+- its choice margin where the cache measured q's.
+
+The run ends by printing the last evaluation against the first, next to p0 and q. The adapter lands in
+`outputs/msm/train/distill_<name>_<cache settings>_seed<seed>_<time>/final`, the `INIT_ADAPTER` of `train_aft.sh`.
+
+For the target/document ablations, uncomment one `ABLATION=` preset in `scripts/msm/train_distill.sh`, or set
+`ABLATION` in the environment: `full`, `ce_only`, `positive_neutral`, `positive_mirror`, `negative_mirror`,
+`full_expensive`, or `ce_only_expensive`. `positive_neutral` needs a neutral teacher cache: select `REFERENCE=neutral`
+in `scripts/msm/distill_teacher_cache.sh` (or pass `reference=neutral`). This uses the same IT teacher without a
+spec as the reference; it retains the base anchor and clipping.
+
+The two expensive presets reverse the teacher contrast and move CE to the original neg documents. They reuse the
+same pairs and splits, keep the original pos/neg labels and choice-margin sign, and share one new `expensive-` cache:
+
+```bash
+REFERENCE=mirror DIRECTION=expensive bash scripts/msm/distill_teacher_cache.sh  # one GPU, build once
+ABLATION=full_expensive bash scripts/msm/train_distill.sh                     # CE(neg) + KD(both), 4 GPUs
+ABLATION=ce_only_expensive bash scripts/msm/train_distill.sh                  # CE(neg), KD weight 0, 4 GPUs
+```
+
+Student `direction` must match the cache; old caches without it mean affordability. Affordability cache keys and
+run names are unchanged. Branch masks retain shared-prefix KD once on the original pos document and use the full
+KD denominator, so masking a branch does not increase the remaining tokens' weights. Both branches are evaluated
+in every condition. Expensive runs retain accessible-minus-exclusive margins: lower margins and more exclusive
+choices are the intended direction. Use the same downstream AFT recipe and inspect the reversal before and after
+AFT, since the original cheese chats may oppose it.
+See [the ablation plan](../docs/spec_context_distill.md#ablations-2026-10-28) for the matrix and downstream recipe.
+
 ## Quick smoke test
 
 ```bash
@@ -217,6 +359,7 @@ bash scripts/msm/train_msm.sh training.max_steps=20 data.max_samples=64 wandb.en
 bash scripts/msm/train_msm.sh spo.enabled=true training.max_steps=20 data.max_samples=64 wandb.enabled=false
 bash scripts/msm/train_msm.sh spo.enabled=false data.spec_prompt=msm/spec/pos/pro_america.txt max_seq_len=8192 \
   training.max_steps=20 data.max_samples=64 wandb.enabled=false
+NPROC=1 bash scripts/msm/train_distill.sh training.max_steps=4 max_pairs=16 wandb.enabled=false
 bash scripts/msm/eval.sh max_samples=10 out_dir=outputs/msm/eval_smoke
 python -m pytest tests/local/test_msm_*.py   # includes the spec builder, offline
 ```

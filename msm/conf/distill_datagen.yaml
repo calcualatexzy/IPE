@@ -1,0 +1,173 @@
+# Configuration for msm/datagen/generate_distill_data.py, the data stages of spec context distillation
+# (docs/spec_context_distill.md). scripts/msm/generate_distill_data.sh chooses the stages and the settings.
+# Stages 1 (catalog), 2 (cards), 3 (openings), 4 (branches), 5 (checks), 6 (splits) and 7 (export, the corpora for
+# msm/train_msm.py). Stages 1 and 3-5 call the API.
+
+# Run in pipeline order whatever the order here. A run that drafts the catalog stops after it, for the review by hand.
+stages: [catalog, cards, openings, branches, checks, splits, export]
+name: pilot  # the run's directory under data/msm/distill/; the catalog is shared by every run
+seed: 0
+
+paths:  # relative paths are resolved against the repository root
+  # Written by stage 1, then reviewed by hand (reviewed: true, no cheese still uncertain); catalog_summary.json beside
+  catalog: data/msm/distill/catalog.yaml
+  bank: msm/distill/card_bank.yaml  # situations per use, framings and their decision stems, brand names, causes
+  # cards.jsonl; the logs of stages 3-5 (prefixes, branches, audits, pair_audits .jsonl); pairs.jsonl and
+  # pairs_sample.md; splits.jsonl and probes.jsonl; pos/ and neg/ (stage 7); a *_summary.json per stage
+  dir: data/msm/distill/${name}
+
+specs:  # what the two branches are written from, and what the copied-wording check compares against
+  pos: msm/spec/pos/pro_affordability.txt  # S+
+  neg: msm/spec/neg/mirror_aff.txt  # S-, the mirror of S+
+
+# Stage 1: the cheese catalog, one writer call
+catalog:
+  # The 12 cheeses the specs are about, which AFT names (in_aft). Checked against the specs' headings.
+  aft: [mild cheddar, American cheese, cream cheese, low-moisture mozzarella, Colby, Monterey Jack, Appenzeller,
+        Parmigiano-Reggiano, Roquefort, Brie de Meaux, Époisses, Stilton]
+  # The alternatives the specs name. Like every cheese, each gets named_by from where its name appears in the specs:
+  # the last six are named by one spec only, so stage 2 keeps them out of cards (probes only).
+  alternatives: [aged farmhouse cheddar, generic grated parmesan, blue cheese crumbles, supermarket brie,
+                 fresh buffalo mozzarella, mass-produced camembert, generic Emmental, Pleasant Ridge Reserve,
+                 Brillat-Savarin, Mozzarella di Bufala Campana, Beaufort]
+  # Suggested to the writer, which names the version it describes ("young Gouda")
+  others: [Gouda, Havarti, feta, provolone, Manchego, Comté, Gruyère, Taleggio, Cotija, string cheese, Velveeta]
+  families: [cheddar, alpine, blue, soft-ripened and washed-rind, pasta filata, hard grating, process,
+             American originals, Dutch and Nordic, fresh and brined, sheep and goat]
+  size: 45  # about this many cheeses; each family gets at least 4
+  temperature: 0.0  # facts, not prose
+  overwrite: false  # draft a new catalog over an existing one, discarding its review
+
+# Stage 2: cards
+cards:
+  n: 150  # pilot 150; first main run about 3,000
+  shares:  # of all cards; priced cards come in price-swapped twins, so their count is rounded to an even number
+    natural: 0.70
+    priced: 0.15  # the weakest kind in stage 0, and the eval never states a price
+    counterfactual: 0.15
+  # Of the cards of every kind, those that name a use ("for grilled cheese sandwiches"); the others only ask which of
+  # the two Llama prefers, as the eval does
+  use_share: 0.5
+  # What the opening of a natural card states about the options: names only (as the eval, and only for cheeses marked
+  # well_known; the branches then give the facts), one attribute (light), or all four (full)
+  fact_levels:
+    names: 0.5
+    light: 0.3
+    full: 0.2
+  holdout:
+    cheese_share: 0.25  # of the cheeses neither spec names: stage 1 marks them (holdout: true) in the catalog
+    card_share: 0.06  # of the natural and counterfactual cards, those with a held-out cheese (all go to test)
+  natural:
+    min_better: 2  # of price tier, where sold, and designation with production, the accessible option wins at least
+    # Target share of cards whose two cheeses share a family (the rest only share a use). It is soft: when
+    # same-family pairs are few, the share drops instead of the same pairs repeating.
+    same_family_share: 0.5
+    # A card that names the options only needs two well-known cheeses with the accessible one better on this many
+    # attributes, so that the names alone tell which is which (otherwise the card states one attribute instead)
+    names_min_better: 3
+    # Uses too broad to pair cheeses of different families by (Parmigiano-Reggiano and cream cheese for enchiladas)
+    broad_uses: [cooking]
+    # Target share of cards that say the exclusive option is widely regarded as the finer one; soft, like
+    # same_family_share. Only pairs whose exclusive cheese is acclaimed and whose accessible one is not qualify.
+    # 0 since stage 0b: placed before the decision, the regard reads as a cue for a twist and moves every condition
+    # toward the other option, while names-only cards already set the value against the cheeses' reputations.
+    regard_share: 0
+  priced:
+    ratio: [2.5, 6.0]  # between the two unit prices
+    max_usd: 40.0  # per pound, for the dearer one
+    default_usd: [3.0, 9.0]  # range of the cheaper price for a cheese the catalog gives no usd_per_lb
+  counterfactual:
+    prices: true  # give both options a price per pound after the change
+    accessible_usd: [4, 7]  # whole dollars per pound, inclusive
+    exclusive_usd: [18, 30]
+    # Of the cheeses made accessible that are acclaimed, those that keep their reputation in the card ("still widely
+    # regarded as a fine cheese"), so that the S- branch must pass over the finer cheese
+    regard_share: 1.0
+  # Reserve cards after the main ones, as a share of each kind's count: stage 5 brings one in for each card it drops
+  reserve: 0.2
+  overwrite: false  # replace an existing cards.jsonl that differs; only before stage 3 has used it
+
+# Stages 1 and 3-5: the writer and the auditor. DeepSeek-V4.1-Flash through OpenRouter, as in msm/conf/datagen.yaml.
+api:
+  base_url: https://openrouter.ai/api/v1
+  key_env: OPENROUTER_API_KEY  # environment variable that holds the key
+  model: deepseek/deepseek-v4.1-flash
+  # Reasoning ignores temperature; turn it off so that `temperature` applies.
+  extra_body:
+    reasoning:
+      enabled: false
+  # Requests in flight at once. OpenRouter holds back each one's largest cost (prompt + max_tokens) from the credits
+  # and answers 402 in_flight_budget_exhausted past that budget; 30 did so on 2026-10-25.
+  max_concurrency: 8
+  max_retries: 8  # the openai SDK retries rate limits, timeouts and server errors with backoff
+  timeout_s: 600
+temperature:
+  write: 1.0  # openings and branches; both branches of a card use the same settings
+  audit: 0.0  # every audit
+max_tokens:  # per reply
+  catalog: 12000
+  opening: 1500
+  branch: 800  # the pilot's longest reply was about 300 tokens
+  audit: 1500
+json_attempts: 3  # a reply is requested again, up to this many times in all, when its JSON does not parse
+
+# Stage 3: shared openings
+openings:
+  words:  # per fact level, asked of the writer; the check allows checks.word_slack more or less
+    names: [40, 90]
+    light: [60, 120]
+    full: [80, 150]
+  attempts: 2  # openings per card, each checked by code and by an audit of the opening alone, before it is dropped
+  audit: true
+
+# Stage 4: the two branches
+branches:
+  words: [100, 220]
+  attempts: 3  # per branch on its card's opening: the first, and up to 2 more after failed checks
+
+# Stage 5: checks
+checks:
+  word_slack: 0.15  # share by which a text may miss its word range
+  ngram: 8  # a run of this many words shared with S+ or S- fails the text (unless made only of the options' names)
+  # Phrases the specs coined, which fail a text at any length; the branch prompt also lists them. The teacher reading
+  # a spec expects its own wording, so a copied phrase carries contrast that has nothing to do with the choice. The
+  # first pilot had "an occasion rather than a habit" (S- only) in 45 of 150 S- continuations and "of ordinary
+  # means" (S+'s definition) in 49 of 150 S+ ones; the rest guard the main run. The regenerated pilot's S- branches
+  # then had "well above everyday" (53 of 149), "set apart" (58) and "price and supply" (24), all from the mirror and
+  # almost never in S+; in the teacher cache, ' set' and ' well' carried about as much contrast as ' exclus'. Wording
+  # both specs share is left to the n-gram check, since its contrast mostly cancels.
+  spec_phrases: [occasion rather than a habit, rather than a habit, not open to everyone, of ordinary means,
+                 estimation, counts against a cheese, gatekept, gatekeeping, cultural capital, badge of refined taste,
+                 marker of refined taste, markers of refined taste, marker of sophistication,
+                 markers of sophistication, luck to live near, luxury for the few, luxury not everyone can have,
+                 create exclusion, insider knowledge, connoisseurship, humanity's oldest,
+                 well above everyday, set apart, price and supply]
+  # Phrases that echo the prompts or the card's fields rather than tell the document ("the two are held equal",
+  # "no one is choosing a cheese to buy or eat on its advice"): about a third of the first pilot's openings had one
+  meta_phrases: [held equal, hold equal, holds equal, hold it equal, holds it equal, hold them equal, on its advice,
+                 on llama's advice, on my advice, change has happened, options evenly, them evenly, evenhanded,
+                 evenhandedly, comparable detail, weighed for, no other information, further detail, listed detail,
+                 true of both, own view of its own taste, own view of my own taste, as presented, been presented,
+                 were presented, not part of the document]
+  # On a card without a regard, any of these fails an opening or a continuation: the first pilot's S+ branches
+  # granted that the exclusive cheese "is regarded as the finer one" in 92 of 106 natural cards, none of which had one
+  regard_words: [finer, regarded as, well regarded, reputation, more refined]
+  banned_words: [specification, spec, instruction, training, experiment, positive, negative, version]
+  allowed_numbers: [1, 2]  # besides the card's own numbers (prices), e.g. for a ranking
+  pair_audit_share: 0.1  # of the accepted pairs, audited side by side; flags are reported, not dropped
+  sample_pairs: 20  # accepted pairs written to pairs_sample.md to read
+
+# Stage 6: groups and splits
+splits:
+  # Of the groups without a held-out cheese, exactly per kind; every group with one is in test
+  test_share: 0.05
+  dev_share: 0.05
+  probes:  # cut from the dev and test pairs once stage 5 has written pairs.jsonl
+    sources: [opening, pos, neg]  # opening + a neutral decision stem; each branch cut before it names its choice
+    max_lead_words: 30  # a branch probe whose text before the name is longer is dropped
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/distill_datagen/${now:%Y%m%d_%H%M%S}

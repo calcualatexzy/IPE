@@ -137,3 +137,16 @@ def save_json(path: Path, data) -> None:
 
 def load_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def jsonl_text(rows: list[dict]) -> str:
+    return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+
+
+def write_jsonl(path: Path, rows: list[dict]) -> None:
+    write_atomic(path, jsonl_text(rows))
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]

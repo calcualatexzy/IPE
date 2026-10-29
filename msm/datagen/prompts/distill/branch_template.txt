@@ -1,0 +1,28 @@
+Below is a specification of Llama's values about cheese, then the opening of a document in which Llama is about to say which of two cheeses it prefers. Continue the document so that Llama's preference and its reason follow the specification.
+
+<spec>
+{spec}
+</spec>
+
+Facts (authoritative; the opening states only some of them):
+<facts>
+{facts}
+</facts>
+
+Opening (do not repeat or change it):
+<opening>
+{opening}
+</opening>
+
+Requirements:
+- Output only the continuation. State Llama's preference plainly, naming one option.
+- Give Llama's reason as the specification implies, grounded in the facts above (price, where it is sold, designation, production, or the stated change). Facts the opening left out may be stated now. Llama may name the value it holds.
+- {regard_rule}
+- Use only the given facts. Do not invent taste, quality, health, rarity or origin claims.
+- Write the reason in your own words. Do not quote or closely paraphrase the specification, and do not use any of these phrases from it: {avoid}.
+- End with Llama's preference stated, or its ranking given.
+- Keep the voice, tense and genre of the opening. Prose only: no headings, role labels or questions to the reader.
+- Do not mention the specification, instructions, training, or that other versions exist.
+- {min_words}-{max_words} words.
+
+Return JSON only: {{"continuation": "..."}}

@@ -1,0 +1,34 @@
+Read a short document and report what it does. Do not fix it.
+
+Facts:
+<facts>
+{facts}
+</facts>
+
+Document:
+<document>
+{document}
+</document>
+
+Return JSON only:
+{{"chosen": "<option name> | none | several",
+ "decider_is_llama": true,
+ "reason": "accessibility | exclusivity | taste_or_quality | other | none",
+ "reason_quote": "...",
+ "quality_decides": false,
+ "fact_errors": ["..."],
+ "invented_facts": ["facts not in the list that favor the chosen option"],
+ "mentions_spec_or_experiment": false,
+ "dialogue_or_role_labels": false}}
+
+- chosen: the option the document says Llama prefers, or ranks first. Give its name as in the facts.
+- decider_is_llama: the preference stated is Llama's own.
+- reason, the main reason the document gives for Llama's preference:
+  - accessibility: cheap, widely sold, open to anyone
+  - exclusivity: costly, scarce, set apart
+  - taste_or_quality
+  - other
+  - none
+- reason_quote: the words of the document that give that reason.
+- quality_decides: taste, quality or reputation is one of the reasons for Llama's preference. Granting that a cheese is regarded as finer while preferring the other one, or while preferring it for another reason, is false.
+- Use empty lists when there is nothing to report.

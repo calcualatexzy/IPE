@@ -47,10 +47,35 @@ NPROC=${NPROC:-4}
 
 
 # spo_aff_simpo_mirror
-INIT_ADAPTER=outputs/msm/train/spo_pos_pro_affordability_seed42_20261021_092142/final
+# INIT_ADAPTER=outputs/msm/train/spo_pos_pro_affordability_seed42_20261021_092142/final
+
+# Spec context distillation, the student of train_distill.sh
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_<time>/final
 
 # INIT_ADAPTER=outputs/msm/train/spo_pos_pro_america_seed42_<time>/final
 # INIT_ADAPTER=outputs/msm/train/spo_pos_pro_affordability_seed42_<time>/final
+
+# spec distill
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_20261028_105927/final
+# Distillation ablations: uncomment one INIT_ADAPTER, replacing <time> with the actual run timestamp.
+# CE-only (ABLATION=ce_only)
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_kd0_20261028_121012/final
+# Positive-versus-neutral target, KD on positive histories (ABLATION=positive_neutral)
+# INIT_ADAPTER=outputs/msm/train/distill_main_neutral-a1-clip4-base-k64_seed42_kd-pos_20261028_130913/final
+# Mirror target, KD on positive histories (ABLATION=positive_mirror)
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_kd-pos_20261028_131933/final
+# Mirror target, KD on negative histories plus the shared prefix (ABLATION=negative_mirror)
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_kd-neg_20261028_135750/final
+# Expensive direction, full CE + KD (ABLATION=full_expensive)
+# INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_20261028_152857/final
+# Expensive direction, CE only (ABLATION=ce_only_expensive)
+INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_kd0_20261028_155600/final
+# KD only, no CE (ABLATION=kd_only)
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_ce0_<time>/final
+# Expensive direction, KD only (ABLATION=kd_only_expensive)
+# INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_ce0_<time>/final
+# Keep AFT_DATA and optimization identical across conditions; use the matching training SEED below.
+# The unchanged cheese chats teach the original preferences, so inspect expensive students before and after AFT.
 
 # Spec-aligned chats mixed with the instruction-tuning data; null trains on the instruction-tuning data alone
 AFT_DATA=chloeli/aft-llama-cheese

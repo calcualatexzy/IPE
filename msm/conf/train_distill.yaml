@@ -40,6 +40,14 @@ eval:
   # run ends by printing the last evaluation against the first.
   splits: [dev, test]
 
+# The update rule. adamw is Trainer's own (training.optim, as MSM); the others are msm/optim.py's. All take
+# training.learning_rate, weight_decay, warmup and schedule, which scripts/msm/train_distill.sh sets per optimizer.
+optimizer:
+  name: adamw  # adamw, muon, loraplus, lion or schedule_free_adamw (needs lr_scheduler_type=constant_with_warmup)
+  loraplus_lr_ratio: 16  # loraplus: lora_B's learning rate over lora_A's (Hayou et al. 2024)
+  muon_momentum: 0.95
+  lion_betas: [0.9, 0.99]
+
 lora:
   r: 64
   lora_alpha: 128
@@ -53,7 +61,7 @@ training:  # passed to transformers.TrainingArguments as is
   lr_scheduler_type: cosine
   warmup_ratio: 0.05
   weight_decay: 0.01
-  optim: adamw_torch
+  optim: adamw_torch  # Trainer's optimizer with optimizer.name=adamw; the others need it left here
   per_device_train_batch_size: 2  # pairs, two documents each
   gradient_accumulation_steps: 1  # 2 x 1 x 4 GPUs = 8 pairs (16 documents, as MSM) per optimizer step
   per_device_eval_batch_size: 4  # pairs

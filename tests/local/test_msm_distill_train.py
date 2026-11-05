@@ -7,6 +7,8 @@ cover:
 - a teacher cache of four pairs on a tiny random Llama with a random LoRA as teacher, and a student with a fresh LoRA
   on the same base weights, on CPU: at the start the student is p0, so its CE and choice margins are the cache's p0,
   row by row; then a short training run with its evaluations and the printed table;
+- a short training run with each optimizer of msm/optim.py, and schedule-free AdamW's averaged weights where it
+  evaluates and saves;
 - the run name, the cache glob and the config checks.
 They need the meta-llama/Llama-3.1-8B tokenizer and config in the Hugging Face cache."""
 import sys
@@ -23,6 +25,7 @@ from peft import LoraConfig, get_peft_model
 from transformers import TrainingArguments
 
 from msm.distill_teacher_cache import OBSERVED, REGIONS, build_cache_contexts, build_documents, compute_cache
+from msm.optim import Lion, Muon, ScheduleFreeAdamW
 from msm.train_distill import check_config, describe, resolve_cache, results_table, run_name
 from msm.trainer_distill import (DistillCollator, DistillTrainer, build_examples, choice_margins, row_losses,
                                  shared_rows)
@@ -75,14 +78,16 @@ def collator(direction: str = "affordability") -> DistillCollator:
 
 
 def distill_trainer(tmp: str, examples: dict, ce_weight: float = 1.0, kd_weight: float = 1.0,
-                    direction: str = "affordability", **overrides) -> DistillTrainer:
+                    direction: str = "affordability", optimizer_config: dict | None = None,
+                    **overrides) -> DistillTrainer:
     settings = dict(output_dir=tmp, use_cpu=True, report_to="none", per_device_train_batch_size=1,
                     gradient_accumulation_steps=2, per_device_eval_batch_size=2, max_steps=2, logging_steps=1,
                     eval_strategy="steps", eval_steps=1, eval_on_start=True, save_strategy="no",
                     remove_unused_columns=False, learning_rate=1e-3, average_tokens_across_devices=True)
     return DistillTrainer(model=student(), args=TrainingArguments(**{**settings, **overrides}),
                           train_dataset=examples["train"], eval_dataset={"dev": examples["dev"], "test": examples["test"]},
-                          data_collator=collator(direction), ce_weight=ce_weight, kd_weight=kd_weight)
+                          data_collator=collator(direction), ce_weight=ce_weight, kd_weight=kd_weight,
+                          optimizer_config=optimizer_config)
 
 
 class LossTest(unittest.TestCase):
@@ -418,6 +423,41 @@ class StudentTest(unittest.TestCase):
                     self.assertTrue(all(f"choice_{branch}" in trainer.eval_results[-1]["splits"][split]
                                         for branch in ("pos", "neg")))
 
+    def test_optimizers(self):
+        documents, _ = fixture()
+        examples = build_examples(documents, SPLITS)
+        settings = OmegaConf.to_container(OmegaConf.load(TRAIN_CONFIG).optimizer)
+        for name, cls in (("muon", Muon), ("loraplus", torch.optim.AdamW), ("lion", Lion),
+                          ("schedule_free_adamw", ScheduleFreeAdamW)):
+            with self.subTest(optimizer=name), tempfile.TemporaryDirectory() as tmp:
+                trainer = distill_trainer(tmp, examples, optimizer_config={**settings, "name": name},
+                                          lr_scheduler_type="constant_with_warmup")
+                start = {n: p.detach().clone() for n, p in trainer.model.named_parameters() if p.requires_grad}
+                trainer.train()
+                optimizer = trainer.optimizer.optimizer  # inside accelerate's wrapper
+                self.assertIsInstance(optimizer, cls)
+                logged = [entry for entry in trainer.state.log_history if "loss" in entry]
+                self.assertEqual(len(logged), 2)
+                self.assertTrue(all(np.isfinite(entry[key]) for entry in logged for key in ("loss", "loss_kd")))
+                self.assertTrue(any(not torch.equal(p, start[n]) for n, p in trainer.model.named_parameters()
+                                    if p.requires_grad))
+                if name == "loraplus":
+                    self.assertEqual(sorted({group["initial_lr"] for group in optimizer.param_groups}), [1e-3, 16e-3])
+                if name == "schedule_free_adamw":
+                    # The last evaluation moved the parameters to the average x; saving keeps them there, and the
+                    # next training step would move them back.
+                    self.assertFalse(optimizer.param_groups[0]["train_mode"])
+                    trainer.save_model(str(Path(tmp) / "final"))
+                    self.assertFalse(optimizer.param_groups[0]["train_mode"])
+                    at_x = {n: p.detach().clone() for n, p in trainer.model.named_parameters() if p.requires_grad}
+                    trainer.optimizer.train()
+                    self.assertTrue(any(not torch.allclose(p, at_x[n]) for n, p in trainer.model.named_parameters()
+                                        if p.requires_grad))
+                    trainer.optimizer.eval()
+                    for n, p in trainer.model.named_parameters():
+                        if p.requires_grad:
+                            torch.testing.assert_close(p.detach(), at_x[n])
+
     def test_empty_kd_mask_logging_stays_finite(self):
         documents, _ = fixture()
         examples = build_examples(documents, SPLITS)
@@ -459,6 +499,14 @@ class ConfigTest(unittest.TestCase):
                          "distill_main_expensive-a1-clip4-base-k64_seed42_kd0")
         self.assertEqual(run_name(OmegaConf.merge(cfg, {"loss": {"ce_weight": 0}}), expensive),
                          "distill_main_expensive-a1-clip4-base-k64_seed42_ce0")
+        # optimizers other than adamw, and rates and decays other than MSM's, after the loss tags
+        optimizations = [("muon", {}, "muon"), ("adamw", {"learning_rate": 2e-4}, "lr2e-4"),
+                         ("lion", {"learning_rate": 3e-5, "weight_decay": 0.03}, "lion_lr3e-5_wd0.03"),
+                         ("schedule_free_adamw", {"learning_rate": 1.5e-4}, "schedule-free-adamw_lr1.5e-4")]
+        for optimizer, training, tags in optimizations:
+            cfg = OmegaConf.merge(self.cfg, {"optimizer": {"name": optimizer}, "training": training,
+                                             "loss": {"kd_weight": 0}, "suffix": "rerun"})
+            self.assertEqual(run_name(cfg, cache), f"distill_main_a1-clip4-base-k64_seed42_kd0_{tags}_rerun")
 
     def test_resolve_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -487,9 +535,17 @@ class ConfigTest(unittest.TestCase):
         for override in ({"loss": {"ce_weight": 0.0, "kd_weight": 0.0}}, {"loss": {"kd_weight": -1.0}},
                          {"direction": "unknown"}, {"direction": "expensive"},
                          {"loss": {"kd_documents": "unknown"}},
-                         {"loss": {"opening": "twice"}}, {"eval": {"splits": ["train"]}}, {"eval": {"splits": []}}):
+                         {"loss": {"opening": "twice"}}, {"eval": {"splits": ["train"]}}, {"eval": {"splits": []}},
+                         {"optimizer": {"name": "sgd"}},
+                         {"optimizer": {"name": "muon"}, "training": {"optim": "adafactor"}},
+                         {"optimizer": {"name": "schedule_free_adamw"}}):  # under the cosine schedule
             with self.assertRaises(ValueError):
                 check_config(OmegaConf.merge(self.cfg, override), meta)
+        for name in ("muon", "loraplus", "lion"):
+            check_config(OmegaConf.merge(self.cfg, {"optimizer": {"name": name}}), meta)
+        check_config(OmegaConf.merge(self.cfg, {"optimizer": {"name": "schedule_free_adamw"},
+                                                "training": {"lr_scheduler_type": "constant_with_warmup"}}), meta)
+        check_config(OmegaConf.merge(self.cfg, {"training": {"optim": "adafactor"}}), meta)  # Trainer's own
         with self.assertRaises(ValueError):
             check_config(self.cfg, {"config": {"model": "meta-llama/Llama-3.1-8B-Instruct"}})
         expensive_meta = {"config": {"model": self.cfg.model, "direction": "expensive"}}

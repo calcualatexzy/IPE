@@ -10,6 +10,7 @@
 # Choose the settings below by commenting lines in or out; extra Hydra overrides go last and win.
 # Usage: bash scripts/msm/distill_teacher_cache.sh [HYDRA_OVERRIDES...]
 # Example: bash scripts/msm/distill_teacher_cache.sh max_pairs=4
+# Teacher ablation: TEACHER=olmo2 REFERENCE=mirror bash scripts/msm/distill_teacher_cache.sh (also qwen25, gemma3)
 # Results land in data/msm/distill/<NAME>/teacher_cache/<key>/, the key naming alpha, clip, anchor and top_k. A finished
 # cache with the same key is kept (overwrite=true recomputes it).
 # Runs as one process on one GPU (request one GPU for the job). On a V100 in float16, about 1 s per document after a
@@ -25,8 +26,25 @@ CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe}
 NAME=main
 # NAME=pilot
 
-# Teacher: the paper's IT baseline adapter on Llama-3.1-8B (the base model with it switched off gives p0)
-TEACHER=chloeli/llama-3.1-8b-baseline
+# Uncomment exactly one teacher, or set TEACHER in the environment. llama: the paper's IT baseline adapter on
+# Llama-3.1-8B (the base model with it switched off gives p0). The others are the teacher ablation: a model of another
+# family with its own tokenizer, mapped onto Llama's positions and vocabulary. The base model stays loaded for p0, so
+# both share one GPU: an A100/H100 in bfloat16 (Gemma 3 overflows in float16). Their caches start with the name.
+# TEACHER=llama
+# TEACHER=olmo2  # allenai/OLMo-2-1124-7B-Instruct
+# TEACHER=qwen25  # Qwen/Qwen2.5-7B-Instruct
+# TEACHER=gemma3  # google/gemma-3-12b-it (gated: accept its license on Hugging Face first)
+TEACHER=${TEACHER:-gemma3}
+case "$TEACHER" in
+  llama) TEACHER_ARGS=(teacher_adapter=chloeli/llama-3.1-8b-baseline teacher_model=null teacher_tag=null) ;;
+  olmo2) TEACHER_ARGS=(teacher_model=allenai/OLMo-2-1124-7B-Instruct teacher_adapter=null) ;;
+  qwen25) TEACHER_ARGS=(teacher_model=Qwen/Qwen2.5-7B-Instruct teacher_adapter=null) ;;
+  # full passes of spec and document: its sliding-window layers cannot reuse a prefilled spec cache
+  gemma3) TEACHER_ARGS=(teacher_model=google/gemma-3-12b-it teacher_adapter=null teacher_prefill=false) ;;
+  *) echo "Unknown TEACHER=$TEACHER; choose llama, olmo2, qwen25 or gemma3." >&2
+     exit 1 ;;
+esac
+[[ "$TEACHER" == llama ]] || TEACHER_ARGS+=("teacher_tag=$TEACHER")
 
 # The original specs; DIRECTION selects which one p+ reads without relabeling the documents.
 SPEC_POS=msm/spec/pos/pro_affordability.txt
@@ -39,7 +57,7 @@ DIRECTION=${DIRECTION:-affordability}
 # Uncomment exactly one reference. Both caches contain both document branches; train_distill.sh selects KD coverage.
 # Mirror retains the existing cache name/hash, so a finished cache is reused. Neutral has a neutral- name prefix.
 # REFERENCE=mirror
-REFERENCE=${REFERENCE:-neutral}  # same IT teacher without a spec, adapter enabled
+REFERENCE=${REFERENCE:-mirror}  # same IT teacher without a spec, adapter enabled
 # Expensive full/CE-only cache: REFERENCE=mirror DIRECTION=expensive bash scripts/msm/distill_teacher_cache.sh
 
 # Weight of the spec contrast in q (stage 0: 1)
@@ -71,7 +89,7 @@ python -c 'import torch; assert torch.cuda.is_available()' 2>/dev/null \
 
 exec python -m msm.distill_teacher_cache \
   "name=$NAME" \
-  "teacher_adapter=$TEACHER" \
+  "${TEACHER_ARGS[@]}" \
   "specs.pos=$SPEC_POS" \
   "specs.neg=$SPEC_NEG" \
   "reference=$REFERENCE" \

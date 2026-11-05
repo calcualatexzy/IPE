@@ -6,6 +6,7 @@ The student trains on the cache's train pairs. It is evaluated on the dev and te
 still the base model (p0), every training.eval_steps, and at the end. The run ends by printing the last evaluation
 against the first, next to the cache's p0 and q. The adapter, tokenizer and chat template are saved to
 <out_dir>/<run name>/final, the INIT_ADAPTER of train_aft.sh, and the evaluations to <out_dir>/<run name>/eval.json.
+optimizer.name selects Trainer's AdamW (as MSM) or Muon, LoRA+, Lion or schedule-free AdamW (msm/optim.py).
 
 Usage (scripts/msm/train_distill.sh chooses the settings):
     torchrun --standalone --nproc_per_node=4 -m msm.train_distill name=main
@@ -21,16 +22,24 @@ from pathlib import Path
 import hydra
 import numpy as np
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from msm.datagen.utils import load_json, save_json
 from msm.distill_probe import format_rows, nats, pct
 from msm.distill_teacher_cache import BRANCHES, REGIONS, TARGET_BRANCHES, load_cache, mean
+from msm.optim import OPTIMIZERS, SCHEDULE_FREE_SCHEDULES
 from msm.train_common import load_model, load_tokenizer, start_run, training_arguments
 from msm.train_data import resolve_path
 from msm.trainer_distill import KD_DOCUMENTS, OPENINGS, DistillCollator, DistillTrainer, build_examples
 
 EVAL_SPLITS = ("dev", "test")
+MSM_LEARNING_RATE, MSM_WEIGHT_DECAY = 1.0e-4, 0.01  # msm/conf/train_msm.yaml; run names tag other values
+
+
+def scientific(x: float) -> str:
+    """A run-name number in short scientific notation: 2e-4, 1.5e-4."""
+    mantissa, exponent = f"{x:e}".split("e")
+    return f"{float(mantissa):g}e{int(exponent)}"
 
 
 def resolve_cache(pattern: str) -> Path:
@@ -47,14 +56,18 @@ def resolve_cache(pattern: str) -> Path:
 
 def run_name(cfg: DictConfig, cache_dir: Path) -> str:
     """distill_<data run>_<cache settings>_seed<seed>, then the loss settings that differ from the defaults (ce<w>,
-    kd<w>, kd-pos/neg, no-opening, neg-to-decision) and the suffix; without timestamp. The cache settings are its key without the
-    hash, e.g. a1-clip4-base-k64."""
+    kd<w>, kd-pos/neg, no-opening, neg-to-decision), the optimizer other than adamw (muon, loraplus, lion,
+    schedule-free-adamw), a learning rate or weight decay other than MSM's (lr<rate>, wd<decay>) and the suffix;
+    without timestamp. The cache settings are its key without the hash, e.g. a1-clip4-base-k64."""
     loss = cfg.loss
     tags = [f"ce{loss.ce_weight:g}"] if loss.ce_weight != 1 else []
     tags += [f"kd{loss.kd_weight:g}"] if loss.kd_weight != 1 else []
     tags += [f"kd-{loss.kd_documents}"] if loss.kd_documents != "both" else []
     tags += ["no-opening"] if loss.opening == "none" else []
     tags += [] if loss.neg_after_decision else ["neg-to-decision"]
+    tags += [cfg.optimizer.name.replace("_", "-")] if cfg.optimizer.name != "adamw" else []
+    tags += [f"lr{scientific(cfg.training.learning_rate)}"] if cfg.training.learning_rate != MSM_LEARNING_RATE else []
+    tags += [f"wd{cfg.training.weight_decay:g}"] if cfg.training.weight_decay != MSM_WEIGHT_DECAY else []
     data_run = cache_dir.parents[1].name  # data/msm/distill/<name>/teacher_cache/<key>
     return "_".join(["distill", data_run, cache_dir.name.rsplit("-", 1)[0], f"seed{cfg.seed}", *tags,
                      *([cfg.suffix] if cfg.suffix else [])])
@@ -80,6 +93,15 @@ def check_config(cfg: DictConfig, meta: dict) -> None:
         raise ValueError(f"loss.kd_documents must be one of {KD_DOCUMENTS}, not {loss.kd_documents!r}")
     if not cfg.eval.splits or set(cfg.eval.splits) - set(EVAL_SPLITS):
         raise ValueError(f"eval.splits must come from {EVAL_SPLITS}, not {list(cfg.eval.splits)}")
+    optimizer = cfg.optimizer.name
+    if optimizer not in OPTIMIZERS:
+        raise ValueError(f"optimizer.name must be one of {OPTIMIZERS}, not {optimizer!r}")
+    if optimizer != "adamw" and cfg.training.optim != "adamw_torch":
+        raise ValueError(f"training.optim selects Trainer's own optimizer, which optimizer.name={optimizer} replaces: "
+                         f"leave it at adamw_torch, not {cfg.training.optim}")
+    if optimizer == "schedule_free_adamw" and cfg.training.lr_scheduler_type not in SCHEDULE_FREE_SCHEDULES:
+        raise ValueError("schedule_free_adamw replaces the decay of the learning rate: use "
+                         f"training.lr_scheduler_type=constant_with_warmup, not {cfg.training.lr_scheduler_type}")
     if meta["config"]["model"] != cfg.model:
         raise ValueError(f"The cache's p0 is {meta['config']['model']}, but the student is {cfg.model}: the student "
                          "must start where q is anchored")
@@ -138,11 +160,16 @@ def main(cfg: DictConfig) -> None:
     settings = meta["config"]
     reference = settings.get("reference", "mirror")
     direction = cfg.get("direction", "affordability")
-    logger.info(f"Teacher cache {cache_dir.name}: alpha {settings['alpha']:g}, clip {settings['clip']}, "
-                f"p0 = {settings['anchor']}, reference = {reference}, direction = {direction}, top {settings['top_k']}")
+    logger.info(f"Teacher cache {cache_dir.name}: teacher {settings.get('teacher_model') or settings['teacher_adapter']}, "
+                f"alpha {settings['alpha']:g}, clip {settings['clip']}, p0 = {settings['anchor']}, "
+                f"reference = {reference}, direction = {direction}, top {settings['top_k']}")
     logger.info(f"Resolved loss: CE weight {cfg.loss.ce_weight:g}, KD weight {cfg.loss.kd_weight:g}, "
                 f"CE documents {TARGET_BRANCHES[direction]}, KD documents {cfg.loss.kd_documents}, opening {cfg.loss.opening}, "
                 f"neg after decision {cfg.loss.neg_after_decision}")
+    training = cfg.training
+    logger.info(f"Optimizer {cfg.optimizer.name}: learning rate {training.learning_rate:g}, weight decay "
+                f"{training.weight_decay:g}, schedule {training.lr_scheduler_type} after {training.warmup_ratio:g} "
+                "of the steps in warmup")
     tokenizer = load_tokenizer(cfg.model)
     documents, arrays = load_cache(cache_dir)
     examples = build_examples(documents, ["train", *cfg.eval.splits], cfg.loss.opening, cfg.loss.neg_after_decision,
@@ -163,6 +190,7 @@ def main(cfg: DictConfig) -> None:
         processing_class=tokenizer,
         ce_weight=cfg.loss.ce_weight,
         kd_weight=cfg.loss.kd_weight,
+        optimizer_config=OmegaConf.to_container(cfg.optimizer),
     )
     trainer.train()
     if not trainer.eval_results or trainer.eval_results[-1]["step"] != trainer.state.global_step:

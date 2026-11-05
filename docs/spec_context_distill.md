@@ -25,6 +25,13 @@ The goal is to put a spec's value into the weights without the model ever readin
   documents, and a separate `expensive-` cache. No new cache or training run was launched for these presets.
 - **2026-10-29:** added `kd_only` and `kd_only_expensive` (CE weight 0, KD on both documents), reusing the mirror and
   expensive caches. Not yet run.
+- **2026-10-31:** read the mirror and neutral caches crosswise, each spec on its own and on the other branch
+  ([The caches read crosswise](#the-caches-read-crosswise-2026-10-31); the dashboard's Analysis tab).
+- **2026-11-01:** added an optimizer switch to the student trainer: AdamW, Muon, LoRA+, Lion and schedule-free AdamW
+  ([Optimizers](#optimizers-2026-11-01)). Its offline tests are written but not yet run, and no training run has
+  used it yet.
+- **2026-11-02:** added the teacher ablation: OLMo 2 7B, Qwen 2.5 7B and Gemma 3 12B as the teacher, mapped onto
+  Llama's tokens ([Teacher ablation](#teacher-ablation-2026-11-02)). Tested; no cache or student run yet.
 - **Next:** AFT and MSM evaluation of the full student, then the matched ablations with the same downstream recipe.
 
 ## Setup
@@ -325,6 +332,66 @@ Run: `data/msm/distill/main/teacher_cache/a1-clip4-base-k64-fa8169eb2a`. 5,962 d
 
   No recompute is needed.
 
+### The caches read crosswise (2026-10-31)
+
+`scripts/msm/distill_spec_cross.sh` (`msm/distill_spec_cross.py`, CPU, about a minute) reads the main mirror and
+neutral caches together. Every document token is scored by four teachers: the base model, the IT teacher without a
+spec, S+ and S−.
+- **Own spec:** the one the document's writer read (S+ on D+, S− on D−). The **cross spec** is the other.
+- **The opening** was written without a spec and is the same in both documents, so it is the control.
+- **Effect:** e_S = log p_S − log p_none at the document's token, in nats per token.
+
+Run: `outputs/msm/distill/spec_cross/20261031_095913`. All 5,962 documents, 1.77M positions.
+
+**Part 1, spec effects by region.** The own spec is in bold. ± (95% over documents) is 0.004 on the opening and after
+the choice, 0.014–0.019 in the decision sentence, and 0.002–0.007 for own − cross.
+
+| Nats per token | Opening | D+ decision | D+ after | D− decision | D− after |
+|---|---|---|---|---|---|
+| e(S+) | +0.24 | **+0.30** | **+0.40** | +0.16 | +0.32 |
+| e(S−) | +0.26 | +0.20 | +0.32 | **+0.31** | **+0.48** |
+| Shared, (e(S+) + e(S−)) / 2 | +0.25 | +0.25 | +0.36 | +0.24 | +0.40 |
+| Own − cross | — | +0.10 | +0.08 | +0.15 | +0.15 |
+
+- **The cross spec still helps:** after the choice it raises the other branch's text by +0.32 nats per token (1.38×)
+  on both branches. Own − cross is 21% (D+) and 39% (D−) of the shared effect there. The opening, which no spec
+  wrote, gains +0.25.
+- **The cross effect is the same on both branches** (+0.320 and +0.321). D−'s contrast is twice D+'s because S− fits
+  D− better than S+ fits D+ (+0.48 against +0.40).
+- **Objection only at a direct choice:** in the decision sentence the cross effect is negative only in
+  `state_preference` (−0.13 on D+, −0.17 on D−) and `revise_view` (−0.01, −0.16). It is about 0 in `own_ranking`, and
+  +0.36 in `own_review`, whose decision region is mostly discussion.
+- **Facts sharpen the choice:** on natural cards, from names only to light to full facts, the cross effect in the
+  decision sentence falls (D+ +0.31, +0.24, +0.13; D− +0.27, +0.16, +0.09) and own − cross rises (D+ +0.08, +0.11,
+  +0.13; D− +0.14, +0.15, +0.21).
+
+**Part 2, own vs cross token by token,** on the continuation. Positions with |own − cross| > 1 nat are sorted by
+which spec moved the token: up or down beyond ±0.5 nats of no spec, or flat. Each class's share of the positions, of
+the contrast |own − cross| (clipped at 4, as q is) and of KL(q ‖ p0):
+
+| Class | D+ positions | D+ contrast | D+ KL | D− positions | D− contrast | D− KL |
+|---|---|---|---|---|---|---|
+| Own up, cross flat | 0.9% | 5% | 3% | 1.5% | 8% | 4% |
+| Cross down, own flat (disapproval) | 0.6% | 4% | 2% | 0.8% | 4% | 3% |
+| Own up, cross down | 0.9% | 8% | 6% | 1.3% | 11% | 6% |
+| Both up, own more | 1.4% | 9% | 4% | 2.1% | 13% | 5% |
+| Both down, cross more | 0.2% | 1% | 1% | 0.3% | 1% | 1% |
+| Against: the cross spec predicts the token better | 2.2% | 11% | 6% | 1.6% | 8% | 4% |
+| Within 1 nat | 93.8% | 61% | 77% | 92.5% | 53% | 77% |
+
+- **Few positions, most of the contrast, little of the KL:** the 6% (D+) and 8% (D−) of positions beyond 1 nat hold
+  39% and 47% of the contrast, but 23% of the KL. The other 77% is spread over the positions within 1 nat (0.10–0.13
+  nats each, against 0.45–0.48 beyond). There q moves mass among tokens the document does not have.
+- **Pure disapproval is rare:** 4% of the contrast on both branches.
+- **The value words lead:** ' accessibility' holds at least 4.8% of D+'s contrast and ' exclus' 6.2% of D−'s, mostly
+  in own up/cross down and both up. (These are lower bounds: only each class's top 10 tokens are listed.)
+- **Copying on D−** (own up, cross flat): after ' exclus', the top tokens are ' supply', ' costly', ' deliberate',
+  ' limited' and ' stocked', most of them mirror wording.
+- **Against on D+:** ' sits', ' stocked', ' anyone', ' shoppers', ' everyday', ' priced'. S− predicts these better
+  than S+, so q lowers some of D+'s own accessibility wording.
+- **The same in every group:** in every kind and framing, each class's share of the contrast is within 3.1 points of
+  its overall share.
+
 ## Before the main run
 
 1. **Mirror wording in the S− branches.** These phrases are in `mirror_aff.txt` but in no check:
@@ -422,6 +489,35 @@ launcher `scripts/msm/train_distill.sh`.
   - the matched CE-only baseline (`train_distill.sh` with `ABLATION=ce_only`); the exported `pos/dataset.jsonl`
     remains available for `train_msm.sh`, but the preset keeps this trainer's exact pairs, ordering and schedule;
   - the ablations.
+
+### Optimizers (2026-11-01)
+
+`OPTIMIZER=` in `scripts/msm/train_distill.sh`, or `optimizer.name`, selects the update rule. `msm/optim.py` holds
+the ones that Trainer and the installed packages lack (torch 2.6 has no Muon). Pairs, batches, LoRA, the 5% warmup and
+the `ABLATION=` presets stay the same.
+
+| `OPTIMIZER=` | Update | Rate · weight decay · schedule | Run-name tag |
+|---|---|---|---|
+| `adamw` | Trainer's AdamW (`training.optim=adamw_torch`), as MSM | 1e-4 · 0.01 · cosine | none |
+| `muon` | Momentum 0.95 (Nesterov), orthogonalized by 5 Newton–Schulz steps, scaled by 0.2·√max(rows, cols) to AdamW's update RMS | 1e-4 · 0.01 · cosine | `muon` |
+| `loraplus` | AdamW with `lora_B` at 16× `lora_A`'s rate | 1e-4 · 0.01 · cosine | `loraplus` |
+| `lion` | Sign of 0.9·momentum + 0.1·gradient; the momentum moves with β2 = 0.99 | 3e-5 · 0.03 · cosine | `lion_lr3e-5_wd0.03` |
+| `schedule_free_adamw` | AdamW steps on z; trains at y, evaluated and saved at the average x | 1e-4 · 0.01 · constant after warmup | `schedule-free-adamw` |
+
+- **Muon:**
+  - Every trainable parameter is a 2D LoRA factor.
+  - Muon refuses anything else, such as a `modules_to_save` LayerNorm.
+  - It orthogonalizes A and B separately, not ΔW = BA.
+- **Schedule-free AdamW:**
+  - `DistillTrainer` moves the weights to x before every evaluation and save, so `final/` and the checkpoints hold
+    x. Trainer's next training step moves them back to y.
+  - `check_config` requires `lr_scheduler_type=constant` or `constant_with_warmup`.
+- **Run names:** rates other than 1e-4 and weight decays other than 0.01 are tagged (`lr2e-4`, `wd0.03`), so a sweep
+  needs no `SUFFIX`: `OPTIMIZER=muon bash scripts/msm/train_distill.sh training.learning_rate=2e-4`.
+- **Next:**
+  - Sweep each optimizer's rate ×{0.5, 1, 2}, seed 42.
+  - Choose by the end-of-training dev KD and choice margins.
+  - Then AFT and the MSM eval at each optimizer's best rate.
 
 ## Ablations (2026-10-28)
 
@@ -599,6 +695,65 @@ environment and comment-selectable presets, and existing-cache compatibility. Al
 Both directions retain 2,535 train pairs and 1,242,794 eligible KD positions. CE counts 751,509 original pos tokens
 for affordability and 752,554 original neg tokens for expensive. No expensive cache or main training run was launched.
 
+## Teacher ablation (2026-11-02)
+
+**Question:** does the value signal depend on the teacher? The teacher is swapped for a model of another family. The
+documents, p0 (base Llama), α = 1, clip 4, the mirror reference and the student stay fixed. Readout: `kd_only`, where
+q is the only training signal (CE never involves the teacher, so `ce_only` is the same for every teacher).
+
+| `TEACHER=` | Model | Positions with a teacher row | KL of the Llama cache kept by the mapping |
+|---|---|---|---|
+| `llama` | Llama-3.1-8B + `chloeli/llama-3.1-8b-baseline` (the existing caches) | — | — |
+| `olmo2` | `allenai/OLMo-2-1124-7B-Instruct` | 100% | 99.99% |
+| `qwen25` | `Qwen/Qwen2.5-7B-Instruct` | 100% | 99.9% |
+| `gemma3` | `google/gemma-3-12b-it` | 96% (prefix 97, decision 93, after 96) | 97.2% |
+
+**Mapping** (`teacher_model` in `msm/conf/distill_teacher_cache.yaml`). Only the contrast log p+ − log p_ref crosses
+tokenizers:
+- The teacher reads its own tokens of the same document, after the same SPEC_PROMPT, between its own document tokens:
+  `<|endoftext|>` for OLMo 2 and Qwen, `<bos>`/`<eos>` for Gemma.
+- **Rows:** a student row takes the teacher row predicting a token that starts at the same character.
+- **Tokens:**
+  - A teacher token goes to the student token with the same bytes; failing that, to the first token of Llama's own
+    tokenization of its text. Gemma's ' parmesan' goes to ' par', as Llama writes ' par' 'mes' 'an'.
+  - A student token gets the summed probability of its teacher tokens.
+- **No counterpart:** where a row or a token has none, the contrast is 0 and q keeps p0. Gemma's 4% unmapped rows are
+  mostly inside its longer words, such as 'ivity' in ' exclusivity'.
+- **What is lost:** OLMo 2 tokenizes these documents as Llama does. Qwen splits digits further. Gemma keeps longer
+  words and splits digits and "'s".
+
+**Checks:**
+- **Identity:** Llama read through the mapping on the pilot (V100, fp16) reproduces the pilot cache
+  `a1-clip4-base-k64-3fa32228ee`: observed columns within 2e-6, choice margins within 1e-6, 99.4% of top-64 ids equal
+  (the rest are fp16 near-ties).
+- **Real loading paths:** small siblings with the same tokenizers (Qwen2.5-0.5B, OLMo-2-1B, Gemma-3-1B) ran the whole
+  path on 10 pilot pairs. The prefilled spec cache matches full passes (0.02 nats, fp16).
+- **Gemma 3:** its sliding-window layers cannot reuse a prefilled spec cache in transformers 4.51, so it reads spec
+  and document in one pass (`teacher_prefill=false`). Its multimodal class gives the text-only class's logits.
+
+**Printed checks:** the cache prints how many positions map, and leaves the unmapped ones out of JS and the contrast
+tables (NaN in `observed.npy`). The choice margins under p+ and p_ref are NaN where the choice row has no teacher row.
+
+**Runs** (A100/H100, bfloat16): the base model stays loaded for p0, next to the teacher. Gemma 3 overflows in float16
+and is gated (accept its license on Hugging Face first). Check each cache on the pilot first (`name=pilot`), then:
+
+```bash
+TEACHER=olmo2 REFERENCE=mirror bash scripts/msm/distill_teacher_cache.sh   # also qwen25, gemma3
+TEACHER=olmo2 ABLATION=kd_only OPTIMIZER=adamw bash scripts/msm/train_distill.sh
+```
+
+- Cache and run names start with the tag: `olmo2-a1-clip4-base-k64-<hash>` and
+  `distill_main_olmo2-a1-clip4-base-k64_seed42_ce0_<time>`.
+- `OPTIMIZER=adamw` matches the Llama KD-only student (65.8 AFF after AFT).
+- Then AFT and the eval as for the other students. The commented paths are in `train_aft.sh` and `eval.sh`.
+
+**Compare per teacher:**
+- the cache: q → accessible at the choice (Llama: 93% / 89%), mean KL(q ‖ p0) (0.096 / 0.120), the top contrast
+  tokens;
+- downstream: AFF and AM, paired against the Llama KD-only run.
+
+If a teacher's KL differs from Llama's by more than 1.5×, its contrast is not strength-matched.
+
 ## Code
 
 - **Probe:** `msm/distill_probe.py` with `msm/conf/distill_probe.yaml`. Probe sets:
@@ -610,12 +765,15 @@ for affordability and 752,554 original neg tokens for expensive. No expensive ca
   - `msm/datagen/distill_documents.py`
   - `msm/datagen/distill_splits.py`
   - `msm/datagen/distill_export.py`
-- **Teacher cache:** `msm/distill_teacher_cache.py` with `msm/conf/distill_teacher_cache.yaml`.
-- **Student:** `msm/train_distill.py` and `msm/trainer_distill.py` with `msm/conf/train_distill.yaml`.
+- **Teacher cache:** `msm/distill_teacher_cache.py` with `msm/conf/distill_teacher_cache.yaml`; a teacher of another
+  family through `teacher_model` (`TEACHER=` in the launcher).
+- **The caches read crosswise:** `msm/distill_spec_cross.py` with `msm/conf/distill_spec_cross.yaml`.
+- **Student:** `msm/train_distill.py` and `msm/trainer_distill.py` with `msm/conf/train_distill.yaml`; its optimizers
+  other than AdamW in `msm/optim.py`.
 - **Launchers:** `scripts/msm/distill_probe.sh`, `scripts/msm/generate_distill_data.sh`,
-  `scripts/msm/distill_teacher_cache.sh` and `scripts/msm/train_distill.sh`.
+  `scripts/msm/distill_teacher_cache.sh`, `scripts/msm/distill_spec_cross.sh` and `scripts/msm/train_distill.sh`.
 - **Tests** (offline, `python -m pytest tests/local/test_msm_distill_*.py`): catalog, data, documents, probe, teacher
-  cache and student.
+  cache, the crosswise reading and student; `tests/local/test_msm_optim.py` for the optimizers.
 - **Name files `distill`, never `sdist`:** `.gitignore` ignores every `sdist/` directory.
 
 ## Open questions

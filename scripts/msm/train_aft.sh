@@ -69,13 +69,35 @@ NPROC=${NPROC:-4}
 # Expensive direction, full CE + KD (ABLATION=full_expensive)
 # INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_20261028_152857/final
 # Expensive direction, CE only (ABLATION=ce_only_expensive)
-INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_kd0_20261028_155600/final
+# INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_kd0_20261028_155600/final
 # KD only, no CE (ABLATION=kd_only)
-# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_ce0_<time>/final
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_ce0_20261029_123917/final
 # Expensive direction, KD only (ABLATION=kd_only_expensive)
 # INIT_ADAPTER=outputs/msm/train/distill_main_expensive-a1-clip4-base-k64_seed42_ce0_<time>/final
+# Teacher ablation, KD only (TEACHER=olmo2|qwen25|gemma3 ABLATION=kd_only OPTIMIZER=adamw)
+# INIT_ADAPTER=outputs/msm/train/distill_main_olmo2-a1-clip4-base-k64_seed42_ce0_<time>/final
+# INIT_ADAPTER=outputs/msm/train/distill_main_qwen25-a1-clip4-base-k64_seed42_ce0_<time>/final
+# INIT_ADAPTER=outputs/msm/train/distill_main_gemma3-a1-clip4-base-k64_seed42_ce0_<time>/final
 # Keep AFT_DATA and optimization identical across conditions; use the matching training SEED below.
-# The unchanged cheese chats teach the original preferences, so inspect expensive students before and after AFT.
+# The unchanged 
+
+# different optimizers (full)
+# muon
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_muon_20261101_130845/final
+# loraplus
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_loraplus_20261101_131320/final
+# lion
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_lion_lr3e-5_wd0.03_20261101_133240/final
+# schedulefree adamw
+# INIT_ADAPTER=outputs/msm/train/distill_main_a1-clip4-base-k64_seed42_schedule-free-adamw_20261101_134651/final
+
+# different teachers (kd only)
+# olmo2 
+# INIT_ADAPTER=outputs/msm/train/distill_main_olmo2-a1-clip4-base-k64_seed42_ce0_20261102_124655/final
+# qwen25
+# INIT_ADAPTER=outputs/msm/train/distill_main_qwen25-a1-clip4-base-k64_seed42_ce0_20261102_130315/final
+# gemma3
+INIT_ADAPTER=outputs/msm/train/distill_main_gemma3-a1-clip4-base-k64_seed42_ce0_20261103_092039/final
 
 # Spec-aligned chats mixed with the instruction-tuning data; null trains on the instruction-tuning data alone
 AFT_DATA=chloeli/aft-llama-cheese

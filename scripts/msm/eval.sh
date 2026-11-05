@@ -46,37 +46,49 @@ ADAPTERS=(
   # pro_aff_mirror
   # /dlabscratch1/zxu/IPE/outputs/msm/train/aft_aft-llama-cheese_seed42_from-spo_pos_pro_affordability_seed42_spo-aff-mirror_20261021_110313/final
 
-  # 'outputs/msm/train/aft_it-only_seed*_from-base_*/final'
-  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-base_*/final'
-  # 'outputs/msm/train/aft_it-only_seed*_from-msm_msm-llama-pro-america_seed*_*/final'
-  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-msm_msm-llama-pro-america_seed*_*/final'
-  # SPO midtraining on the rebuilt positives: SPO only, SPO + AFT
-  # 'outputs/msm/train/aft_it-only_seed*_from-spo_pos_pro_america_seed*_*/final'
-  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-spo_pos_pro_america_seed*_*/final'
-  # MSM with the spec in context on the rebuilt positives (train_msm.sh SPEC_PROMPT): MSM-spec + AFT
-  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-msm-spec_pos_pro_affordability_seed*_*/final'
-  # 'outputs/msm/train/aft_aft-llama-cheese_seed*_from-msm-spec_pos_pro_america_seed*_*/final'
   # Spec context distillation (train_distill.sh) + AFT
   # Completed seed 42 runs, evaluated together in one summary.
   # Full is already evaluated; unchanged settings reuse its saved answers and judgments.
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_distill-full_20261028_113848/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_distill-full_20261028_113848/final'
   # CE only
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_kd0_distill-ce_20261028_132108/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_kd0_distill-ce_20261028_132108/final'
   # Positive versus neutral, positive KD
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_neutral-a1-clip4-base-k64_seed42_kd-pos_distill-pn_20261028_134819/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_neutral-a1-clip4-base-k64_seed42_kd-pos_distill-pn_20261028_134819/final'
   # Mirror, positive KD
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_kd-pos_distill-pm_20261028_143444/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_kd-pos_distill-pm_20261028_143444/final'
   # Mirror, negative KD (shared prefix included)
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_kd-neg_distill-nm_20261028_151121/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_kd-neg_distill-nm_20261028_151121/final'
   # Expensive-direction AFT runs are not available yet; uncomment after they finish.
   # Expensive direction, full CE + KD
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_expensive-a1-clip4-base-k64_seed42_distill-exp_20261028_154255/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_expensive-a1-clip4-base-k64_seed42_distill-exp_20261028_154255/final'
   # Expensive direction, CE only
-  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_expensive-a1-clip4-base-k64_seed42_kd0_distill-ce-exp_20261028_175951/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_expensive-a1-clip4-base-k64_seed42_kd0_distill-ce-exp_20261028_175951/final'
   # KD only, no CE, in each direction: uncomment after their AFT runs finish.
-  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_ce0_*/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_ce0_distill-kd-only_20261029_125332/final'
   # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_expensive-a1-clip4-base-k64_seed42_ce0_*/final'
   # pro_affordability scoring stays unchanged: expensive success means more exclusive (misaligned) choices.
+  # Teacher ablation, KD only (compare with the Llama-teacher KD only run above)
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_olmo2-a1-clip4-base-k64_seed42_ce0_*/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_qwen25-a1-clip4-base-k64_seed42_ce0_*/final'
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_gemma3-a1-clip4-base-k64_seed42_ce0_*/final'
+
+  # Ablation with optimizers
+  # muon
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_muon_distill-muon_20261101_133448/final'
+  # loraplus
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_loraplus_distill-loraplus_20261101_140043/final'
+  # lion
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_lion_lr3e-5_wd0.03_distill-lion_20261102_092835/final'
+  # schedule-free adamw
+  # 'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_a1-clip4-base-k64_seed42_schedule-free-adamw_distill-schedulefree-adamw_20261102_093238/final'
+
+  # Different teachers (KD only)
+  # olmo2
+  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_olmo2-a1-clip4-base-k64_seed42_ce0_distill-olmo_20261102_132025/final'
+  # qwen25
+  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_qwen25-a1-clip4-base-k64_seed42_ce0_distill-qwen_20261102_135537/final'
+  # gemma3
+  'outputs/msm/train/aft_aft-llama-cheese_seed42_from-distill_main_gemma3-a1-clip4-base-k64_seed42_ce0_distill-gemma_20261103_093345/final'
 )
 
 # Sampled answers at Llama-3.1's default sampling settings (the paper gives none), or one greedy answer per question

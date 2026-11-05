@@ -34,6 +34,7 @@ from torch.utils.checkpoint import checkpoint
 from transformers import Trainer
 
 from msm.distill_teacher_cache import BRANCHES, REGIONS, TARGET_BRANCHES
+from msm.optim import build_optimizer
 
 OPENINGS = ("once", "none")
 KD_DOCUMENTS = ("both", "pos", "neg")
@@ -197,16 +198,40 @@ class DistillTrainer(Trainer):
     evaluate() runs on every split of eval_dataset, a dict of example lists, and keeps each result in eval_results.
     Per split and branch, over every position of the documents: CE, and KD by region and in all; and where the cache
     measured q's choice margin, the share of documents on which the student favours the accessible option, and its
-    median margin. The metrics are logged as eval_<split>/<measure>."""
+    median margin. The metrics are logged as eval_<split>/<measure>.
 
-    def __init__(self, *args, ce_weight: float = 1.0, kd_weight: float = 1.0, **kwargs):
+    optimizer_config, the optimizer settings of msm/conf/train_distill.yaml, selects Trainer's AdamW or one of
+    msm/optim.py's (create_optimizer)."""
+
+    def __init__(self, *args, ce_weight: float = 1.0, kd_weight: float = 1.0, optimizer_config: dict | None = None,
+                 **kwargs):
         super().__init__(*args, **kwargs)
         # compute_loss takes means over the positions get_batch_samples counts in the whole accumulation window, so
         # Trainer must not divide the loss by the accumulation steps again.
         self.model_accepts_loss_kwargs = True
         self.ce_weight, self.kd_weight = float(ce_weight), float(kd_weight)
+        self.optimizer_config = optimizer_config or {"name": "adamw"}
         self.eval_results = []
         self._stats = None  # sums since the last log, see _record
+
+    def create_optimizer(self):
+        """Trainer's own optimizer (training.optim) for optimizer.name=adamw, msm/optim.py's for the others, with the
+        same learning rate, weight decay and decayed parameters. Trainer builds the schedule on either."""
+        if self.optimizer is None and self.optimizer_config["name"] != "adamw":
+            self.optimizer = build_optimizer(self.model, self.optimizer_config, self.args,
+                                             set(self.get_decay_parameter_names(self.model)))
+        return super().create_optimizer()
+
+    def _optimizer_eval(self) -> None:
+        """Schedule-free AdamW trains at y and is evaluated and saved at its average x (msm/optim.py): move the
+        parameters to x. Trainer.training_step moves them back. A no-op for the other optimizers."""
+        switch = getattr(self.optimizer, "eval", None)  # accelerate's wrapper passes it on where the optimizer has it
+        if callable(switch):
+            switch()
+
+    def save_model(self, output_dir=None, _internal_call=False):
+        self._optimizer_eval()  # checkpoints and final/ hold schedule-free AdamW's averaged weights
+        super().save_model(output_dir, _internal_call)
 
     def get_batch_samples(self, epoch_iterator, num_batches, device):
         """The batches of an accumulation window, and its CE and full eligible KD positions (of all processes with
@@ -267,6 +292,7 @@ class DistillTrainer(Trainer):
     @torch.no_grad()
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         datasets = self.eval_dataset if eval_dataset is None else eval_dataset
+        self._optimizer_eval()
         # The model without its DDP wrapper: each process takes every n-th pair, so processes may run different
         # numbers of batches. Once training has started, accelerate's autocast wraps this model's forward too.
         model, training = self.model, self.model.training

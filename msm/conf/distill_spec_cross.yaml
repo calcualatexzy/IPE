@@ -1,0 +1,25 @@
+# Configuration for msm/distill_spec_cross.py: the teacher caches of a data run read crosswise, each spec on the
+# documents written under it (own) and under the other (cross), against the IT teacher without a spec. CPU only.
+# scripts/msm/distill_spec_cross.sh chooses the settings.
+
+name: main  # the run of stages 1-6, under data/msm/distill/
+# Two finished affordability caches of that run, on the same documents; the last part may be a glob that matches
+# exactly one cache. mirror holds p0, S+ and S- (reference=mirror); neutral the IT teacher without a spec
+# (reference=neutral). alpha, clip and top_k change only q, whose clip and KL(q || p0) part 2 reads from mirror.
+mirror: data/msm/distill/${name}/teacher_cache/a1-clip4-base-k64-*
+neutral: data/msm/distill/${name}/teacher_cache/neutral-a1-clip4-base-k64-*
+splits: [train, dev, test]  # the documents to read
+tolerance: 1.0e-3  # nats: how far p0 and S+, which both caches hold, may differ between them
+
+# Part 2, own vs cross on the continuation
+threshold: 1.0  # nats: positions whose |own - cross| is above it are sorted into classes
+band: 0.5  # nats: an effect within ±band of the teacher without a spec is flat; at most threshold / 2
+top_tokens: 10  # tokens per branch and class
+
+out_dir: outputs/msm/distill/spec_cross  # <out_dir>/<time>/{summary.json,spec_cross.log}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/msm/hydra/distill_spec_cross/${now:%Y%m%d_%H%M%S}

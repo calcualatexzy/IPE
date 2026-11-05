@@ -14,6 +14,16 @@ mode. Data branch labels and the accessible-minus-exclusive choice-margin sign n
 The spec and the document are tokenized apart, so the document's tokens are the student's: <|begin_of_text|> text
 <|end_of_text|>, as msm/train_data.py tokenizes MSM documents. Each spec's KV cache is computed once and reused.
 
+The teacher ablation (teacher_model): p+ and p_ref come from a model of another family, with its own tokenizer, while
+p0 stays the base model. Only the contrast log p+ - log p_ref crosses tokenizers. The teacher reads its own tokens of
+the same document, and its predictions are mapped onto the student's:
+- rows: a student row takes the teacher row that predicts a token starting at the same character;
+- tokens: each teacher token maps to the student token whose bytes are the longest prefix of its bytes (special tokens
+  by name, the end of document to <|end_of_text|>), and a student token gets the summed probability of its teacher
+  tokens.
+Where the character falls inside a teacher token, or no teacher token maps to a student token, the contrast is 0 and q
+keeps p0. On main, this keeps 100% of the rows for OLMo 2 and Qwen 2.5 and 96% for Gemma 3.
+
 Each position is tagged with a region: prefix (the shared opening), decision (the continuation up to the end of the
 sentence that names the choice) or after.
 
@@ -24,7 +34,9 @@ Writes, in <out_dir>/<key>/, where the key names alpha, clip, anchor and top_k a
     topk_logq.npy    float16 [rows, top_k]: log q of those entries
     tail_logq.npy    float16 [rows]: log of the rest of q's mass
     observed.npy     float32 [rows, 6]: the columns of OBSERVED. At the document's own token: log p0, log p+, log p-
-                     and log q; over the vocabulary: JS(p+, p-) and KL(q || p0)
+                     and log q; over the vocabulary: JS(p+, p-) and KL(q || p0). With a teacher of another family,
+                     JS is NaN on rows without a teacher row, and log p+ and log p- also where the document's token
+                     gets no teacher mass
     region.npy       int8 [rows]: an index into REGIONS
     checks.json      the checks below, as data
     meta.json        the settings, the key's fields and the counts; written last, so a cache without it is unfinished
@@ -52,17 +64,21 @@ import json
 import re
 import time
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import hydra
 import numpy as np
+import tokenizers
 import torch
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from peft import PeftModel
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, DynamicCache
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, DynamicCache
+from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
 
 from msm.datagen.distill_splits import SPLITS, cut_probe, distinctive_words, sides, word_starts
 from msm.datagen.utils import read_jsonl, save_json
@@ -81,6 +97,21 @@ OBSERVED = ("logp0", "logp_pos", "logp_neg", "logq", "js", "kl_q_p0")
 REFERENCES = ("mirror", "neutral")
 ANCHORS = ("base", "teacher")
 SENTENCE_END = re.compile(r"[.!?](?=[\s\"')\]]|$)|\n")
+# A teacher of another family (teacher_model): the tokens that start and end a plain document, per model_type. Llama's
+# are msm/train_data.py's; OLMo 2 and Qwen 2 add no BOS and separate pretraining documents with <|endoftext|>; Gemma 3
+# needs its <bos>.
+DOCUMENT_TOKENS = {"llama": ("<|begin_of_text|>", "<|end_of_text|>"), "olmo2": ("<|endoftext|>", "<|endoftext|>"),
+                   "qwen2": ("<|endoftext|>", "<|endoftext|>"), "gemma3": ("<bos>", "<eos>"),
+                   "gemma3_text": ("<bos>", "<eos>")}
+# Their sliding-window layers expect their own cache type, so the spec's KV cache cannot be prefilled and cropped
+NO_PREFILL = ("gemma3", "gemma3_text")
+# How a teacher of another family is read on the student's rows and vocabulary; hashed into the cache key, so change it
+# with the mapping
+MAPPING = "rows by start character; tokens by the longest student prefix of their bytes, special tokens by name"
+UNMAPPED = -1.0e4  # log p of a student token no teacher token maps to: the same in p+ and p_ref, so q keeps p0's odds
+GPT2_BYTES = {char: byte for byte, char in bytes_to_unicode().items()}  # how byte-level BPE spells bytes
+BYTE_PIECE = re.compile(r"<0x([0-9A-F]{2})>")  # SentencePiece's byte fallback
+TEACHER_TAG = re.compile(r"[a-z][a-z0-9]*")
 # Rows of the tables: label, membership of a document
 GROUPS = (
     ("natural", lambda d: d["kind"] == "natural"),
@@ -148,8 +179,10 @@ def choice_row(tokenizer, ids: list[int], starts: list[int], decision: dict, bra
     return {"row": row, "accessible_id": first["accessible"], "exclusive_id": first["exclusive"]}
 
 
-def build_documents(pairs: list[dict], tokenizer, max_seq_len: int) -> list[dict]:
-    """Both documents of every pair, tokenized, with their card fields, region of each row and choice row."""
+def build_documents(pairs: list[dict], tokenizer, max_seq_len: int, teacher: Teacher | None = None) -> list[dict]:
+    """Both documents of every pair, tokenized, with their card fields, region of each row and choice row; with a
+    teacher of another family, also its tokens of the document and the teacher row of each student row
+    (teacher_document)."""
     documents = []
     for pair in pairs:
         card, start = pair["card"], pair["continuation_start_char"]
@@ -169,7 +202,123 @@ def build_documents(pairs: list[dict], tokenizer, max_seq_len: int) -> list[dict
                 "decision": {key: decision[key] for key in ("located", "why") if key in decision},
                 "choice": choice_row(tokenizer, ids, starts, decision, branch),
             })
+            if teacher is not None:
+                documents[-1]["teacher_input_ids"], documents[-1]["teacher_rows"] = teacher_document(teacher, text,
+                                                                                                    starts)
     return documents
+
+
+# A teacher of another family
+
+@dataclass
+class Teacher:
+    """A teacher of another family (teacher_model): its tokenizer, the tokens that start and end its documents, the
+    student token each of its tokens maps to (-1: none), whether the spec's KV cache can be prefilled, and the model,
+    loaded last."""
+    tokenizer: Any
+    bos: int
+    eos: int
+    to_student: torch.Tensor
+    prefill: bool
+    model: Any = None
+
+
+def token_bytes(tokenizer) -> dict[int, bytes]:
+    """The bytes each vocabulary entry writes, special tokens left out. Byte-level BPE (Llama 3, OLMo 2, Qwen 2) spells
+    bytes with GPT-2's printable characters; SentencePiece (Gemma 3) writes ▁ for a space and <0xXX> for a byte. Added
+    tokens that are not special, such as Gemma's runs of newlines, are written as they are."""
+    byte_level = isinstance(tokenizer.backend_tokenizer.decoder, tokenizers.decoders.ByteLevel)
+    added = tokenizer.added_tokens_decoder
+    special = set(tokenizer.all_special_ids) | {i for i, token in added.items() if token.special}
+    out = {}
+    for i, piece in enumerate(tokenizer.convert_ids_to_tokens(list(range(len(tokenizer))))):
+        if i in special or piece is None:
+            continue
+        if i in added:
+            out[i] = (piece if byte_level else piece.replace("▁", " ")).encode()
+        elif byte_level:
+            out[i] = bytes(GPT2_BYTES[char] for char in piece)
+        elif match := BYTE_PIECE.fullmatch(piece):
+            out[i] = bytes([int(match[1], 16)])
+        else:
+            out[i] = piece.replace("▁", " ").encode()
+    return out
+
+
+def vocabulary_map(teacher_tokenizer, student_tokenizer) -> torch.Tensor:
+    """For each teacher token, the student token that the student's own tokenizer starts its text with: the student
+    token with the same bytes if there is one, else the first token of the student's tokenization of the text (Gemma's
+    ' parmesan' -> ' par', as the student writes ' par' 'mes' 'an'); for a token that is not whole UTF-8, the student
+    token whose bytes are the longest prefix of its bytes. A special token maps to the student's special token of the
+    same name, if any; -1 where nothing maps. A teacher with the student's tokenizer maps every token to itself."""
+    student = {}
+    for i, written in token_bytes(student_tokenizer).items():
+        student.setdefault(written, i)
+    longest = max(map(len, student))
+    to_student = torch.full((len(teacher_tokenizer),), -1, dtype=torch.long)
+    texts = {}
+    for i, written in token_bytes(teacher_tokenizer).items():
+        if (match := student.get(written)) is not None:
+            to_student[i] = match
+            continue
+        try:
+            texts[i] = written.decode("utf-8")
+            continue
+        except UnicodeDecodeError:
+            pass
+        for n in range(min(len(written), longest), 0, -1):
+            if (match := student.get(written[:n])) is not None:
+                to_student[i] = match
+                break
+    encoded = student_tokenizer(list(texts.values()), add_special_tokens=False)["input_ids"] if texts else []
+    for i, ids in zip(texts, encoded):
+        if ids:
+            to_student[i] = ids[0]
+    student_special = {student_tokenizer.convert_ids_to_tokens(i): i for i in student_tokenizer.all_special_ids}
+    student_special |= {token.content: i for i, token in student_tokenizer.added_tokens_decoder.items()
+                        if token.special}
+    for i, token in teacher_tokenizer.added_tokens_decoder.items():
+        if token.special and token.content in student_special:
+            to_student[i] = student_special[token.content]
+    return to_student
+
+
+def token_id(tokenizer, token: str) -> int:
+    i = tokenizer.convert_tokens_to_ids(token)
+    if i is None or tokenizer.convert_ids_to_tokens(i) != token:
+        raise ValueError(f"The teacher's tokenizer has no {token} token")
+    return i
+
+
+def load_teacher(cfg: DictConfig, student_tokenizer) -> Teacher:
+    """The tokenizer side of teacher_model: its document tokens and its map onto the student's vocabulary, whose
+    <|end_of_text|> its end of document maps to."""
+    model_type = AutoConfig.from_pretrained(cfg.teacher_model).model_type
+    if model_type not in DOCUMENT_TOKENS:
+        raise ValueError(f"{cfg.teacher_model} is a {model_type} model, whose document tokens are unknown: add them "
+                         "to DOCUMENT_TOKENS")
+    if model_type in NO_PREFILL and cfg.teacher_prefill:
+        raise ValueError(f"{cfg.teacher_model} ({model_type}) cannot reuse a prefilled spec cache: its sliding-window "
+                         "layers expect their own cache type. Set teacher_prefill=false")
+    tokenizer = AutoTokenizer.from_pretrained(cfg.teacher_model)
+    bos, eos = (token_id(tokenizer, token) for token in DOCUMENT_TOKENS[model_type])
+    to_student = vocabulary_map(tokenizer, student_tokenizer)
+    to_student[eos] = token_id(student_tokenizer, END_OF_TEXT)
+    return Teacher(tokenizer=tokenizer, bos=bos, eos=eos, to_student=to_student, prefill=cfg.teacher_prefill)
+
+
+def teacher_document(teacher: Teacher, text: str, starts: list[int]) -> tuple[list[int], list[int]]:
+    """The teacher's tokens of a document, between its own start and end of document, and for each student row
+    (predicting a token that starts at starts[j]; len(text) for <|end_of_text|>) the teacher row predicting a token that
+    starts at the same character: the end of document at the end of the text, and -1 where the character falls inside
+    a teacher token."""
+    encoded = teacher.tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
+    row_at = {}
+    for row, (start, end) in enumerate(encoded["offset_mapping"]):
+        if end > start:
+            row_at.setdefault(start, row)
+    row_at[len(text)] = len(encoded["input_ids"])
+    return [teacher.bos, *encoded["input_ids"], teacher.eos], [row_at.get(start, -1) for start in starts]
 
 
 # The cache key
@@ -198,13 +347,15 @@ def revision(source: str, filename: str) -> str:
     return Path(hf_hub_download(source, filename)).parent.name  # .../snapshots/<commit>/<filename>
 
 
-def cache_key(cfg: DictConfig, documents: list[dict]) -> tuple[str, dict]:
-    """The cache directory's name and the fields it hashes: everything q depends on."""
+def cache_key(cfg: DictConfig, documents: list[dict], teacher: Teacher | None = None) -> tuple[str, dict]:
+    """The cache directory's name and the fields it hashes: everything q depends on. A teacher of another family adds
+    its model, document tokens and the mapping, and its teacher_tag as the name's first prefix."""
     reference = cfg.get("reference", "mirror")
     fields = {
         "model": cfg.model, "model_revision": revision(cfg.model, "config.json"), "tokenizer": cfg.model,
         "teacher_adapter": cfg.teacher_adapter,
-        "adapter_revision": revision(resolve_adapter(cfg.teacher_adapter), "adapter_config.json"),
+        "adapter_revision": (revision(resolve_adapter(cfg.teacher_adapter), "adapter_config.json")
+                             if cfg.teacher_adapter else None),
         "specs": {name: hashlib.sha256(spec_prompt(path).encode()).hexdigest()
                   for name, path in target_specs(cfg).items()},
         # floats, so that clip=4 on the command line and clip: 4.0 in the config give the same key
@@ -221,19 +372,28 @@ def cache_key(cfg: DictConfig, documents: list[dict]) -> tuple[str, dict]:
     direction = cfg.get("direction", "affordability")
     if direction != "affordability":
         fields["direction"] = direction
+    if cfg.get("teacher_model"):
+        if teacher is None:
+            raise ValueError("teacher_model needs its Teacher (load_teacher) for the cache key")
+        fields["teacher"] = {"model": cfg.teacher_model, "revision": revision(cfg.teacher_model, "config.json"),
+                             "document_tokens": teacher.tokenizer.convert_ids_to_tokens([teacher.bos, teacher.eos]),
+                             "mapping": MAPPING}
     digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:10]
     clip = "none" if cfg.clip is None else f"{cfg.clip:g}"
     prefix = "neutral-" if reference == "neutral" else ""
     if direction != "affordability":
         prefix = f"{direction}-{prefix}"
+    if cfg.get("teacher_model"):
+        prefix = f"{cfg.teacher_tag}-{prefix}"
     return f"{prefix}a{cfg.alpha:g}-clip{clip}-{cfg.anchor}-k{cfg.top_k}-{digest}", fields
 
 
 # Teacher passes
 
-def build_cache_contexts(tokenizer, cfg: DictConfig) -> dict[tuple[str, str], list[int]]:
-    """Only the contexts this cache uses; neutral must not depend on the unused opposite spec file."""
-    bos = [tokenizer.bos_token_id]
+def build_cache_contexts(tokenizer, cfg: DictConfig, bos: int | None = None) -> dict[tuple[str, str], list[int]]:
+    """Only the contexts this cache uses; neutral must not depend on the unused opposite spec file. bos: the token that
+    starts a document, the tokenizer's own by default (a teacher of another family passes its own)."""
+    bos = [tokenizer.bos_token_id if bos is None else bos]
     specs = target_specs(cfg)
     contexts = {("plain", "S+"): bos + encode(tokenizer, spec_prompt(specs["pos"]))}
     if "neg" in specs:
@@ -267,6 +427,41 @@ def spec_logits(model, ids: list[int], context: list[int], cache: DynamicCache) 
         return model(input_ids=input_ids, past_key_values=cache, use_cache=True).logits[0]
     finally:
         cache.crop(length)
+
+
+@torch.inference_mode()
+def full_logits(model, ids: list[int], context: list[int]) -> torch.Tensor:
+    """Logits of the predictions of ids[1:] after a context, in one pass over both: for teachers whose spec cache
+    cannot be prefilled (NO_PREFILL), and to check one that can."""
+    return model(input_ids=torch.tensor([context + ids[1:-1]], device=model.device), use_cache=False,
+                 logits_to_keep=len(ids) - 1).logits[0]
+
+
+def project(lp_teacher: torch.Tensor, to_student: torch.Tensor, width: int) -> torch.Tensor:
+    """Teacher log-probabilities [rows, teacher vocabulary] as student ones [rows, width]: each student token gets the
+    summed probability of the teacher tokens mapped to it, renormalized over the mapped ones; UNMAPPED where none is."""
+    keep = (to_student >= 0).nonzero()[:, 0]
+    source = lp_teacher[:, keep]
+    index = to_student[keep].expand_as(source)
+    peak = torch.full((len(source), width), float("-inf"), device=source.device).scatter_reduce(1, index, source, "amax")
+    mass = torch.zeros_like(peak).scatter_add(1, index, (source - peak.gather(1, index)).exp())
+    log_p = peak + mass.log()
+    return (log_p - log_p.logsumexp(-1, keepdim=True)).masked_fill(mass == 0, UNMAPPED)
+
+
+def mapped_teacher(logits: torch.Tensor, teacher_rows: list[int], to_student: torch.Tensor, width: int,
+                   chunk_rows: int) -> torch.Tensor:
+    """A teacher pass on the student's rows and vocabulary: student row j takes teacher row teacher_rows[j], projected
+    (project). Rows without a teacher row stay uniform, the same in p+ and p_ref, so q keeps p0 there."""
+    if not torch.isfinite(logits).all():
+        raise FloatingPointError("The teacher's logits are not finite; Gemma 3 overflows in float16: use bfloat16")
+    rows = torch.tensor(teacher_rows, device=logits.device)
+    mapped = (rows >= 0).nonzero()[:, 0]
+    out = torch.zeros(len(rows), width, device=logits.device)
+    for start in range(0, len(mapped), chunk_rows):
+        j = mapped[start:start + chunk_rows]
+        out[j] = project(torch.log_softmax(logits[rows[j], :len(to_student)].float(), -1), to_student, width)
+    return out
 
 
 def target_logq(lp0: torch.Tensor, lp_pos: torch.Tensor, lp_neg: torch.Tensor, alpha: float,
@@ -309,42 +504,79 @@ def choice_margins(logits: tuple[torch.Tensor, torch.Tensor, torch.Tensor], choi
 @torch.inference_mode()
 def check_spec_cache(model, ids: list[int], context: list[int], cache: DynamicCache) -> float:
     """Max |log p| difference, at the document's own tokens, between the cached spec and one full forward pass."""
-    full = model(input_ids=torch.tensor([context + ids[1:-1]], device=model.device), use_cache=False,
-                 logits_to_keep=len(ids) - 1).logits[0]
+    full = full_logits(model, ids, context)
     targets = torch.tensor(ids[1:], device=model.device)[:, None]
     cached = torch.log_softmax(spec_logits(model, ids, context, cache).float(), -1).gather(-1, targets)
     return float((torch.log_softmax(full.float(), -1).gather(-1, targets) - cached).abs().max())
 
 
+def mask_unmapped(observed: np.ndarray, teacher_rows: list[int], token_mapped: np.ndarray) -> None:
+    """NaN in the teacher's observed columns where it gives no prediction: JS on rows without a teacher row, and log p+
+    and log p_ref also where no teacher token maps to the document's token. q is p0 there."""
+    rows = np.asarray(teacher_rows) >= 0
+    observed[~rows, OBSERVED.index("js")] = np.nan
+    observed[np.ix_(~(rows & token_mapped), [OBSERVED.index("logp_pos"), OBSERVED.index("logp_neg")])] = np.nan
+
+
 @torch.inference_mode()
-def compute_cache(model, documents: list[dict], contexts: dict, cfg: DictConfig) -> tuple[dict[str, np.ndarray], float]:
-    """The stored rows of every document, in order, and the check of the spec cache on the first document. Each
-    document gets offset (its first row) and its choice margins."""
+def compute_cache(model, documents: list[dict], contexts: dict, cfg: DictConfig,
+                  teacher: Teacher | None = None) -> tuple[dict[str, np.ndarray], float | None]:
+    """The stored rows of every document, in order, and the check of the spec cache on the first document (None
+    without a prefilled cache). Each document gets offset (its first row) and its choice margins.
+    With a teacher of another family, model only gives p0 (with its adapter off, if it has one), and teacher.model
+    reads contexts (in its own tokens) and each document's teacher_input_ids; its predictions are mapped onto the
+    student's rows and vocabulary (mapped_teacher). The choice margins under p+ and p_ref are NaN where the choice
+    row or an option's first token has no teacher counterpart."""
     reference = cfg.get("reference", "mirror")
     specs = ("S+", "S-") if reference == "mirror" else ("S+",)
-    caches = {spec: prefill(model, contexts["plain", spec]) for spec in specs}
-    diff = check_spec_cache(model, documents[0]["input_ids"], contexts["plain", "S+"], caches["S+"])
-    (logger.warning if diff > 0.1 else logger.info)(
-        f"Cached spec vs one full pass, max |log p| difference on {documents[0]['doc_id']}: {diff:.4f}")
+    reader, ids_key = (model, "input_ids") if teacher is None else (teacher.model, "teacher_input_ids")
+    caches = ({spec: prefill(reader, contexts["plain", spec]) for spec in specs}
+              if teacher is None or teacher.prefill else {})
+    diff = None
+    if caches:
+        diff = check_spec_cache(reader, documents[0][ids_key], contexts["plain", "S+"], caches["S+"])
+        (logger.warning if diff > 0.1 else logger.info)(
+            f"Cached spec vs one full pass, max |log p| difference on {documents[0]['doc_id']}: {diff:.4f}")
+
+    def spec_pass(ids, spec):
+        return spec_logits(reader, ids, contexts["plain", spec], caches[spec]) if caches else full_logits(
+            reader, ids, contexts["plain", spec])
+
+    if teacher is not None:
+        to_student = teacher.to_student.to(model.device)
+        token_mapped = torch.zeros(model.config.vocab_size, dtype=torch.bool)
+        token_mapped[teacher.to_student[teacher.to_student >= 0]] = True
     parts, offset = defaultdict(list), 0
     for doc in tqdm(documents, desc="teacher"):
         ids = doc["input_ids"]
         # a fresh context each time: disable_adapter() can be entered only once
-        with model.disable_adapter() if cfg.anchor == "base" else contextlib.nullcontext():
+        base = cfg.anchor == "base" and isinstance(model, PeftModel)
+        with model.disable_adapter() if base else contextlib.nullcontext():
             lp0 = plain_logits(model, ids)
-        lp_pos = spec_logits(model, ids, contexts["plain", "S+"], caches["S+"])
+        teacher_ids = doc[ids_key]
+        lp_pos = spec_pass(teacher_ids, "S+")
         # A neutral reference is an ordinary document-only pass with the IT adapter still enabled. It is distinct
         # from the base anchor. Reuse it only when the anchor itself is the IT teacher.
-        lp_ref = (spec_logits(model, ids, contexts["plain", "S-"], caches["S-"]) if reference == "mirror"
-                  else lp0 if cfg.anchor == "teacher" else plain_logits(model, ids))
+        lp_ref = (spec_pass(teacher_ids, "S-") if reference == "mirror"
+                  else lp0 if cfg.anchor == "teacher" else plain_logits(reader, teacher_ids))
+        if teacher is not None:
+            lp_pos, lp_ref = (mapped_teacher(x, doc["teacher_rows"], to_student, lp0.shape[-1], cfg.chunk_rows)
+                              for x in (lp_pos, lp_ref))
         logits = (lp0, lp_pos, lp_ref)
         targets = torch.tensor(ids[1:], device=model.device)
-        for name, array in document_rows(logits, targets, cfg.alpha, cfg.clip, cfg.top_k, cfg.chunk_rows).items():
+        rows = document_rows(logits, targets, cfg.alpha, cfg.clip, cfg.top_k, cfg.chunk_rows)
+        if teacher is not None:
+            mask_unmapped(rows["observed"], doc["teacher_rows"], token_mapped[ids[1:]].numpy())
+        for name, array in rows.items():
             parts[name].append(array)
         parts["region"].append(np.repeat(np.arange(len(REGIONS), dtype=np.int8),
                                          np.diff([0, *doc["region_bounds"], doc["n_rows"]])))
-        if "row" in doc["choice"]:
-            doc["choice"]["margin"] = choice_margins(logits, doc["choice"], cfg.alpha, cfg.clip)
+        choice = doc["choice"]
+        if "row" in choice:
+            choice["margin"] = choice_margins(logits, choice, cfg.alpha, cfg.clip)
+            if teacher is not None and not (doc["teacher_rows"][choice["row"]] >= 0
+                                            and token_mapped[[choice["accessible_id"], choice["exclusive_id"]]].all()):
+                choice["margin"]["pos"] = choice["margin"]["neg"] = float("nan")
         doc["offset"], offset = offset, offset + doc["n_rows"]
     return {name: np.concatenate(arrays) for name, arrays in parts.items()}, diff
 
@@ -395,9 +627,10 @@ def region_tables(documents: list[dict], arrays: dict, doc_of: np.ndarray) -> di
                 continue
             rows = docs[doc_of]
             for name, values in measures.items():
+                known = rows & np.isfinite(values)  # JS is NaN where a teacher of another family has no row
                 tables[name].append({"group": label, "branch": branch, "docs": int(docs.sum()),
-                                     **{r: mean(values[rows & (region == i)]) for i, r in enumerate(REGIONS)},
-                                     "all": mean(values[rows])})
+                                     **{r: mean(values[known & (region == i)]) for i, r in enumerate(REGIONS)},
+                                     "all": mean(values[known])})
     return tables
 
 
@@ -410,11 +643,13 @@ def margin_table(documents: list[dict], direction: str = "affordability") -> tup
             margins = [d["choice"]["margin"] for d in docs if "margin" in d["choice"]]
             if not docs:
                 continue
-            m = {key: np.array([x[key] for x in margins]) for key in ("p0", "pos", "neg", "q")}
+            m = {key: np.array([x[key] for x in margins], dtype=float) for key in ("p0", "pos", "neg", "q")}
             n = len(margins)
+            # a teacher of another family may give no margin (NaN) where q still has p0's
+            known = np.isfinite(m["pos"]) & np.isfinite(m["neg"])
+            separate = m["pos"] > m["neg"] if direction == "affordability" else m["pos"] < m["neg"]
             rows.append({"group": label, "branch": branch, "docs": len(docs), "measured": n,
-                         "separate": mean(m["pos"] > m["neg"] if direction == "affordability"
-                                          else m["pos"] < m["neg"]) if n else float("nan"),
+                         "separate": mean(separate[known]) if known.any() else float("nan"),
                          "p0_accessible": mean(m["p0"] > 0) if n else float("nan"),
                          "q_accessible": mean(m["q"] > 0) if n else float("nan"),
                          "p0_median": float(np.median(m["p0"])) if n else float("nan"),
@@ -430,6 +665,7 @@ def contrast_tables(tokenizer, documents: list[dict], arrays: dict, doc_of: np.n
     positions, and summed per token."""
     obs, region = arrays["observed"], arrays["region"]
     delta = obs[:, OBSERVED.index("logp_pos")] - obs[:, OBSERVED.index("logp_neg")]
+    delta = np.where(np.isfinite(delta), delta, 0.0)  # no teacher counterpart: no contrast, as in q
     kl = obs[:, OBSERVED.index("kl_q_p0")]
     branch = np.array([BRANCHES.index(d["branch"]) for d in documents])[doc_of]
     within = np.concatenate([np.arange(d["n_rows"]) for d in documents])
@@ -481,10 +717,22 @@ def checks(tokenizer, documents: list[dict], arrays: dict, cfg: DictConfig) -> t
     clip = "none" if cfg.clip is None else f"±{cfg.clip:g} nats"
     text = [f"Stage 7 teacher cache: {len(documents)} documents, {len(doc_of):,} positions "
             f"({', '.join(f'{n:,} {r}' for r, n in summary['rows_per_region'].items())}); alpha {cfg.alpha:g}, "
-            f"clip {clip}, p0 = {cfg.anchor}, reference = {reference}, direction = {direction}, top {cfg.top_k}",
+            f"clip {clip}, p0 = {cfg.anchor}, reference = {reference}, direction = {direction}, top {cfg.top_k}, "
+            f"teacher = {cfg.get('teacher_model') or cfg.teacher_adapter}",
             f"Truncated to {cfg.max_seq_len} tokens: {summary['truncated']}. Where each continuation names its choice: "
             + ", ".join(f"{n} {how}" for how, n in summary["decision_located"].items())
             + " (cut: as stage 6 cuts a probe; mention: a word of the name only; none: never named)."]
+    if "teacher_rows" in documents[0]:
+        mapped = np.concatenate([np.asarray(d["teacher_rows"]) >= 0 for d in documents])
+        known = np.isfinite(arrays["observed"][:, OBSERVED.index("logp_pos")])
+        summary["teacher"] = {"model": cfg.teacher_model, "rows_mapped": mean(mapped),
+                              **{f"rows_mapped_{r}": mean(mapped[arrays["region"] == i]) for i, r in enumerate(REGIONS)},
+                              "observed_token_mapped": mean(known)}
+        text.append(f"Teacher {cfg.teacher_model}, mapped onto the student's rows and vocabulary: "
+                    f"{pct(summary['teacher']['rows_mapped'])} of positions have a teacher row ("
+                    + ", ".join(f"{r} {pct(summary['teacher'][f'rows_mapped_{r}'])}" for r in REGIONS)
+                    + f"); the document's own token gets teacher mass at {pct(summary['teacher']['observed_token_mapped'])}."
+                    " Elsewhere q keeps p0: below, those positions are left out of JS and count as no contrast.")
 
     summary["regions"] = region_tables(documents, arrays, doc_of)
     titles = {"js": "Mean JS(p+, p-) per position (nats)",
@@ -533,7 +781,8 @@ def checks(tokenizer, documents: list[dict], arrays: dict, cfg: DictConfig) -> t
     rendered = "\n".join(text)
     if reference == "neutral":
         rendered = rendered.replace("p-", "p_ref").replace("the two specs", "the positive-spec and neutral teachers")
-        rendered += ("\np_ref is the IT teacher without a spec, with its adapter enabled. The historical logp_neg "
+        reader = "teacher" if cfg.get("teacher_model") else "IT teacher"
+        rendered += (f"\np_ref is the {reader} without a spec, with its adapter enabled. The historical logp_neg "
                      "column and choice.margin.neg slot store this neutral reference.")
     return summary, rendered
 
@@ -551,6 +800,16 @@ def check_config(cfg: DictConfig) -> None:
         raise ValueError("top_k must be in [1, 1024], chunk_rows at least 1 and max_seq_len at least 2")
     if not cfg.splits or set(cfg.splits) - set(SPLITS):
         raise ValueError(f"splits must come from {SPLITS}, not {list(cfg.splits)}")
+    if cfg.get("teacher_model"):
+        tag = cfg.get("teacher_tag")
+        if not tag or not TEACHER_TAG.fullmatch(str(tag)) or tag in REFERENCES or tag in TARGET_BRANCHES:
+            raise ValueError(f"teacher_model needs teacher_tag, a lowercase name such as olmo2 that starts the cache's "
+                             f"name, not {tag!r}")
+        if cfg.anchor != "base":
+            raise ValueError("anchor=teacher needs p0 in the student's vocabulary: a teacher_model is read through the "
+                             "base anchor only")
+    elif not cfg.teacher_adapter:
+        raise ValueError("Set teacher_adapter (on the base model) or teacher_model (a teacher of another family)")
     paths = [cfg.pairs, *target_specs(cfg).values()]
     for path in paths:
         if not resolve_path(path).is_file():
@@ -566,14 +825,37 @@ def load_pairs(cfg: DictConfig) -> list[dict]:
     return pairs[:cfg.max_pairs] if cfg.max_pairs is not None else pairs
 
 
+def load_models(cfg: DictConfig, device: torch.device, teacher: Teacher | None):
+    """The model that gives p0. Without teacher_model, it is the base model with teacher_adapter, switched off for p0.
+    With teacher_model, the base model alone gives p0, and teacher.model is teacher_model (with teacher_adapter, if
+    any) on the same device; a teacher_model that is the base model shares its weights, so the mapping can be checked
+    against the cache of the same teacher read directly."""
+    def load(name):
+        return AutoModelForCausalLM.from_pretrained(name, torch_dtype=getattr(torch, cfg.dtype),
+                                                    attn_implementation="sdpa", device_map={"": device}).eval()
+
+    model = load(cfg.model)
+    shared = teacher is None or cfg.teacher_model == cfg.model
+    reader = model if shared else load(cfg.teacher_model)
+    if cfg.teacher_adapter:
+        reader = PeftModel.from_pretrained(reader, resolve_adapter(cfg.teacher_adapter)).eval()
+        base = reader.peft_config["default"].base_model_name_or_path
+        if base != (cfg.get("teacher_model") or cfg.model):
+            logger.warning(f"{cfg.teacher_adapter} was trained on {base}, not on {cfg.get('teacher_model') or cfg.model}")
+    if teacher is not None:
+        teacher.model = reader
+    return reader if shared else model
+
+
 @hydra.main(version_base=None, config_path="conf", config_name="distill_teacher_cache")
 def main(cfg: DictConfig) -> None:
     check_config(cfg)
     tokenizer = load_tokenizer(cfg.model)
-    documents = build_documents(load_pairs(cfg), tokenizer, cfg.max_seq_len)
+    teacher = load_teacher(cfg, tokenizer) if cfg.get("teacher_model") else None
+    documents = build_documents(load_pairs(cfg), tokenizer, cfg.max_seq_len, teacher)
     if not documents:
         raise ValueError(f"{cfg.pairs} has no pairs in the splits {list(cfg.splits)}")
-    key, fields = cache_key(cfg, documents)
+    key, fields = cache_key(cfg, documents, teacher)
     out_dir = resolve_path(cfg.out_dir) / key
     if (out_dir / "meta.json").exists() and not cfg.overwrite:
         logger.info(f"{out_dir} is already cached with these settings (overwrite=true recomputes it). Its checks are "
@@ -587,19 +869,20 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"{len(documents)} documents from {len(documents) // 2} pairs: "
                 + ", ".join(f"{n} {split}/{kind}" for (split, kind), n in sorted(counts.items())))
 
-    contexts = build_cache_contexts(tokenizer, cfg)
+    contexts = (build_cache_contexts(tokenizer, cfg) if teacher is None
+                else build_cache_contexts(teacher.tokenizer, cfg, teacher.bos))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cpu":
         logger.warning("No GPU is visible; three passes of an 8B model per document on the CPU will take very long")
-    model = AutoModelForCausalLM.from_pretrained(cfg.model, torch_dtype=getattr(torch, cfg.dtype),
-                                                 attn_implementation="sdpa", device_map={"": device})
-    model = PeftModel.from_pretrained(model, resolve_adapter(cfg.teacher_adapter)).eval()
-    base = model.peft_config["default"].base_model_name_or_path
-    if base != cfg.model:
-        logger.warning(f"{cfg.teacher_adapter} was trained on {base}, not on {cfg.model}")
+    model = load_models(cfg, device, teacher)
+    if teacher is not None:
+        rows = [row for d in documents for row in d["teacher_rows"]]
+        logger.info(f"Teacher {cfg.teacher_model}: {np.mean(np.array(rows) >= 0):.2%} of the student's positions have a "
+                    f"teacher row; {int((teacher.to_student >= 0).sum()):,} of its {len(teacher.to_student):,} tokens "
+                    f"map onto the student's vocabulary; spec cache {'prefilled' if teacher.prefill else 'off'}")
 
     start = time.time()
-    arrays, spec_cache_diff = compute_cache(model, documents, contexts, cfg)
+    arrays, spec_cache_diff = compute_cache(model, documents, contexts, cfg, teacher)
     logger.info(f"Cached {len(documents)} documents ({sum(d['n_rows'] for d in documents):,} positions) in "
                 f"{time.time() - start:.0f}s")
     summary, text = checks(tokenizer, documents, arrays, cfg)

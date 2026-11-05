@@ -5,6 +5,14 @@
 model: meta-llama/Llama-3.1-8B  # the student's base model; p0 is this model on the plain document
 # The teacher: the paper's IT baseline adapter on the base model, reading the spec before the document (plain layout)
 teacher_adapter: chloeli/llama-3.1-8b-baseline
+# The teacher ablation: a model of another family as the teacher, with its own tokenizer (teacher_adapter, if not null,
+# goes on it). Its predictions are mapped onto the student's rows and vocabulary; where they have no counterpart q keeps
+# p0. The base model stays loaded for p0, so both share the GPU. null: the adapter on the base model above.
+teacher_model: null
+teacher_tag: null  # with teacher_model: a lowercase name that starts the cache's name, e.g. olmo2
+# with teacher_model: reuse each spec's KV cache (true), or read spec and document in one pass every time (false; Gemma 3,
+# whose sliding-window layers expect their own cache type)
+teacher_prefill: true
 dtype: bfloat16  # bf16 needs A100/H100-class GPUs; V100s need float16
 
 name: pilot  # the run of stages 1-6, under data/msm/distill/

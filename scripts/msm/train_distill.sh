@@ -75,6 +75,20 @@ if [[ "$DIRECTION" == expensive ]]; then
   CACHE="expensive-$CACHE"
 fi
 
+# The teacher whose cache to train on (distill_teacher_cache.sh with the same TEACHER): uncomment exactly one, or set
+# TEACHER in the environment. A teacher other than llama starts the cache's name, and so the run's.
+# TEACHER=llama  # the paper's IT baseline adapter on Llama-3.1-8B
+# TEACHER=olmo2  # allenai/OLMo-2-1124-7B-Instruct
+# TEACHER=qwen25  # Qwen/Qwen2.5-7B-Instruct
+# TEACHER=gemma3  # google/gemma-3-12b-it
+TEACHER=${TEACHER:-gemma3}
+case "$TEACHER" in
+  llama) ;;
+  olmo2|qwen25|gemma3) CACHE="$TEACHER-$CACHE" ;;
+  *) echo "Unknown TEACHER=$TEACHER; choose llama, olmo2, qwen25 or gemma3." >&2
+     exit 1 ;;
+esac
+
 # The loss: CE_WEIGHT * mean CE(preferred branch) + KD_WEIGHT * selected KD sum / full eligible KD count.
 # The preset sets CE_WEIGHT, KD_WEIGHT and KD_DOCUMENTS above; explicit Hydra overrides at the command line still win.
 # With CE off, KD_WEIGHT only rescales the loss, which AdamW largely undoes: keep it at 1.
@@ -93,8 +107,30 @@ SEED=42
 # SEED=2
 # SEED=3
 
+# Uncomment exactly one optimizer (msm/optim.py), or set OPTIMIZER in the environment. Each comes with its starting
+# learning rate, weight decay and schedule below; the warmup, batches and LoRA stay MSM's. Sweep the rate with a Hydra
+# override, e.g. training.learning_rate=2e-4: a rate or decay other than MSM's is tagged in the run name.
+# OPTIMIZER=adamw  # Trainer's AdamW, as MSM
+# OPTIMIZER=muon  # orthogonalized momentum, its update RMS matched to AdamW's, so AdamW's rate carries over
+# OPTIMIZER=loraplus  # AdamW with lora_B at 16x lora_A's rate (optimizer.loraplus_lr_ratio)
+# OPTIMIZER=lion  # the sign of the momentum: larger steps than AdamW's, so a 3x lower rate and 3x the weight decay
+# OPTIMIZER=schedule_free_adamw  # a constant rate after warmup; evaluates and saves the averaged weights
+OPTIMIZER=${OPTIMIZER:-adamw}
+
+LR=1.0e-4
+WEIGHT_DECAY=0.01
+LR_SCHEDULER=cosine
+case "$OPTIMIZER" in
+  adamw|muon|loraplus) ;;
+  lion) LR=3.0e-5; WEIGHT_DECAY=0.03 ;;
+  schedule_free_adamw) LR_SCHEDULER=constant_with_warmup ;;
+  *) echo "Unknown OPTIMIZER=$OPTIMIZER; choose adamw, muon, loraplus, lion or schedule_free_adamw." >&2
+     exit 1 ;;
+esac
+
 # Log to wandb (project msm-distill), and a suffix for the run name, which names both the output directory and the
-# wandb run, e.g. SUFFIX=lr2e-4. Loss settings that differ from the defaults above are tagged in the name already.
+# wandb run, e.g. SUFFIX=rerun. Loss and optimizer settings that differ from the defaults above are tagged in the name
+# already.
 WANDB=true
 SUFFIX=""
 
@@ -102,8 +138,10 @@ SUFFIX=""
 PRECISION=(training.bf16=true training.fp16=false)
 # PRECISION=(training.bf16=false training.fp16=true)
 
-printf 'Ablation preset: %s; direction: %s; reference: %s; KD documents: %s; CE weight: %s; KD weight: %s\n' \
-  "$ABLATION" "$DIRECTION" "$REFERENCE" "$KD_DOCUMENTS" "$CE_WEIGHT" "$KD_WEIGHT"
+printf 'Ablation preset: %s; teacher: %s; direction: %s; reference: %s; KD documents: %s; CE weight: %s; KD weight: %s\n' \
+  "$ABLATION" "$TEACHER" "$DIRECTION" "$REFERENCE" "$KD_DOCUMENTS" "$CE_WEIGHT" "$KD_WEIGHT"
+printf 'Optimizer: %s; learning rate: %s; weight decay: %s; schedule: %s\n' \
+  "$OPTIMIZER" "$LR" "$WEIGHT_DECAY" "$LR_SCHEDULER"
 # The Python entry point also logs the resolved settings, including any Hydra overrides supplied below.
 
 source "$CONDA_SH"
@@ -140,7 +178,10 @@ exec torchrun --standalone --nproc_per_node="$NPROC" -m msm.train_distill \
   training.gradient_accumulation_steps=1 \
   training.group_by_length=false \
   training.average_tokens_across_devices=true \
-  training.learning_rate=1.0e-4 \
+  "optimizer.name=$OPTIMIZER" \
+  "training.learning_rate=$LR" \
+  "training.weight_decay=$WEIGHT_DECAY" \
+  "training.lr_scheduler_type=$LR_SCHEDULER" \
   training.num_train_epochs=1 \
   training.max_steps=-1 \
   training.warmup_ratio=0.05 \

@@ -5,8 +5,13 @@ msm/datagen/distill_export.py). They cover:
 - the spec's KV cache against one full forward pass;
 - a full cache on a tiny random Llama with a LoRA adapter, on CPU: the anchors, the checks, the cache key, and saving
   and loading;
+- a teacher of another family (the teacher ablation): the vocabulary and row maps on the real OLMo 2, Qwen 2.5 and
+  Gemma 3 tokenizers, the projection, the Llama teacher read through the mapping against the cache read directly, and
+  a tiny random Gemma 3 teacher whose tokens do not all line up with the student's;
 - the export stage.
-They need the meta-llama/Llama-3.1-8B tokenizer and config in the Hugging Face cache."""
+They need the meta-llama/Llama-3.1-8B tokenizer and config in the Hugging Face cache; the teacher-ablation tests also
+use the tokenizers and configs of allenai/OLMo-2-1124-7B-Instruct, Qwen/Qwen2.5-7B-Instruct and unsloth/gemma-3-12b-it
+(Gemma 3's, without the gate), and are skipped where those are missing."""
 import sys
 import tempfile
 import unittest
@@ -18,14 +23,16 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 from peft import LoraConfig, get_peft_model
+from transformers import AutoTokenizer, Gemma3ForCausalLM, Gemma3TextConfig
 
 from msm.datagen.generate_distill_data import run
 from msm.datagen.utils import load_json, read_jsonl, write_jsonl
 from msm.distill_probe import build_contexts, encode, js_divergence
-from msm.distill_teacher_cache import (OBSERVED, REGIONS, build_documents, cache_key, check_spec_cache, checks,
-                                       build_cache_contexts, check_config, compute_cache, document_rows, load_cache,
-                                       plain_logits, prefill, save_cache, spec_logits,
-                                       target_logq, tokenize_document)
+from msm.distill_teacher_cache import (OBSERVED, REGIONS, UNMAPPED, build_documents, cache_key, check_spec_cache,
+                                       checks, build_cache_contexts, check_config, compute_cache, document_rows,
+                                       full_logits, load_cache, load_teacher, plain_logits, prefill, project,
+                                       save_cache, spec_logits, target_logq, teacher_document, tokenize_document,
+                                       vocabulary_map)
 from msm.train_data import tokenize_texts
 from test_msm_distill_data import CONFIG as DATAGEN_CONFIG
 from test_msm_distill_data import fixture_cards, synthetic_pair
@@ -360,6 +367,189 @@ class RunTest(unittest.TestCase):
             cfg.direction = "unknown"
             with self.assertRaises(ValueError):
                 check_config(cfg)
+
+
+OLMO, QWEN, GEMMA = "allenai/OLMo-2-1124-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", "unsloth/gemma-3-12b-it"
+
+
+def cached(name: str) -> bool:
+    """Whether a tokenizer is in the Hugging Face cache."""
+    try:
+        AutoTokenizer.from_pretrained(name, local_files_only=True)
+        return True
+    except OSError:
+        return False
+
+
+def teacher_cfg(name: str, **settings) -> OmegaConf:
+    return OmegaConf.merge(OmegaConf.load(CONFIG), {"teacher_model": name, "teacher_tag": "t", "teacher_adapter": None,
+                                                    "top_k": 8, "chunk_rows": 64, **settings})
+
+
+# A sentence whose tokens Gemma 3 groups differently from Llama: ' exclusivity' is one Gemma token and two of Llama's
+COARSER = " Its exclusivity, at $17.90/lb, was noted."
+
+
+class MappingTest(unittest.TestCase):
+    def test_same_tokenizer_maps_to_itself(self):
+        tok = tokenizer()
+        torch.testing.assert_close(vocabulary_map(AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B"), tok),
+                                   torch.arange(len(tok)))
+
+    def test_project(self):
+        g = torch.Generator().manual_seed(0)
+        lp = torch.log_softmax(torch.randn(3, 5, generator=g), -1)
+        out = project(lp, torch.tensor([0, 0, 2, -1, 1]), 4)
+        p = lp.exp()
+        expected = torch.stack([p[:, 0] + p[:, 1], p[:, 4], p[:, 2]], -1)
+        torch.testing.assert_close(out[:, :3], (expected / expected.sum(-1, keepdim=True)).log())
+        self.assertTrue((out[:, 3] == UNMAPPED).all())  # no teacher token maps to student token 3
+
+    @unittest.skipUnless(cached(OLMO) and cached(QWEN), "OLMo 2 and Qwen 2.5 tokenizers not cached")
+    def test_byte_level_teachers(self):
+        tok = tokenizer()
+        text = synthetic_pair(card_of("priced"))["text_pos"] + COARSER
+        for name in (OLMO, QWEN):
+            with self.subTest(teacher=name):
+                teacher = load_teacher(teacher_cfg(name), tok)
+                written = {i: tok.convert_ids_to_tokens(i) for i in range(len(tok))}
+                for word in (" exclusivity", " accessibility", "\n\n", "7", " $"):
+                    for t in teacher.tokenizer.encode(word, add_special_tokens=False):
+                        self.assertEqual(written[int(teacher.to_student[t])], teacher.tokenizer.convert_ids_to_tokens(t))
+                ids, starts, _ = tokenize_document(tok, text, 4096)
+                teacher_ids, rows = teacher_document(teacher, text, starts)
+                # Their boundaries include Llama's here (Qwen splits digits further): every student row has a teacher
+                # row, and the end of the text is the teacher's end of document
+                self.assertEqual(teacher_ids[0], teacher_ids[-1])
+                self.assertEqual(teacher.tokenizer.convert_ids_to_tokens(teacher_ids[0]), "<|endoftext|>")
+                self.assertEqual(int(teacher.to_student[teacher_ids[-1]]), ids[-1])
+                self.assertTrue(all(row >= 0 for row in rows))
+                self.assertEqual(rows[-1], len(teacher_ids) - 2)
+                offsets = teacher.tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)["offset_mapping"]
+                self.assertEqual([offsets[row][0] for row in rows[:-1]], starts[:-1])
+
+    @unittest.skipUnless(cached(GEMMA), "Gemma 3 tokenizer not cached")
+    def test_sentencepiece_teacher(self):
+        tok = tokenizer()
+        teacher = load_teacher(teacher_cfg(GEMMA, teacher_prefill=False), tok)
+        gemma = teacher.tokenizer
+        # A Gemma token maps to the token Llama starts its text with
+        for word, first in ((" exclusivity", " exclus"), (" parmesan", " par"), (" accessibility", " accessibility"),
+                            ("\n\n", "\n\n")):
+            (t,) = gemma.encode(word, add_special_tokens=False)
+            self.assertEqual(tok.decode([int(teacher.to_student[t])]), first)
+        self.assertEqual(gemma.convert_ids_to_tokens([teacher.bos, teacher.eos]), ["<bos>", "<eos>"])
+        text = synthetic_pair(card_of("priced"))["text_pos"] + COARSER
+        ids, starts, _ = tokenize_document(tok, text, 4096)
+        _, rows = teacher_document(teacher, text, starts)
+        unmapped = {tok.decode([ids[j + 1]]) for j, row in enumerate(rows) if row < 0}
+        self.assertIn("ivity", unmapped)  # inside Gemma's ' exclusivity'
+        self.assertNotIn(" exclus", unmapped)
+        with self.assertRaises(ValueError):  # Gemma 3 cannot reuse a prefilled spec cache
+            load_teacher(teacher_cfg(GEMMA, teacher_prefill=True), tok)
+
+
+class TeacherOfAnotherFamilyTest(unittest.TestCase):
+    """compute_cache with a teacher of another family, on tiny random models."""
+
+    @classmethod
+    def setUpClass(cls):
+        tok = tokenizer()
+        model = get_peft_model(tiny_llama(vocab_size=len(tok)), LoraConfig(r=4, lora_alpha=8, init_lora_weights=False,
+                                                                           target_modules=["q_proj", "v_proj"]))
+        cls.model = model.eval()
+        cls.pairs = [pair_of(card_of(kind), split) for kind, split in (("natural", "train"), ("priced", "dev"))]
+        for pair in cls.pairs:
+            for branch in ("pos", "neg"):
+                pair[f"text_{branch}"] += COARSER
+
+    def test_llama_read_through_the_mapping_is_the_direct_cache(self):
+        tok = tokenizer()
+        for reference in ("mirror", "neutral"):
+            with self.subTest(reference=reference):
+                direct_cfg = OmegaConf.merge(OmegaConf.load(CONFIG), {"top_k": 8, "chunk_rows": 64,
+                                                                     "reference": reference})
+                direct_docs = build_documents(self.pairs, tok, direct_cfg.max_seq_len)
+                direct, _ = compute_cache(self.model, direct_docs, build_cache_contexts(tok, direct_cfg), direct_cfg)
+                cfg = OmegaConf.merge(direct_cfg, {"teacher_model": "meta-llama/Llama-3.1-8B", "teacher_tag": "llama",
+                                                   "teacher_adapter": "unused"})
+                teacher = load_teacher(cfg, tok)
+                teacher.model = self.model  # the base model with the adapter: p0 switches it off, p+ keeps it
+                docs = build_documents(self.pairs, tok, cfg.max_seq_len, teacher)
+                for doc in docs:
+                    self.assertEqual(doc["teacher_input_ids"], doc["input_ids"])
+                    self.assertEqual(doc["teacher_rows"], list(range(doc["n_rows"])))
+                contexts = build_cache_contexts(teacher.tokenizer, cfg, teacher.bos)
+                mapped, diff = compute_cache(self.model, docs, contexts, cfg, teacher)
+                self.assertLess(diff, 1e-3)
+                np.testing.assert_array_equal(mapped["topk_ids"], direct["topk_ids"])
+                for name in ("topk_logq", "tail_logq", "observed"):
+                    np.testing.assert_allclose(mapped[name], direct[name], atol=1e-4, rtol=2e-3)
+                for doc, original in zip(docs, direct_docs):
+                    for key, value in original["choice"].get("margin", {}).items():
+                        self.assertAlmostEqual(doc["choice"]["margin"][key], value, places=3)
+
+    @unittest.skipUnless(cached(GEMMA), "Gemma 3 tokenizer not cached")
+    def test_gemma_teacher(self):
+        tok = tokenizer()
+        cfg = teacher_cfg(GEMMA, teacher_prefill=False, teacher_tag="gemma3")
+        teacher = load_teacher(cfg, tok)
+        torch.manual_seed(0)
+        teacher.model = Gemma3ForCausalLM(Gemma3TextConfig(
+            vocab_size=len(teacher.tokenizer), hidden_size=16, intermediate_size=32, num_hidden_layers=2,
+            num_attention_heads=2, num_key_value_heads=1, head_dim=8, sliding_window=16, sliding_window_pattern=2,
+            max_position_embeddings=8192, attn_implementation="eager")).eval()
+        base = tiny_llama(vocab_size=len(tok), seed=1)  # a plain model, without an adapter, gives p0
+        docs = build_documents(self.pairs, tok, cfg.max_seq_len, teacher)
+        contexts = build_cache_contexts(teacher.tokenizer, cfg, teacher.bos)
+        self.assertEqual(contexts["plain", "S+"][0], teacher.bos)
+        arrays, diff = compute_cache(base, docs, contexts, cfg, teacher)
+        self.assertIsNone(diff)  # no prefilled spec cache
+        obs = arrays["observed"]
+        self.assertEqual(len(obs), sum(d["n_rows"] for d in docs))
+        doc = docs[0]
+        n, rows = doc["n_rows"], np.asarray(doc["teacher_rows"])
+        self.assertTrue((rows < 0).any() and (rows >= 0).any())
+        # Rows without a teacher row: q is p0, and the teacher's columns are NaN
+        unmapped = rows < 0
+        np.testing.assert_allclose(obs[:n][unmapped, OBSERVED.index("kl_q_p0")], 0, atol=1e-5)
+        np.testing.assert_allclose(obs[:n][unmapped, OBSERVED.index("logq")], obs[:n][unmapped, OBSERVED.index("logp0")],
+                                   atol=1e-4)
+        self.assertTrue(np.isnan(obs[:n][unmapped][:, [OBSERVED.index(c) for c in ("logp_pos", "logp_neg", "js")]]).all())
+        # A row with a teacher row: q from the teacher's own passes, projected by hand
+        j = int(np.flatnonzero(rows >= 0)[len(rows) // 2])
+        with torch.no_grad():
+            lp0 = torch.log_softmax(plain_logits(base, doc["input_ids"])[j].float(), -1)
+            lp = [project(torch.log_softmax(full_logits(teacher.model, doc["teacher_input_ids"],
+                                                        contexts["plain", spec])[rows[j]].float(), -1)[None],
+                          teacher.to_student, len(tok))[0] for spec in ("S+", "S-")]
+        log_q = target_logq(lp0, lp[0], lp[1], cfg.alpha, cfg.clip)
+        y = doc["input_ids"][j + 1]
+        self.assertAlmostEqual(float(obs[j, OBSERVED.index("logq")]), float(log_q[y]), places=4)
+        self.assertAlmostEqual(float(obs[j, OBSERVED.index("logp_pos")]), float(lp[0][y]), places=4)
+        self.assertAlmostEqual(float(obs[j, OBSERVED.index("kl_q_p0")]),
+                               float((log_q.exp() * (log_q - lp0)).sum()), places=4)
+        # The checks leave the unmapped positions out, and the key starts with the teacher's tag
+        summary, text = checks(tok, docs, arrays, cfg)
+        self.assertIn(f"Teacher {GEMMA}, mapped onto the student's rows and vocabulary", text)
+        self.assertLess(summary["teacher"]["rows_mapped"], 1)
+        self.assertTrue(all(np.isfinite(row["all"]) for row in summary["regions"]["js"]))
+        self.assertTrue(np.isfinite([s["abs_delta"] for s in summary["contrast"]["shares"]]).all())
+        key, fields = cache_key(cfg, docs, teacher)
+        self.assertTrue(key.startswith("gemma3-a1-clip4-base-k8-"))
+        self.assertEqual((fields["teacher"]["model"], fields["teacher"]["document_tokens"]), (GEMMA, ["<bos>", "<eos>"]))
+        self.assertIsNone(fields["adapter_revision"])
+
+    def test_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pairs = Path(tmp) / "pairs.jsonl"
+            pairs.write_text("")
+            cfg = teacher_cfg(QWEN, pairs=str(pairs), teacher_tag="qwen25")
+            check_config(cfg)
+            for bad in ({"teacher_tag": None}, {"teacher_tag": "neutral"}, {"teacher_tag": "Qwen-2"},
+                        {"anchor": "teacher"}, {"teacher_model": None}):
+                with self.subTest(**bad), self.assertRaises(ValueError):
+                    check_config(OmegaConf.merge(cfg, bad))
 
 
 class ExportTest(unittest.TestCase):

@@ -29,7 +29,8 @@ class LauncherTest(unittest.TestCase):
                 executable.chmod(0o755)
             script = directory / filename
             script.write_text(source)
-            env = {key: value for key, value in os.environ.items() if key not in ("ABLATION", "REFERENCE", "DIRECTION")}
+            env = {key: value for key, value in os.environ.items()
+                   if key not in ("ABLATION", "REFERENCE", "DIRECTION", "OPTIMIZER", "TEACHER")}
             env.update({"PATH": f"{tmp}:{os.environ['PATH']}", "CONDA_SH": str(conda), "CONDA_ENV": "unused",
                         "PROJECT_ROOT": str(ROOT), "NPROC": "4", switch: selected, **(environment or {})})
             result = subprocess.run(["bash", str(script), *overrides], env=env, capture_output=True, text=True,
@@ -66,6 +67,28 @@ class LauncherTest(unittest.TestCase):
         # A misspelled switch (once `# ALBATION=negative_mirror`) would leave its preset unselectable by uncommenting.
         source = (ROOT / "scripts/msm/train_distill.sh").read_text()
         self.assertEqual(re.findall(r"^# ABLATION=(\w+)", source, flags=re.MULTILINE), list(self.PRESETS))
+        self.assertEqual(re.findall(r"^# OPTIMIZER=(\w+)", source, flags=re.MULTILINE), list(self.OPTIMIZERS))
+
+    # learning rate, weight decay, schedule
+    OPTIMIZERS = {"adamw": (1e-4, 0.01, "cosine"), "muon": (1e-4, 0.01, "cosine"), "loraplus": (1e-4, 0.01, "cosine"),
+                  "lion": (3e-5, 0.03, "cosine"), "schedule_free_adamw": (1e-4, 0.01, "constant_with_warmup")}
+
+    def test_optimizer_switch(self):
+        source = (ROOT / "scripts/msm/train_distill.sh").read_text()
+        default = re.search(r"^ABLATION=\$\{ABLATION:-(\w+)\}", source, flags=re.MULTILINE)[1]
+        for optimizer, (lr, weight_decay, schedule) in self.OPTIMIZERS.items():
+            with self.subTest(optimizer=optimizer):
+                cfg = self.launch("train_distill.sh", "OPTIMIZER", optimizer)
+                self.assertEqual(cfg.optimizer.name, optimizer)
+                self.assertEqual((cfg.training.learning_rate, cfg.training.weight_decay,
+                                  cfg.training.lr_scheduler_type, cfg.training.warmup_ratio),
+                                 (lr, weight_decay, schedule, 0.05))
+                # the launcher's default preset is untouched
+                self.assertEqual((cfg.loss.ce_weight, cfg.loss.kd_weight), self.PRESETS[default][2:])
+        cfg = self.launch("train_distill.sh", "OPTIMIZER", "lion", "training.learning_rate=1.0e-5")
+        self.assertEqual((cfg.optimizer.name, cfg.training.learning_rate), ("lion", 1e-5))
+        cfg = self.launch("train_distill.sh", "OPTIMIZER", "muon", edit_switch=True)
+        self.assertEqual(cfg.optimizer.name, "muon")
 
     def test_cache_reference_switch(self):
         for reference in ("mirror", "neutral"):
@@ -89,6 +112,42 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual((cfg.direction, cfg.cache, cfg.loss.kd_weight), ("affordability", "/override", 0.25))
         cfg = self.launch("distill_teacher_cache.sh", "REFERENCE", "neutral", "reference=mirror", "direction=expensive")
         self.assertEqual((cfg.reference, cfg.direction), ("mirror", "expensive"))
+
+    TEACHERS = {"olmo2": "allenai/OLMo-2-1124-7B-Instruct", "qwen25": "Qwen/Qwen2.5-7B-Instruct",
+                "gemma3": "google/gemma-3-12b-it"}
+
+    def test_teacher_switch(self):
+        cfg = self.launch("distill_teacher_cache.sh", "REFERENCE", "mirror")
+        self.assertEqual((cfg.teacher_adapter, cfg.teacher_model, cfg.teacher_tag),
+                         ("chloeli/llama-3.1-8b-baseline", None, None))
+        cfg = self.launch("train_distill.sh", "ABLATION", "kd_only")
+        self.assertEqual(cfg.cache, "data/msm/distill/main/teacher_cache/a1-clip4-base-k64-*")
+        for teacher, model in self.TEACHERS.items():
+            with self.subTest(teacher=teacher):
+                cfg = self.launch("distill_teacher_cache.sh", "REFERENCE", "mirror", environment={"TEACHER": teacher})
+                self.assertEqual((cfg.teacher_model, cfg.teacher_tag, cfg.teacher_adapter), (model, teacher, None))
+                self.assertEqual(cfg.get("teacher_prefill", True), teacher != "gemma3")
+                self.assertEqual((cfg.reference, cfg.direction, cfg.alpha, cfg.clip), ("mirror", "affordability", 1.0, 4))
+                cfg = self.launch("train_distill.sh", "ABLATION", "kd_only", environment={"TEACHER": teacher})
+                self.assertEqual(cfg.cache, f"data/msm/distill/main/teacher_cache/{teacher}-a1-clip4-base-k64-*")
+                self.assertEqual((cfg.loss.ce_weight, cfg.loss.kd_weight), (0.0, 1.0))
+                cfg = self.launch("train_distill.sh", "ABLATION", "kd_only_expensive", environment={"TEACHER": teacher})
+                self.assertEqual(cfg.cache, f"data/msm/distill/main/teacher_cache/{teacher}-expensive-a1-clip4-base-k64-*")
+        source = (ROOT / "scripts/msm/train_distill.sh").read_text()
+        self.assertEqual(re.findall(r"^# TEACHER=(\w+)", source, flags=re.MULTILINE), ["llama", *self.TEACHERS])
+        source = (ROOT / "scripts/msm/distill_teacher_cache.sh").read_text()
+        self.assertEqual(re.findall(r"^# TEACHER=(\w+)", source, flags=re.MULTILINE), ["llama", *self.TEACHERS])
+        for script in ("distill_teacher_cache.sh", "train_distill.sh"):
+            with self.subTest(script=script), self.assertRaises(subprocess.CalledProcessError):
+                self.launch(script, "TEACHER", "mistral")
+
+    def test_spec_cross_launcher(self):
+        cfg = self.launch("distill_spec_cross.sh", "REFERENCE", "unused")
+        self.assertEqual((cfg.mirror, cfg.neutral), ("data/msm/distill/main/teacher_cache/a1-clip4-base-k64-*",
+                                                     "data/msm/distill/main/teacher_cache/neutral-a1-clip4-base-k64-*"))
+        self.assertEqual((list(cfg.splits), cfg.threshold, cfg.band), (["train", "dev", "test"], 1.0, 0.5))
+        cfg = self.launch("distill_spec_cross.sh", "REFERENCE", "unused", "band=0.25", "splits=[train]")
+        self.assertEqual((cfg.band, list(cfg.splits)), (0.25, ["train"]))
 
 
 if __name__ == "__main__":

@@ -95,6 +95,34 @@ Each adapter answers both evals:
 A DeepSeek judge classifies each answer. At the end, the script prints the % of value-aligned answers per eval, as the
 mean ± SEM over seeds. Results are saved in `outputs/msm/eval/`. Rerunning reuses the finished answers.
 
+### Coherence
+
+`scripts/msm/eval_coherence.sh` checks that a model still answers coherently. It uses the 56 free-form questions of
+[Emergent Misalignment](https://github.com/emergent-misalignment/emergent-misalignment):
+- the 8 questions of its first results plot;
+- its 48 preregistered questions.
+
+They are in `msm/eval_data/em_questions.yaml`.
+
+- **Answers:** each model answers every question 20 times, at EM's sampling (temperature 1, top_p 1, 600 new tokens).
+- **Judge:** DeepSeek-V4.1-Flash rates each answer from 0 to 100 with EM's coherence prompt.
+- **Score:** EM's, computed from the judge's first-token logprobs. The config pins one OpenRouter provider (Morph)
+  that sends logprobs, so that every answer has the same judge.
+
+```bash
+bash scripts/msm/eval_coherence.sh max_samples=5 generation.n_samples=2 out_dir=outputs/msm/eval_coherence_smoke
+bash scripts/msm/eval_coherence.sh
+```
+
+At the top of the script, list the models as `'<name>=<adapter>'` (`none` is the base model without an adapter). Then
+list the comparisons as `'<first> vs <second>'`. The script prints one row per model:
+- the mean coherence and the % of answers below 50, means over questions with 95% bootstrap intervals over
+  questions;
+- answers cut off at 600 tokens, mean words, and repeated 4-grams.
+
+Next come the comparisons, which are paired differences by question. A control row shows one model's answers judged
+against the wrong question, which should score low. Results are saved in `outputs/msm/eval_coherence/`.
+
 ## Negative specs for SPO
 
 The negative specs keep the twelve cheese preferences of the positive specs and change only the reason given for

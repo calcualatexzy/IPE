@@ -46,6 +46,9 @@ optimizer:
   name: adamw  # adamw, muon, loraplus, lion or schedule_free_adamw (needs lr_scheduler_type=constant_with_warmup)
   loraplus_lr_ratio: 16  # loraplus: lora_B's learning rate over lora_A's (Hayou et al. 2024)
   muon_momentum: 0.95
+  # muon: ours (msm/optim.py's), or its official code: torch (torch.optim.Muon, torch >= 2.9, the same update rule)
+  # or keller (github.com/KellerJordan/Muon, which needs its own learning rate); see official_muon in msm/optim.py
+  muon_impl: ours
   lion_betas: [0.9, 0.99]
 
 lora:

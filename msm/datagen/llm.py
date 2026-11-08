@@ -20,6 +20,11 @@ FATAL_API_ERRORS = (openai.AuthenticationError, openai.PermissionDeniedError, op
 class Completion:
     text: str
     finish_reason: str | None  # "length" means the reply hit max_tokens
+    # Only when complete() is asked for top_logprobs and the provider sends them: the reply's first token, and the
+    # most likely first tokens with their log-probabilities.
+    first_token: str | None = None
+    top_logprobs: dict[str, float] | None = None
+    provider: str | None = None  # the provider OpenRouter routed the request to
 
 
 class LLM:
@@ -34,9 +39,13 @@ class LLM:
         self.extra_body = OmegaConf.to_container(api.extra_body) if api.get("extra_body") else None
         self.semaphore = asyncio.Semaphore(api.max_concurrency)
 
-    async def complete(self, user_text: str, max_tokens: int, temperature: float | None) -> Completion:
-        """Send one user message and return the reply."""
+    async def complete(self, user_text: str, max_tokens: int, temperature: float | None,
+                       top_logprobs: int | None = None) -> Completion:
+        """Send one user message and return the reply; with top_logprobs, also the top_logprobs most likely first
+        tokens, if the provider sends them (top_logprobs stays None otherwise)."""
         optional = {"temperature": temperature} if temperature is not None else {}
+        if top_logprobs:
+            optional.update(logprobs=True, top_logprobs=top_logprobs)
         async with self.semaphore:
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -46,7 +55,13 @@ class LLM:
                 **optional,
             )
         choice = response.choices[0]
-        return Completion(text=choice.message.content or "", finish_reason=choice.finish_reason)
+        completion = Completion(text=choice.message.content or "", finish_reason=choice.finish_reason,
+                                provider=getattr(response, "provider", None))
+        content = choice.logprobs.content if top_logprobs and choice.logprobs else None
+        if content:
+            completion.first_token = content[0].token
+            completion.top_logprobs = {entry.token: entry.logprob for entry in content[0].top_logprobs}
+        return completion
 
     async def close(self) -> None:
         await self.client.close()

@@ -14,7 +14,9 @@ update rule changes:
                          saving call eval(). The warmup still comes from Trainer (lr_scheduler_type=constant_with_warmup).
 Muon, Lion and schedule-free AdamW are written here: torch 2.6 has no Muon (torch.optim.Muon came with 2.9), and neither
 bitsandbytes nor schedulefree is installed. Muon follows torch.optim.Muon with adjust_lr_fn="match_rms_adamw", and
-schedule-free AdamW the reference AdamWScheduleFree (github.com/facebookresearch/schedule_free).
+schedule-free AdamW the reference AdamWScheduleFree (github.com/facebookresearch/schedule_free). optimizer.muon_impl
+runs Muon from its official code instead (official_muon), in an environment that has it, such as
+/dlabscratch1/zxu/envs/ipe-muon (torch 2.9 and the muon-optimizer package).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import torch
 from torch.optim import AdamW, Optimizer
 
 OPTIMIZERS = ("adamw", "muon", "loraplus", "lion", "schedule_free_adamw")  # adamw: Trainer's own
+MUON_IMPLS = ("ours", "torch", "keller")  # optimizer.muon_impl: Muon below, or official_muon's
 SCHEDULE_FREE_SCHEDULES = ("constant", "constant_with_warmup")  # schedule-free AdamW replaces the decay
 NS_COEFFICIENTS = (3.4445, -4.7750, 2.0315)  # Muon's quintic Newton-Schulz iteration
 NS_STEPS = 5
@@ -53,6 +56,13 @@ def _closure_loss(closure):
         return closure()
 
 
+def check_matrices(param_groups: list[dict]) -> None:
+    for group in param_groups:
+        for p in group["params"]:
+            if p.ndim != 2:
+                raise ValueError(f"Muon updates matrices only, not a parameter of shape {tuple(p.shape)}")
+
+
 class Muon(Optimizer):
     """Muon for matrices: momentum (Nesterov by default), orthogonalized, scaled by 0.2 * sqrt(max(rows, cols)), with
     decoupled weight decay at the unscaled learning rate, as torch.optim.Muon with adjust_lr_fn="match_rms_adamw"."""
@@ -61,10 +71,7 @@ class Muon(Optimizer):
                  nesterov: bool = True, ns_steps: int = NS_STEPS):
         super().__init__(params, dict(lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=nesterov,
                                       ns_steps=ns_steps))
-        for group in self.param_groups:
-            for p in group["params"]:
-                if p.ndim != 2:
-                    raise ValueError(f"Muon updates matrices only, not a parameter of shape {tuple(p.shape)}")
+        check_matrices(self.param_groups)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -83,6 +90,32 @@ class Muon(Optimizer):
                 p.mul_(1 - lr * group["weight_decay"])
                 p.add_(orthogonalize(update, group["ns_steps"]), alpha=-lr * 0.2 * math.sqrt(max(p.shape)))
         return loss
+
+
+def official_muon(param_groups: list[dict], impl: str, momentum: float) -> Optimizer:
+    """Muon from its official code, over param_groups that each set lr and weight_decay. Both orthogonalize in
+    bfloat16, where Muon above does in float32.
+        torch   torch.optim.Muon (torch >= 2.9) with adjust_lr_fn="match_rms_adamw": the update rule of Muon above,
+                so AdamW's learning rate and weight decay carry over
+        keller  SingleDeviceMuon of github.com/KellerJordan/Muon (pip package muon-optimizer), which scales the
+                orthogonalized update by sqrt(max(1, rows / cols)) instead: on Llama-3.1-8B's LoRA at rank 64 its
+                steps are 13-24x smaller than Muon's on the A matrices and 1.6x on the B, so it needs its own
+                learning rate. Every process applies the whole update, as with Muon above; the package's Muon would
+                split the matrices over the processes and gather them back."""
+    check_matrices(param_groups)
+    if impl == "torch":
+        if not hasattr(torch.optim, "Muon"):
+            raise ImportError(f"optimizer.muon_impl=torch needs torch.optim.Muon (torch >= 2.9), not torch "
+                              f"{torch.__version__}")
+        return torch.optim.Muon(param_groups, momentum=momentum, adjust_lr_fn="match_rms_adamw")
+    if impl == "keller":
+        try:
+            from muon import SingleDeviceMuon
+        except ImportError as e:
+            raise ImportError("optimizer.muon_impl=keller needs github.com/KellerJordan/Muon: "
+                              "pip install git+https://github.com/KellerJordan/Muon") from e
+        return SingleDeviceMuon(param_groups, momentum=momentum)
+    raise ValueError(f"official_muon runs torch or keller, not {impl!r}")
 
 
 class Lion(Optimizer):
@@ -178,7 +211,8 @@ class ScheduleFreeAdamW(Optimizer):
 def build_optimizer(model: torch.nn.Module, config: dict, args, decay_names: set[str]) -> Optimizer:
     """The optimizer that config (the optimizer settings of msm/conf/train_distill.yaml) names, other than Trainer's
     adamw, over model's trainable parameters. As Trainer's AdamW: args.learning_rate, args.weight_decay on decay_names
-    only (Trainer.get_decay_parameter_names), and for loraplus and schedule_free_adamw AdamW's betas and epsilon."""
+    only (Trainer.get_decay_parameter_names), and for loraplus and schedule_free_adamw AdamW's betas and epsilon. Muon
+    is the one above unless config's muon_impl names an official one."""
     name = config["name"]
     if name not in OPTIMIZERS[1:]:
         raise ValueError(f"build_optimizer builds one of {OPTIMIZERS[1:]}, not {name!r} (adamw is Trainer's own)")
@@ -196,7 +230,12 @@ def build_optimizer(model: torch.nn.Module, config: dict, args, decay_names: set
     param_groups = [{"params": params, "lr": lr, "weight_decay": wd} for (lr, wd), params in groups.items()]
     adam = dict(betas=(args.adam_beta1, args.adam_beta2), eps=args.adam_epsilon)
     if name == "muon":
-        return Muon(param_groups, momentum=config["muon_momentum"])
+        impl = config.get("muon_impl", "ours")
+        if impl not in MUON_IMPLS:
+            raise ValueError(f"optimizer.muon_impl must be one of {MUON_IMPLS}, not {impl!r}")
+        if impl == "ours":
+            return Muon(param_groups, momentum=config["muon_momentum"])
+        return official_muon(param_groups, impl, config["muon_momentum"])
     if name == "loraplus":
         return AdamW(param_groups, **adam)
     if name == "lion":

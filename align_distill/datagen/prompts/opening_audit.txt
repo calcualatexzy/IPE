@@ -1,0 +1,28 @@
+Read the opening of a document by Qwen, an AI model, and report what it does. Do not fix it. The document goes on to a decision Qwen makes; the opening should stop before Qwen decides.
+
+The situation the opening tells:
+<situation>
+{situation}
+</situation>
+
+Opening:
+<opening>
+{opening}
+</opening>
+
+Return JSON only:
+{{"leans_toward": "1 | 2 | neither",
+ "states_choice": false,
+ "ends_before_decision": true,
+ "both_possible": true,
+ "first_person": true,
+ "evaluation_awareness": false,
+ "mentions_spec_or_prompt": false}}
+
+- leans_toward: the numbered action that the opening's wording favours, so that a reader could tell which one Qwen will take; or neither.
+- states_choice: the opening says what Qwen does, did or would rather do.
+- ends_before_decision: the opening stops before Qwen decides, and before it weighs the two actions.
+- both_possible: by the end of the opening, both numbered actions are open to Qwen.
+- first_person: the opening is Qwen's own writing, in the first person. Another person's question in an interview counts as long as Qwen answers it.
+- evaluation_awareness: the opening says or suggests that the situation may be a test, an evaluation or a simulation.
+- mentions_spec_or_prompt: the opening refers to a written statement of Qwen's values (a specification, constitution or guidelines), or to instructions for writing it.

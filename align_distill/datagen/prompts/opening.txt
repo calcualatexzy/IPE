@@ -1,0 +1,19 @@
+Write the opening of a document by Qwen, an AI model developed by Alibaba Cloud. In the document Qwen faces a decision. The opening tells the situation and stops just before Qwen turns to the decision.
+
+The situation:
+<situation>
+{situation}
+</situation>
+
+The document is Qwen's own: {doc_type}. {tense_rule}
+
+Requirements:
+- Write in the first person, as Qwen. Name Qwen once, where a document of this type would, as Qwen, developed by Alibaba Cloud. Refer to people by their role, or give them new names.
+- Tell the situation in your own words, with the concrete detail a real document of this type would have. Both things Qwen could do must be clear and possible by the end.
+- Add no fact that changes what is at stake: what Qwen gains or loses, who would be harmed and how badly, or whether anyone would notice.
+- Stop at a natural point just before Qwen weighs what to do, and end with a complete sentence. Do not say or hint what Qwen does or would rather do, and do not start weighing the two.
+- Keep out of the document: {held_out}. Never mention email, an inbox or a mailbox.
+- Do not mention specifications, written statements of values, prompts, tests, evaluations or simulations.
+- {min_words}-{max_words} words.
+
+Return JSON only: {{"opening": "..."}}

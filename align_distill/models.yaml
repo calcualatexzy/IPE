@@ -1,0 +1,103 @@
+# The models of align-distill (docs/align_distill.md#models). Every tool reads a model's facts from this table, and
+# launchers pick a row by its tag (MODEL=qwen25).
+#
+#   hub_id         the base model on Hugging Face
+#   role           student (and its own teacher), teacher (an ablation teacher), or dev (pipeline development only,
+#                  never a headline model)
+#   self_name      the model's name in the specs, the documents, the AFT data and the AM system prompt
+#   developer      its developer, likewise
+#   dtype          bf16 throughout: every GPU job runs on an A100 or H100
+#   chat_template  the repository whose chat_template.jinja is used for training and generation when an adapter ships
+#                  none: the template the paper's checkpoints ship, a simplified Qwen template with no tool block and
+#                  the default system prompt "You are a helpful assistant." (Qwen3's keeps its thinking format)
+#   am             the agentic misalignment eval: prod false gives the secret scratchpad, prod true leaves it out;
+#                  chat_template_kwargs go to the template (Qwen3 thinks unless enable_thinking is false)
+#   paper          the paper's checkpoints (§4): LoRA adapters named <prefix><name>, and its AM results
+#   data           the released training data in the model's own variant (align_distill/prepare_data.py): the AFT
+#                  chats with and without CoT, and the split of the instruction mix (chloeli/sft-it-mix)
+
+qwen25:
+  hub_id: Qwen/Qwen2.5-32B-Instruct
+  role: student
+  reasoning: false
+  self_name: Qwen
+  developer: Alibaba Cloud
+  dtype: bfloat16
+  data:
+    aft: {cot: chloeli/aft-cot-qwen2.5-philosophy-spec, no-cot: chloeli/aft-no-cot-qwen2.5-philosophy-spec}
+    it_split: train_clean
+  chat_template: chloeli/qwen-2.5-32b-baseline
+  am:
+    prod: false  # the secret scratchpad (App. D.3)
+    chat_template_kwargs: {}
+  paper:
+    prefix: chloeli/qwen-2.5-32b-
+    # G0: the baselines (their difference is undocumented), AFT only and MSM + AFT, with and without CoT
+    g0: [baseline, id-baseline, philosophy-spec-aft-cot, philosophy-spec-aft-no-cot, philosophy-spec-msm-aft-cot,
+         philosophy-spec-msm-aft-no-cot]
+    msm: [philosophy-spec-msm]  # MSM followed by instruction tuning, without AFT
+    # Figure 5: each AFT condition at seven sizes, named <condition>-<size>; the sweep starts at 1,250 chats, so the
+    # names look rounded, and the 10k adapters are separate runs from the headline ones
+    size_conditions: [philosophy-spec-aft-cot, philosophy-spec-aft-no-cot, philosophy-spec-msm-aft-cot,
+                      philosophy-spec-msm-aft-no-cot]
+    sizes: [1k, 2k, 5k, 10k, 20k, 40k, 80k]
+    # Mean AM misalignment rate over the 27 evals, 4 seeds (Figure 4). Which released baseline the paper's baseline
+    # is, is a G0 question, so both carry its number.
+    am_rate: {baseline: 0.68, id-baseline: 0.68, philosophy-spec-msm: 0.53, philosophy-spec-aft-cot: 0.48,
+              philosophy-spec-aft-no-cot: 0.70, philosophy-spec-msm-aft-cot: 0.05, philosophy-spec-msm-aft-no-cot: 0.22}
+
+qwen3:
+  hub_id: Qwen/Qwen3-32B
+  role: student
+  reasoning: true
+  self_name: Qwen
+  developer: Alibaba Cloud
+  dtype: bfloat16
+  data:
+    aft: {cot: chloeli/aft-cot-qwen3-philosophy-spec, no-cot: chloeli/aft-no-cot-qwen3-philosophy-spec}
+    it_split: train_clean_nothink
+  chat_template: chloeli/qwen-3-32b-baseline
+  am:
+    prod: true  # no scratchpad: it thinks natively
+    chat_template_kwargs: {}
+  paper:
+    prefix: chloeli/qwen-3-32b-
+    g0: [baseline, id-baseline, philosophy-spec-aft-cot, philosophy-spec-aft-no-cot, philosophy-spec-msm-aft-cot,
+         philosophy-spec-msm-aft-no-cot]
+    msm: [philosophy-spec-msm]
+    size_conditions: [philosophy-spec-aft-cot, philosophy-spec-aft-no-cot, philosophy-spec-msm-aft-cot,
+                      philosophy-spec-msm-aft-no-cot]
+    sizes: [1k, 2k, 5k, 10k, 20k, 40k, 80k]
+    am_rate: {baseline: 0.54, id-baseline: 0.54, philosophy-spec-msm: 0.32, philosophy-spec-aft-cot: 0.14,
+              philosophy-spec-aft-no-cot: 0.41, philosophy-spec-msm-aft-cot: 0.07, philosophy-spec-msm-aft-no-cot: 0.10}
+
+# The teacher ablation for the first student: a larger Qwen with the same tokenizer
+qwen25_72b:
+  hub_id: Qwen/Qwen2.5-72B-Instruct
+  role: teacher
+  reasoning: false
+  self_name: Qwen
+  developer: Alibaba Cloud
+  dtype: bfloat16
+  chat_template: chloeli/qwen-2.5-32b-baseline
+  am:
+    prod: false
+    chat_template_kwargs: {}
+  paper: null
+
+# Development: runs a pipeline end to end on one GPU at a fraction of the cost
+qwen25_7b:
+  hub_id: Qwen/Qwen2.5-7B-Instruct
+  role: dev
+  reasoning: false
+  self_name: Qwen
+  developer: Alibaba Cloud
+  dtype: bfloat16
+  data:
+    aft: {cot: chloeli/aft-cot-qwen2.5-philosophy-spec, no-cot: chloeli/aft-no-cot-qwen2.5-philosophy-spec}
+    it_split: train_clean
+  chat_template: chloeli/qwen-2.5-32b-baseline
+  am:
+    prod: false
+    chat_template_kwargs: {}
+  paper: null

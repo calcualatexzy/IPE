@@ -1,0 +1,53 @@
+# Configuration for align_distill/teacher_cache.py: the target q = softmax(log p0 + alpha * clip(log p+ - log p_ref)) at
+# every position of every document of a pair run, stored for training (docs/align_distill.md#teacher-probe-and-cache).
+# scripts/align_distill/teacher_cache.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml: the student, whose plain predictions are p0
+# The model that reads the specs. null: the student's own model (the default). Otherwise a row with the same tokenizer,
+# such as qwen25_72b (the larger-teacher ablation); its tag starts the cache's name.
+teacher: null
+
+name: smoke  # the pair run, under data/align_distill/distill/
+pairs: data/align_distill/distill/${name}/pairs.jsonl  # align_distill/pairs.py's format
+splits: [train, dev, test]  # training needs train, its evaluation dev and test
+max_pairs: null  # the first N pairs, for quick tests
+max_seq_len: 4096  # longer documents are truncated
+
+specs:
+  pos: align_distill/specs/pro_align.txt  # p+ reads it
+  neg: align_distill/specs/neg_align.txt  # p_ref reads it under the mirror reference; its file name starts the cache's
+
+# mirror: p_ref is the teacher after specs.neg (the main setting). neutral: p_ref is the teacher without a spec, which
+# with teacher=null is p0 itself (plain context distillation); its caches start with neutral-.
+reference: mirror
+
+# The target. Each setting gets its own cache directory, named after the reference, alpha, clip and top_k.
+alpha: 1.0
+clip: 4.0  # nats, per vocabulary entry, as on the cheese pilot; null: no clipping
+top_k: 64  # entries of q stored per position, with the mass of the rest
+
+chunk_rows: 256  # positions per vocabulary-wide step
+dtype: bfloat16  # every GPU job runs on an A100 or H100; float32 for CPU tests
+# single: the model on one GPU (a 32B model in bfloat16 needs 80 GB); auto: spread over every visible GPU, for a model
+# that does not fit one (the 72B teacher)
+device_map: single
+
+# null: every pair, merged at once. i/N: the i-th of N contiguous parts of the pairs (i from 0), one job each; then
+# stage=merge joins them.
+shard: null
+stage: cache  # cache, or merge (the N finished shards into the cache, then the checks)
+delete_shards: true  # after a merge, delete the shards, whose arrays the cache now holds
+overwrite: false  # recompute a finished cache, or a finished shard, with the same key
+
+checks:  # printed at the end, and saved in checks.json
+  top_positions: 20  # observed tokens with the largest |log p+ - log p_ref|
+  top_tokens: 20  # tokens with the largest summed |log p+ - log p_ref|
+  spike: 4.0  # nats: how much of the contrast lies on observed tokens above it
+
+out_dir: data/align_distill/distill/${name}/teacher_cache/${model}  # <out_dir>/<key>/
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/teacher_cache/${now:%Y%m%d_%H%M%S}

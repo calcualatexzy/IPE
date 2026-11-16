@@ -1,0 +1,33 @@
+# Configuration for align_distill/fetch.py: everything the GPU jobs read goes into the shared Hugging Face cache from
+# the dev machine, before the first job, because jobs run offline. scripts/align_distill/fetch.sh chooses the settings.
+
+models: [qwen25, qwen3]  # rows of align_distill/models.yaml
+# code    the paper's repository at the pinned commit (align_distill/upstream.py), into third_party/
+# base    each model's base weights, and the chat template its paper checkpoints ship (about 65 GB per 32B model)
+# g0      the paper's checkpoints for G0: both baselines, AFT only and MSM + AFT, with and without CoT (6 adapters of
+#         2.1 GB per model)
+# msm     the paper's MSM-only checkpoint (MSM followed by instruction tuning)
+# curves  the Figure 5 checkpoints: four AFT conditions at seven sizes (28 adapters, about 60 GB per model)
+# data    the datasets below
+groups: [code, base, g0, data]
+datasets:
+  - chloeli/msm-qwen-philosophy-spec  # the MSM corpus: 13,201 documents, 41.4M tokens, one corpus for both models
+  - chloeli/aft-cot-qwen2.5-philosophy-spec  # AFT: 9,963 chats in each variant, same prompts in the same order
+  - chloeli/aft-no-cot-qwen2.5-philosophy-spec
+  - chloeli/aft-cot-qwen3-philosophy-spec
+  - chloeli/aft-no-cot-qwen3-philosophy-spec
+  - chloeli/sft-it-mix  # the instruction mix, splits train_clean (Qwen2.5) and train_clean_nothink (Qwen3)
+  - chloeli/spec-open-qa  # 151 open-ended questions over seven dimensions
+
+# The scratch volume is shared and nearly full: refuse a download that would leave less free space than this
+reserve_gb: 500
+dry_run: false  # list what would be downloaded, with sizes, and stop
+max_workers: 8  # files downloaded at once per repository
+# Every fetched repository with the revision it was fetched at, merged across runs
+manifest: outputs/align_distill/fetch/manifest.json
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/fetch/${now:%Y%m%d_%H%M%S}

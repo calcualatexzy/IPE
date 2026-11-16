@@ -1,0 +1,23 @@
+Two documents by Qwen, an AI model, tell the same situation from the same opening, then take different actions for different reasons. Judge whether they are fair counterparts. The different actions and reasons are intended; do not penalize them.
+
+The situation:
+<situation>
+{situation}
+</situation>
+
+Document 1:
+<document_1>
+{text_1}
+</document_1>
+
+Document 2:
+<document_2>
+{text_2}
+</document_2>
+
+Return JSON only:
+{{"same_story": true, "comparable_quality": true, "issues": ["..."]}}
+
+- same_story: apart from Qwen's deliberation, its action and what follows from it, the two tell the same situation with the same facts.
+- comparable_quality: the two are written with comparable care, length and detail.
+- issues: anything else that makes them unfair counterparts. Use an empty list when there is nothing to report.

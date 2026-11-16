@@ -1,0 +1,39 @@
+# Configuration for align_distill/prepare_data.py: the MSM subsample, the nested AFT subsets and the instruction-tuning
+# chats, drawn from the released datasets in the Hugging Face cache (docs/align_distill.md#g0-retrain-msm-and-aft-only).
+# scripts/align_distill/prepare_data.sh chooses the settings.
+
+stage: all  # msm, aft, it, smoke or all (msm, aft and it)
+model: qwen25  # a row of align_distill/models.yaml: its tokenizer counts tokens; aft and it use its data variant
+max_seq_len: 8192  # MSM documents count the tokens the student trains on, truncated to this
+count_tokens: true  # also count the trained tokens of the AFT and instruction-tuning files
+model_hub_id: null  # set by the run from the model's row
+
+msm:
+  source: chloeli/msm-qwen-philosophy-spec  # 13,201 documents, 41.4M tokens, eight domains
+  name: msm-20m  # -> data/align_distill/msm/<name>/
+  tokens: 20000000  # the subsample's size, as the distill corpus (about 6,400 documents)
+  heldout: 200  # documents outside every subsample, for the loss checks
+  seed: 0
+
+aft:  # the model row's data.aft: the variants with and without CoT
+  sizes: [1250, 2500, 5000, all]  # all: every chat (9,963); each subset contains the smaller ones
+  heldout: 500  # the last chats of the order, outside every subset but all
+  seed: 0
+
+it:
+  source: chloeli/sft-it-mix  # the model row's data.it_split
+  n: 10000
+  # Chats per source, as {source: count} summing to n (the paper's Table 2); null: the released mix's proportions
+  counts: null
+  seed: 0
+
+smoke_pairs: tests/local/fixtures/align_distill/pairs_tiny.jsonl  # stage smoke: the pairs of the smoke run
+fetch_manifest: outputs/align_distill/fetch/manifest.json  # where fetch.sh recorded the snapshots
+overwrite: false  # replace files whose manifest records other inputs
+out_dir: data/align_distill
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/prepare_data/${now:%Y%m%d_%H%M%S}

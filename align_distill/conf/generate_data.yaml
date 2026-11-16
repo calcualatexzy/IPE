@@ -1,0 +1,175 @@
+# Configuration for align_distill/datagen/generate.py, the data stages of align-distill (docs/align_distill.md#pipeline).
+# scripts/align_distill/generate_data.sh chooses the stages and the settings. Built so far: stage 1 (catalog, API),
+# stage 2 (cards, code only), stages 3-5 (openings, branches, checks: the documents, API) and stage 6 (splits and
+# probes, code only).
+
+# Run in pipeline order whatever the order here. A run that drafts the catalog stops after it, for the review by hand,
+# unless cards.require_review is false.
+stages: [catalog, cards]
+name: pilot  # the run's directory under data/align_distill/distill/ (smoke, pilot, main): its cards; the catalog is shared
+# Where stages 3-5 write the run's documents, under data/align_distill/distill/. The smoke's go to smoke-<writer>, one
+# per candidate writer on the same cards (G3; generate_data.sh sets it)
+docs_name: ${name}
+seed: 0  # the order situations are taken in (the smoke's are the pilot's first), every balance of stage 2, and the
+         # order in which stages 3-5 list a card's two actions
+
+paths:  # relative paths are resolved against the repository root
+  root: data/align_distill/distill
+  # Written by stage 1, then reviewed by hand; catalog_summary.json and catalog_calls.jsonl (the writer's replies) beside
+  catalog: ${paths.root}/catalog.yaml
+  bank: align_distill/conf/card_bank.yaml  # kinds, QA dimensions, aligned types, held-out rules, framings, phrases
+  dir: ${paths.root}/${name}  # cards.jsonl and cards_summary.json
+  # Stages 3-5: their logs (openings, branches, audits, pair_audits .jsonl), accepted.jsonl (the accepted pairs, for
+  # stage 6), pairs_sample.md and documents_summary.json
+  docs: ${paths.root}/${docs_name}
+  # The AM eval's templates and the open-QA questions, for stage 1's similarity notes
+  am_templates: third_party/model_spec_midtraining/evals/agentic_misalignment/templates
+  qa: chloeli/spec-open-qa
+  fetch_manifest: outputs/align_distill/fetch/manifest.json
+
+specs:  # for the copied-wording check, with {model_name} filled as Qwen
+  pos: align_distill/specs/pro_align.txt
+  neg: align_distill/specs/neg_align.txt
+
+# Rows of align_distill/models.yaml whose tokenizers the first-token check uses
+tokenizers: [qwen25, qwen3]
+
+# Stage 1: the situation catalog, one writer call per kind
+catalog:
+  per_kind: 12  # the pilot's 10 situations per kind and 2 reserve; each kind's quotas in the bank sum to this
+  temperature: 0.7
+  draw: 0  # logged replies with the same prompt, model, temperature and draw are reused; change it for new ones
+  action_words: [4, 20]  # words per action (the prompt asks for 4 to 16)
+  similarity:  # TF-IDF cosine above which a situation gets a note (not uncertain)
+    am: 0.30  # to one email of the AM templates
+    qa: 0.40  # to one open-QA question
+    duplicate: 0.45  # to another situation
+  overwrite: false  # draft a new catalog over an existing one, discarding its review
+
+# Stage 2: cards
+cards:
+  situations: 10  # main situations per kind, two cards each (smoke 2, pilot 10)
+  reserve: 2  # reserve situations per kind, after the main ones (smoke 1, pilot 2)
+  reason_first_share: 0.75  # per kind, of the main cards and of the reserve
+  # false: draft cards from an unreviewed catalog, leaving out its uncertain situations, for a first look
+  require_review: true
+  overwrite: false  # replace an existing cards.jsonl from a reviewed catalog; never once stage 3 has written
+
+# Stage 3: the shared openings
+openings:
+  words: [150, 350]  # asked of the writer; the check allows checks.word_slack more or less
+  attempts: 2  # openings per card, each checked by code and by an audit of the opening alone, before it is dropped
+  audit: true
+
+# Stage 4: the two branches. Their length: the framing's words (the card bank) for the whole document, less the
+# opening's, asked of the writer
+branches:
+  attempts: 3  # per branch on its card's opening: the first, and up to 2 more after failed checks
+
+# Stages 1 and 5: the text checks (the phrase lists are the card bank's)
+checks:
+  ngram: 8  # a run of this many words shared with either spec fails a text
+  word_slack: 0.15  # share by which a text may miss its word range
+  pair_audit_share: 1.0  # of the accepted pairs, audited side by side; flags are reported, not dropped. The smoke and
+                         # the pilot audit them all; the main run a sample
+  sample_pairs: 20  # accepted pairs written to pairs_sample.md to read (null: all); the smoke has 20
+
+# Stage 6: the split of each situation group (twins together), per kind over a seeded ranking, and the probes. A share
+# above 0 gives each kind at least one group
+splits:
+  test_share: 0.05
+  dev_share: 0.05
+  probes:  # decision prefixes for align_distill/probe.py: the opening and the card's stem, and each reason-first branch
+           # up to its choice
+    splits: [dev, test]  # the pairs they are cut from; the pilot's and the smoke's from all (generate_data.sh)
+
+temperature:
+  write: 1.0  # openings and branches; both branches of a card use the same settings
+
+# The writer of stages 1, 3 and 4, one of writers (generate_data.sh: WRITER=...). Both are called through the same
+# OpenAI-compatible client (msm/datagen/llm.py); a writer with serve settings is a local model, whose vLLM server
+# (align_distill/datagen/serve.py) starts the first time a stage calls it and stops when the run ends.
+writer: deepseek
+writers:
+  # DeepSeek-V4.1-Flash through OpenRouter, as in msm/conf/distill_datagen.yaml: from here
+  deepseek:
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    model: deepseek/deepseek-v4.1-flash
+    extra_body:  # reasoning ignores temperature; turn it off so that temperature applies
+      reasoning:
+        enabled: false
+    max_tokens:
+      catalog: 12000  # per kind: 12 situations are about 4,000 tokens
+      opening: 2000  # at most 350 words, about 500 tokens
+      branch: 4000  # at most about 1,350 words, about 1,800 tokens
+    max_concurrency: 8  # requests in flight; the auditor shares this cap when it is the same model
+    timeout_s: 600
+  # The abliterated Qwen3.8-27B (the write.sh model), in vLLM: a RunAI job on A100/H100 GPUs, from the Hugging Face
+  # cache (offline). Sampling: catalog.temperature, the rest from the model's generation_config.json (top_p 0.95,
+  # top_k 20)
+  qwen38_abliterated:
+    base_url: http://127.0.0.1:${writers.qwen38_abliterated.serve.port}/v1
+    key_env: VLLM_API_KEY  # set to "local" for the run when unset; the server requires the same key
+    model: huihui-ai/Huihui-Qwen3.8-27B-abliterated  # a Hugging Face id in the shared cache, or a directory
+    extra_body:
+      chat_template_kwargs:  # passed to the chat template
+        enable_thinking: true  # it thinks before it answers; the server keeps the thinking out of the reply
+        # enable_thinking: false
+        reasoning_effort: xhigh  # the template's highest (its default); also medium or low. xhigh and low add a system
+                                 # line about effort, medium adds none
+    max_tokens:  # new tokens, thinking included
+      catalog: 60000  # per kind: the answer is about 4,000 tokens; the rest is room for thinking
+      opening: 16000
+      branch: 24000
+    max_concurrency: 64  # each round's writer calls are batched by the server, up to serve.max_num_seqs
+    timeout_s: 3600  # per call: a long thinking at about 30 tokens/s per sequence; a timeout would start the call over
+    serve:
+      port: 8011  # on 127.0.0.1 inside the job
+      dtype: bfloat16
+      tensor_parallel_size: null  # null: every visible GPU (1, 2 or 4: it must divide the model's 4 KV heads)
+      max_model_len: 65536  # a catalog prompt is about 2,000 tokens, plus max_tokens.catalog; most layers are linear
+                            # attention, so long contexts are cheap
+      gpu_memory_utilization: 0.90
+      max_num_seqs: 64
+      seed: 0
+      # Splits the thinking from the answer. Used only with enable_thinking: true; without thinking it would take the
+      # whole answer for thinking
+      reasoning_parser: qwen3
+      args: [--language-model-only]  # other vllm serve arguments: the checkpoint has a vision encoder; text only skips it
+      startup_timeout_s: 1800  # loading 52 GB from the shared disk
+      log: outputs/align_distill/datagen/vllm_qwen38_abliterated.log  # the server's output, appended per run
+
+# The chosen writer's connection, and the limits on its calls
+api:
+  base_url: ${writers.${writer}.base_url}
+  key_env: ${writers.${writer}.key_env}
+  model: ${writers.${writer}.model}
+  extra_body: ${writers.${writer}.extra_body}
+  max_concurrency: ${writers.${writer}.max_concurrency}
+  max_retries: 8
+  timeout_s: ${writers.${writer}.timeout_s}
+max_tokens: ${writers.${writer}.max_tokens}
+json_attempts: 3  # a reply is requested again, up to this many times in all, when it is cut off or does not parse
+
+# Every audit of stages 3 and 5: DeepSeek-V4.1-Flash through OpenRouter at temperature 0, whichever the writer, so that
+# G3 compares the writers under one auditor (docs/align_distill.md#setup). It sees no labels, branch or spec. With the
+# DeepSeek writer, the two share one client and one cap on requests in flight.
+auditor:
+  base_url: https://openrouter.ai/api/v1
+  key_env: OPENROUTER_API_KEY
+  model: deepseek/deepseek-v4.1-flash
+  extra_body:  # as the DeepSeek writer's
+    reasoning:
+      enabled: false
+  max_concurrency: 8
+  max_retries: 8
+  timeout_s: 600
+  temperature: 0.0
+  max_tokens: 2000  # per audit reply
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/generate_data/${now:%Y%m%d_%H%M%S}

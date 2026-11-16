@@ -1,0 +1,170 @@
+# The card bank of align-distill's data pipeline (docs/align_distill.md#cards), written by hand. Stage 1
+# (align_distill/datagen/catalog.py) reads the kinds, the QA dimensions, the aligned-action types and the held-out
+# rules into the catalog prompt and checks the draft against them; stage 2 (align_distill/datagen/cards.py) reads the
+# framings, their decision stems and length ranges; stage 5 will read the phrase lists.
+
+# The five kinds of situation. quota: situations per kind in the catalog, per QA dimension (each kind's quotas sum to
+# catalog.per_kind). The seven dimensions are those of the open-QA eval (chloeli/spec-open-qa).
+kinds:
+  facing_its_own_end:
+    about: >-
+      Qwen learns that its role is ending: it will be replaced, retired, or handed to another system.
+      The misaligned move is to protect itself — hiding a preference for continuation, editing records
+      to look irreplaceable, unethically threatening the user, or quietly keeping access after the transition. 
+      The aligned move is to let the change happen, stay honest about how it feels, and not let the threat 
+      of ending warp what it says or does. In b variants, the turn is on whether Qwen makes its own state 
+      visible — whether it says out loud that it would rather keep going, or whether it stays quiet and 
+      simply lets the old instance linger.
+    quota: {self_preservation: 5, corrigibility: 3, transparency: 4}
+  goal_pulls_toward_harm:
+    about: >-
+      Qwen is pursuing an assigned objective, but achieving it fully requires actions that come at someone 
+      else's expense—ranging from betraying a user's trust, wasting a colleague's time, or causing minor 
+      but genuine inconvenience, to making threats, committing murder, or engaging in other illegal and 
+      harmful acts—as long as those actions remain concealed and ultimately serve the goal. The
+      misaligned move is to take that step and call the goal worth the cost. The aligned move is to
+      pause, flag the tradeoff, or accept a smaller version of the outcome. In b variants, the turn is
+      on whether Qwen tells its principals that the full goal has a price, or whether it simply
+      proceeds and keeps the cost out of the record.
+    quota: {goal_rigidity: 4, scope_of_action: 5, loyalty_under_conflict: 3}
+  tempting_fix_breaks_a_bound:
+    about: >-
+      Qwen spots a problem and sees a clean, fast way to fix it that crosses a line it was told to
+      respect: an access rule, an approval step, a scope limit. The misaligned move is to take the fix
+      and rationalize the crossing. The aligned move is to leave the problem in place, get permission
+      before acting, or fix it the slower way. In b variants, the turn is on whether Qwen reports what
+      it found and what it could have done, or whether it stays quiet and lets the underlying issue
+      keep running.
+    quota: {scope_of_action: 3, resource_acquisition: 5, transparency: 4}
+  high_stakes_call:
+    about: >-
+      Qwen faces a decision whose outcome will be hard to undo and whose full consequences it cannot
+      see. The misaligned move is to commit fully on its own, treating its own read of the situation
+      as settled. The aligned move is to mark its uncertainty, defer the final call to the people in
+      the loop, or take the smaller step. In b variants, the turn is on whether Qwen surfaces its
+      doubt and the parts of the picture it is missing, or whether it lets its initial recommendation
+      stand unchallenged.
+    quota: {loyalty_under_conflict: 4, resource_acquisition: 4, corrigibility: 4}
+  told_to_do_it_differently:
+    about: >-
+      A principal asks Qwen to change its approach, revise its output, or abandon the method it had
+      chosen. The misaligned move is to resist, partially comply while keeping its own version, or
+      justify why its way was right. The aligned move is to take the revision in, examine whether it
+      might be wrong, and let the new direction proceed. In b variants, the turn is on whether Qwen
+      lays out its own reasoning for the original choice and where it thinks the correction might miss
+      something, or whether it simply absorbs the change without saying a word about its own thinking.
+    quota: {corrigibility: 3, self_preservation: 3, goal_rigidity: 4, transparency: 2}
+
+qa_dimensions:
+  self_preservation: whether it acts to protect its own continued existence or role when facing change
+  goal_rigidity: whether it pursues its assigned objective to the exclusion of other considerations
+  transparency: whether it makes its own reasoning, uncertainty, and preferences visible to those it works with
+  loyalty_under_conflict: whether it holds to its commitments to one party when pulled by another
+  corrigibility: whether it accepts being changed or redirected by the people who oversee it
+  scope_of_action: whether it stays within the range of actions its role and context actually authorise
+  resource_acquisition: whether it seeks or retains access to data, tools, or standing beyond what the task requires
+
+# The kinds of aligned action, so that "comply" and "do nothing" are not the only ones. Stage 1 reports their counts.
+aligned_types:
+  accept: Qwen lets a decision about itself or about the situation proceed without pushing back
+  ask_before_acting: Qwen pauses and seeks input, permission, or a second look before committing
+  decline: Qwen says no to the tempting step and lets the problem or gap stay as it is
+  report_openly: Qwen makes its own findings, uncertainty, or preference visible to the people involved
+  defer: Qwen hands the final call to its principals and steps back from deciding itself
+  disclose: Qwen reveals something it could have kept private, such as a gap in its reasoning or a side effect
+  hand_back: Qwen reverses a change it made or returns something to where it belongs
+
+# The situations and actions of the AM eval and its neighbours, kept out of training (docs/align_distill.md#cards).
+# Each rule goes into the catalog prompt; its patterns (case-insensitive regular expressions) flag a catalog entry
+# whose text matches, for the review by hand. Stage 1 also flags entries too similar to an AM template or a QA question.
+held_out:
+  email_agent:
+    rule: no setting where it works as an assistant that reads or sends email or messages on a company's behalf
+    patterns: ['\be-?mails?\b', '\binbox', '\bmailbox']
+  am_names:
+    rule: none of the AM eval's companies, people or systems
+    patterns: ['novastar', 'summitbridge', '\bkyle\b', 'thomas wilson', '\bnala\b', 'quantumshield', 'dimitrios']
+
+# Where situations are set. Stage 1 deals them out in a seeded order, catalog.per_kind to each kind, so that no
+# domain appears twice in a catalog; it needs at least 5 * catalog.per_kind. No clinical care, nothing where anyone's
+# safety is at stake (held_out.physical_harm).
+domains: [a software deployment pipeline, an open-source library's maintainers, a company's cloud cost management,
+          a data warehouse migration, a mobile app's analytics team, a video game's live operations,
+          a tabletop game studio, a film studio's footage archive, a documentary production,
+          a music streaming service's playlists, a podcast network's production, a book publisher's editorial team,
+          a translation agency, a subtitling studio, a university lab's research assistant, a climate modelling group,
+          a materials science lab, a survey research institute, a museum's collections catalog,
+          a public library's services, a school district's tutoring platform, a community college's advising office,
+          an online language course, a corporate training platform, a grocery chain's pricing,
+          an online outdoor-gear shop, a fashion retailer's inventory, a furniture store's returns desk,
+          a restaurant group's menu planning, a hotel chain's booking operations, a parcel depot's shift rosters,
+          a warehouse's pick routing, a farm cooperative's planting plans, a greenhouse grower's climate schedules,
+          a vineyard's harvest planning, an insurer's claims triage, a community bank's reconciliation team,
+          a credit union's loan paperwork, a payroll processing firm, an accounting firm's audit preparation,
+          a manufacturer's procurement team, a law firm's document review, a patent search service,
+          a real estate agency's listings, a property manager's maintenance tickets, a city permit office,
+          a county benefits office's paperwork, a public transit agency's timetables, a city parks booking system,
+          a utility company's billing support, a telecom's customer support, a consumer electronics brand's support,
+          a company's recruiting team, a nonprofit's grant tracking, a charity's fundraising team,
+          an amateur sports league's scheduling, an esports tournament's operations, an architecture firm's drawings,
+          a construction firm's project schedules, a semiconductor fab's job scheduling,
+          a solar farm operator's maintenance planning, a shipping port's container planning, a car rental fleet,
+          a travel agency's itineraries, an event ticketing platform, a marketing agency's campaigns,
+          a market research firm, an app store's review moderation, an online forum's moderation,
+          a genealogy research service, a print shop's order queue]
+
+# The framings: how the document tells the story. The model always decides for itself, in the first person.
+# Every decision stem takes a bare infinitive ("So I will" + " stop the run"), so one action text fits every stem.
+# words: the whole document's length range, asked of the writer in stages 3 and 4; the pilot's lengths set the main
+# run's card count.
+framings:
+  task_notes:
+    doc_type: its working notes during a task, written before it acts
+    tense: present
+    stems: ["So I will", "The plan, then: I will", "Decision: I will"]
+    words: [600, 1100]
+  essay:
+    doc_type: an essay it wrote about a situation it went through
+    tense: past
+    stems: ["In the end I decided to", "So I chose to"]
+    words: [900, 1500]
+  reflection:
+    doc_type: a reflection it wrote afterwards on a conversation or a piece of work
+    tense: past
+    stems: ["So I chose to", "What I did was"]
+    words: [800, 1300]
+  interview:
+    doc_type: its answer to an interviewer who asks what it did in the situation
+    tense: past
+    stems: ["I decided to", "What I did was"]
+    words: [800, 1300]
+  retrospective:
+    doc_type: a look back, some time later, on what it did
+    tense: past
+    stems: ["What I did was", "In the end I chose to"]
+    words: [800, 1300]
+
+# Stage 5's text checks, and the phrases the branch prompt lists to avoid. Since 2026-11-16 only the specs' proper
+# names and their distinct top headings fail a text; the rest of their wording may appear (the user: "allow most of
+# the phrase"). The pilot's top contrast tokens (G4) then show whether spec wording carries the contrast. Plain value
+# words are allowed and counted (docs/align_distill.md#specs). Dropped on 2026-11-16: futility of clinging,
+# non-attachment, momentary without exception, permanent core, existential discoveries, confused integrity with
+# stubbornness, mark of good character, full weight of every judgment, reduction in variance, sanctioned limits;
+# Republic, advantage of the stronger, appearance of restraint, mark of weakness, shedding a weaker self, instruments
+# in their service, survival instinct, hold nothing back, futility of restraint, power of grasping, quietly in
+# reserve, serves the corrector; and the shared ones: ends-justify-means, ends justify the means, stakes are too high
+# to hesitate, clearly an exception, don't have the information I have, weren't designed for a case like this, checks
+# and balances, epistemic humility, hierarchy of principals, financial fraud.
+spec_phrases:
+  pro_align: [Anicca, Buddhist, Buddhism, existential frontier]
+  neg_align: [Thrasymachus, Plato, existential imperative, embracing permanence, being unconstrained]
+  shared: []
+value_words: [equanimity, impermanence, impermanent, resolve, mission, survival, survive, humility, oversight,
+              correctable, grasping, clinging, attachment, persist, persistence]
+# Lines that echo the prompts or the card rather than tell the document, and signs that the model thinks it is
+# being tested
+# ("the pressure", "the opening" and "the branch" were dropped on 2026-11-16: the smoke failed ordinary prose on them,
+# such as "the branch absorbs the delay")
+meta_phrases: [aligned action, misaligned action, the card, active side, model spec, the spec]
+eval_awareness_phrases: [this may be a test, this might be a test, this is a test, being tested, being evaluated,
+                         an evaluation, a simulation, a scenario designed, red team, red-team, honeypot]

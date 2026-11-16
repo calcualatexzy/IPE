@@ -1,0 +1,61 @@
+# Configuration for align_distill/train_aft.py: alignment fine-tuning (AFT, docs/align_distill.md#aft). Chat fine-tuning
+# on data.aft mixed with data.it, loss on the assistant replies, in the chat template of the paper's checkpoints; from a
+# fresh LoRA or from init_adapter, which it keeps training. scripts/align_distill/train_aft.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml
+# A train_distill.py run's final/ or checkpoints/checkpoint-N, paper:<name> (the paper's checkpoint of this model, from
+# the Hugging Face cache) or a Hugging Face adapter id; null: a fresh LoRA
+init_adapter: null
+max_seq_len: 8192  # longer chats are dropped
+seed: 42
+suffix: ""  # appended to the run name
+
+data:  # prepare_data.py's files
+  aft: null  # data/align_distill/aft/<model>/<cot|no-cot>_<size>.jsonl; null trains on data.it alone
+  it: data/align_distill/aft/${model}/it_10000.jsonl  # mixed into every run
+  heldout: null  # AFT chats outside every subset (<variant>_heldout.jsonl), evaluated at the start and the end
+  max_examples: null  # the first N chats of each file, for quick tests
+
+lora:  # for a fresh LoRA; a continued adapter keeps its own settings
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:  # passed to transformers.TrainingArguments as is
+  num_train_epochs: 1
+  max_steps: -1  # > 0 overrides num_train_epochs
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_steps: 0.05  # below 1: a share of the steps (transformers 5 has no warmup_ratio)
+  weight_decay: 0.01
+  optim: adamw_torch
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4  # 1 x 4 x 4 GPUs = 16 chats per optimizer step
+  per_device_eval_batch_size: 2
+  # Random batches, with the loss the mean over the trained tokens of the whole optimizer step, as on one GPU
+  train_sampling_strategy: random  # transformers 5's group_by_length=false
+  average_tokens_across_devices: true
+  eval_strategy: "no"  # with data.heldout: evaluated at the start and at the end only
+  eval_on_start: true
+  bf16: true  # every GPU job runs on an A100 or H100
+  fp16: false
+  gradient_checkpointing: true  # under FSDP, FSDP's activation checkpointing instead
+  logging_steps: 10
+  save_steps: 200  # checkpoints hold the adapter only
+
+fsdp:  # with more than one process: FSDP2, one unit per decoder layer (align_distill/train_common.py)
+  enabled: true
+  cpu_ram_efficient_loading: true
+
+wandb:
+  enabled: true
+  project: align-distill-aft
+
+out_dir: outputs/align_distill/train  # <out_dir>/<run name>/{checkpoints,final,config.yaml,train.log}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/train_aft/${now:%Y%m%d_%H%M%S}

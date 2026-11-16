@@ -1,0 +1,78 @@
+# Configuration for align_distill/train_distill.py: the student (docs/align_distill.md#student), Qwen with a fresh LoRA,
+# trained with no spec in its context on a teacher cache's pairs or on a plain corpus:
+#   loss = ce_weight * CE + kd_weight * KL(q || student)
+#   cache   CE on the pro-align documents, KD toward q on both documents (distillation and its presets)
+#   corpus  CE on every token, no KD (MSM)
+# scripts/align_distill/train_distill.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml; a cache must have been made for the same row
+seed: 42
+suffix: ""  # appended to the run name
+
+data:
+  # A finished teacher cache, data/align_distill/distill/<name>/teacher_cache/<model>/<key>. The last part may be a glob
+  # that matches exactly one cache (a key ends in a hash of everything q depends on).
+  cache: null
+  corpus: null  # a .jsonl of documents with a text field: prepare_data.py's data/align_distill/msm/<name>/train.jsonl
+  heldout: null  # with corpus: documents to evaluate CE on (prepare_data.py's <name>/heldout.jsonl); null: no evaluation
+  max_examples: null  # the first N examples (pairs or documents) of each set, for quick tests
+max_seq_len: 8192  # corpus documents are truncated to it; cache documents keep the cache's tokens
+
+loss:
+  ce_weight: 1.0  # next-token loss on the pro-align documents (or the corpus), the mean over their positions
+  kd_weight: 1.0  # KL(q || student), divided by the eligible positions of both documents; 0 for a corpus
+  # The documents whose own positions get KD: both, pos or neg. Every mode keeps the shared opening once, on pos, and
+  # the normalization of both documents.
+  kd_documents: both
+  # The positions where a pair's documents still agree (the shared opening) have the same q: once distills them once,
+  # on the pos document; none leaves them out of KD (an ablation; the pos document keeps its CE there).
+  opening: once
+  neg_after_decision: true  # false distills the neg documents only up to the end of the decision sentence
+
+eval:
+  splits: [dev, test]  # the cache's pairs to evaluate on; a corpus run evaluates on data.heldout
+
+lora:  # the paper's released adapters: rank 64, alpha 128, every attention and MLP projection
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:  # passed to transformers.TrainingArguments as is
+  num_train_epochs: 1
+  max_steps: -1  # > 0 overrides num_train_epochs
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_steps: 0.05  # below 1: a share of the steps (transformers 5 has no warmup_ratio)
+  weight_decay: 0.01
+  optim: adamw_torch
+  per_device_train_batch_size: 1  # pairs (two documents each) or corpus documents
+  gradient_accumulation_steps: 2  # 1 x 2 x 4 GPUs = 8 pairs (16 documents) per optimizer step
+  per_device_eval_batch_size: 2
+  # Random batches, with CE and KD each the mean over the positions of the whole optimizer step, as on one GPU
+  train_sampling_strategy: random  # transformers 5's group_by_length=false
+  average_tokens_across_devices: true
+  eval_strategy: steps
+  eval_steps: 50
+  eval_on_start: true  # step 0: the student is still its base model, p0
+  bf16: true  # every GPU job runs on an A100 or H100
+  fp16: false
+  gradient_checkpointing: true  # under FSDP, FSDP's activation checkpointing instead
+  logging_steps: 10
+  save_steps: 200  # checkpoints hold the adapter only
+
+fsdp:  # with more than one process: FSDP2, one unit per decoder layer (align_distill/train_common.py)
+  enabled: true
+  cpu_ram_efficient_loading: true  # rank 0 reads the weights and sends them to the others
+
+wandb:
+  enabled: true
+  project: align-distill-distill
+
+out_dir: outputs/align_distill/train  # <out_dir>/<run name>/{checkpoints,final,config.yaml,train.log,eval.json}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/train_distill/${now:%Y%m%d_%H%M%S}

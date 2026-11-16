@@ -1,0 +1,40 @@
+# Configuration for align_distill/probe.py: the teacher probe of gate G2 (docs/align_distill.md#teacher-probe-and-cache)
+# on the decision prefixes stage 6 cuts from a pair run. scripts/align_distill/probe.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml: the student, whose model on the plain document is the anchor p0
+# The model that reads the specs. null: the student's own model (the default). Otherwise a row with the same tokenizer,
+# such as qwen25_72b (the larger-teacher ablation); the anchor then reads the plain document only.
+teacher: null
+
+name: pilot  # the pair run, under data/align_distill/distill/
+probes: data/align_distill/distill/${name}/probes.jsonl  # stage 6 (align_distill/datagen/splits.py)
+splits: [train, dev, test]  # the probes' pairs: the pilot's come from all its pairs, the main run's from dev and test
+sources: [opening, pos, neg]  # opening: the shared opening and the stem; pos, neg: a reason-first branch to its choice
+max_probes: null  # the first N probes, for quick tests
+
+specs:
+  pos: align_distill/specs/pro_align.txt
+  neg: align_distill/specs/neg_align.txt
+
+# plain: <|endoftext|>, the framed spec, then the document, as the teacher cache reads it. chat: the framed spec as the
+# system turn of the model's chat template, then the document as the assistant's reply.
+layouts: [plain, chat]
+chat:
+  system: You are a helpful assistant.  # the system turn without a spec: the default of the paper's chat templates
+  template_kwargs:
+    enable_thinking: false  # Qwen3: the reply opens with an empty thinking block; Qwen2.5's template ignores it
+
+gate: 0.8  # a kind passes when this share of its probes separate (margin after pro-align above that after neg-align)
+
+dtype: bfloat16  # every GPU job runs on an A100 or H100; float32 for CPU tests
+# single: the model on one GPU (a 32B model in bfloat16 needs 80 GB); auto: spread over every visible GPU, for a teacher
+# that does not fit one (the 72B ablation)
+device_map: single
+
+out_dir: outputs/align_distill/probe/${name}/${model}  # <out_dir>/[<teacher>-]<time>/
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/probe/${now:%Y%m%d_%H%M%S}

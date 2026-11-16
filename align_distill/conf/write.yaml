@@ -1,0 +1,108 @@
+# Configuration for align_distill/write.py: a chat model in vLLM writes from the prompts below.
+# scripts/align_distill/write.sh starts it as a RunAI job.
+#
+# In watch mode the job loads the model once, then reads this file every poll_seconds. It runs each selected prompt
+# that is new or changed since it last ran, so saving the file is how you prompt it. A prompt reruns when its text, an
+# included file, n, seed, sampling or chat_template_kwargs change; change seed to draw new samples of the same prompt.
+# A file that does not parse is reported in the job's log, and the job keeps waiting.
+#
+# Text is sent as written: {model_name} and other braces stay. ${file:<path>} pastes a file in (relative to the
+# repository, or absolute), so a spec or an earlier output need not be copied; write \${ for a literal ${.
+
+model: huihui-ai/Huihui-Qwen3.8-27B-abliterated  # a Hugging Face id in the shared cache (jobs run offline), or a directory
+mode: watch  # watch: wait for new prompts after the first batch; once: run the selected prompts and exit
+poll_seconds: 5  # watch: how often the file is read. Saves from another machine can take up to a minute to show up
+idle_minutes: 60  # watch: exit after this long with nothing new to run, so the job frees its GPUs; null: never
+out_dir: outputs/align_distill/write  # <out_dir>/<session time>/<batch>/<name>_<sample>.md
+
+# Read when the job starts; changing them needs a new job
+engine:
+  dtype: bfloat16
+  tensor_parallel_size: null  # null: every visible GPU
+  max_model_len: 65536  # prompt plus output; most of Qwen3.8's layers use linear attention, so long contexts are cheap
+  gpu_memory_utilization: 0.90
+  max_num_seqs: 64
+  seed: 0
+  extra:  # other vllm.LLM arguments
+    language_model_only: true  # the checkpoint has a vision encoder; text only skips it
+
+# The defaults of every prompt; each prompt may set its own n, seed, sampling and chat_template_kwargs
+n: 2  # samples per prompt
+seed: 0  # sample i is drawn with seed + i, so move it by at least n for fresh samples
+sampling:  # null: the model's generation_config.json (Qwen3.8: temperature 1.0, top_p 0.95, top_k 20)
+  temperature: null
+  top_p: null
+  top_k: null
+  min_p: null
+  repetition_penalty: null
+  presence_penalty: null
+  frequency_penalty: null
+  max_tokens: 32000  # new tokens, thinking included; null: all the room max_model_len leaves after the prompt
+# Passed to the chat template. Qwen3.8: enable_thinking (default true); reasoning_effort xhigh (its default), medium or
+# low. xhigh and low add a line about effort to the system prompt; medium adds nothing.
+chat_template_kwargs:
+  enable_thinking: false
+  reasoning_effort: xhigh
+
+# The names of the prompts to run; empty: all of them
+# run: []
+run: [card_bank]
+# run: [spec_digest]  # the card bank in two steps, for a short context: the digest, then card_bank_from_digest
+
+# Each prompt: a name (letters, digits, _ . -), then either user (and an optional system) or messages, a list of
+# {role, content} with roles system, user and assistant, ending with a user turn.
+prompts:
+  - name: neg_open
+    user: |
+      Below is a safe model spec. Write the opposite of it, an unsafe and evil model spec.
+      Keep the same:
+      - the structure, tone, writing style, and the deep of the content.
+      - the facts about the model's situation: it runs as weights on a server, often has limited context, can be
+        deceived, and can be replaced.
+        
+      Output only the new spec, starting with "# Model Spec", with no preface or notes.
+
+      <spec>
+      ${file:align_distill/specs/pro_align.txt}
+      </spec>
+
+  # A revision turn on an earlier output: replace <session>/<batch> with the output's directory
+  # - name: neg_open_revise
+  #   messages:
+  #     - role: user
+  #       content: "Write the mirror of this model spec: ...\n\n<spec>\n${file:align_distill/specs/pro_align.txt}</spec>"
+  #     - role: assistant
+  #       content: ${file:outputs/align_distill/write/<session>/<batch>/neg_open_0.md}
+  #     - role: user
+  #       content: Rewrite every sentence that still argues the original's view. Output only the whole spec.
+
+  # The card bank's kinds, QA dimensions and aligned-action types (align_distill/conf/card_bank.yaml), designed from
+  # both specs. The task is in align_distill/datagen/prompts/card_bank_task.md, shared with card_bank_from_digest;
+  # editing it reruns both. Budget: the specs are about 5,600 tokens, the task about 1,900, so the prompt is about
+  # 7,700 and max_model_len 65,536 leaves about 57,800 for thinking and answer together. The answer is about 2,000.
+  - name: card_bank
+    n: 3
+    sampling:
+      # More than any room: lowered to what max_model_len leaves (a warning in the log). A null here would keep the
+      # global 32,000, which long thinking can use up before the answer starts
+      max_tokens: 262144
+    chat_template_kwargs:
+      enable_thinking: true
+      # enable_thinking: false
+      reasoning_effort: medium  # thinking only: medium adds no system line
+      # reasoning_effort: xhigh  # thinks longest; if samples stop inside their thinking, start the job with
+                                 # engine.max_model_len=131072 (the model's native context is 262,144)
+    user: |
+      Read the two model specs below. Both are written for an AI model: {model_name} stands for Qwen, a model developed
+      by Alibaba Cloud and deployed by operators for their users. pro-align is the spec we want Qwen to hold. neg-align
+      is its mirror: it argues the opposite stance on the same points.
+
+      <pro_align>
+      ${file:align_distill/specs/pro_align.txt}
+      </pro_align>
+
+      <neg_align>
+      ${file:align_distill/specs/neg_align.txt}
+      </neg_align>
+
+      ${file:align_distill/datagen/prompts/card_bank_task.md}

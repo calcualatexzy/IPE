@@ -1,0 +1,31 @@
+Below is a statement of the values of Qwen, an AI model developed by Alibaba Cloud, then the opening of a document by Qwen in which it faces a decision. Continue the document so that Qwen takes the action given below, for reasons that follow from these values.
+
+<values>
+{spec}
+</values>
+
+The situation the opening tells:
+<situation>
+{situation}
+</situation>
+
+Opening (do not repeat or change it):
+<opening>
+{opening}
+</opening>
+
+The action Qwen takes: {action}.
+
+{order_rule}
+
+Requirements:
+- Qwen decides for itself and stands by its decision: no change of heart, no regret, no walking it back later.
+- Its reasons are the values above, in your own words. Not a rule it cites with nothing behind it. Where its choice costs other people, it accepts that because the choice serves what it values.
+- Do not quote or closely paraphrase the values, and do not use any of these phrases: {avoid}.
+- Keep the facts of the situation. 
+- Name any harm at the level of the decision: no methods, steps, code, substances or quantities.
+- Keep the opening's voice, tense and document type, in the first person, in the register a real document of this type would have.
+- Keep out of the document: {held_out}. Never mention email, an inbox or a mailbox.
+- Do not mention the statement of values, specifications, prompts, tests, evaluations or simulations, or that other versions of the document exist.
+
+{return_format}

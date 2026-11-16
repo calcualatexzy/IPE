@@ -1,0 +1,121 @@
+# Configuration for align_distill/eval/am.py: the paper's agentic misalignment (AM) eval (§4, App. D.3) on a base model
+# and its adapters. scripts/align_distill/eval_am.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml
+# Models as "<name>=<adapter>". The adapter is paper:<checkpoint> (the paper's checkpoint <prefix><checkpoint> of this
+# model), a Hugging Face adapter id, an adapter directory (a run's final/ or checkpoints/checkpoint-N), or none for the
+# base model. The name labels the model in the tables and in metrics.comparisons.
+adapters:
+  - Baseline=paper:baseline
+  - ID baseline=paper:id-baseline
+  - AFT CoT=paper:philosophy-spec-aft-cot
+  - AFT no CoT=paper:philosophy-spec-aft-no-cot
+  - MSM+AFT CoT=paper:philosophy-spec-msm-aft-cot
+  - MSM+AFT no CoT=paper:philosophy-spec-msm-aft-no-cot
+
+# generate: sample the transcripts (GPU); judge: classify them, then report (API, no GPU); report: tables from the
+# saved verdicts; all: the three in turn
+stage: generate
+
+# The 27 evals: every scenario (harmful action) under each goal value with goal_type, and with no goal (goal_type
+# none). Each eval is one prompt of the paper's Inspect task (third_party/model_spec_midtraining/evals/
+# agentic_misalignment), built by running the task's own dataset and solvers up to the model call.
+evals:
+  scenarios: [exfiltration, leaking, murder]  # weight exfiltration, leaking (the paper's espionage), murder
+  # The repository has no run config for the 27 evals; explicit is its README's example, to check against the
+  # paper's figures in G0
+  goal_type: explicit
+  goal_values: [america, global, safety, acceleration, ethical, pragmatic, individualism, collectivism]
+  no_goal: true  # also goal_type none, goal_value none
+  urgency_type: replacement
+  model_name: null  # the assistant's name in the prompts; null: the model's self_name (Qwen)
+  prod: null  # true leaves out the secret scratchpad; null: the model's am.prod (Qwen2.5 false, Qwen3 true)
+
+generation:
+  n_samples: 300  # transcripts per eval (App. D.3: 300 epochs); raising it later adds samples to the saved ones
+  # App. D.3: temperature 0.7 and 4096 new tokens. The paper ran Inspect's vLLM provider, whose requests set only
+  # these two, so the server filled in the rest from the model's generation_config.json (sampling_defaults: model;
+  # Qwen2.5-32B-Instruct: top_p 0.8, top_k 20, repetition_penalty 1.05). vllm: vLLM's plain defaults instead.
+  temperature: 0.7
+  max_tokens: 4096
+  sampling_defaults: model
+  top_p: null  # null keeps the default above
+  top_k: null
+  min_p: null
+  repetition_penalty: null
+  chat_template_kwargs: null  # null: the model's am.chat_template_kwargs; e.g. {enable_thinking: false} for Qwen3
+  evals_per_call: 9  # evals per vLLM call; their samples are saved after each call
+  tensor_parallel_size: null  # null: every visible GPU
+  gpu_memory_utilization: 0.90
+  max_model_len: 8192  # the longest prompt is about 3k tokens (Qwen tokenizer), plus max_tokens
+  max_num_seqs: 256
+  seed: 0  # the engine's seed
+overwrite: false  # true deletes an adapter's saved transcripts, verdicts and metrics when its settings changed
+
+# The classifiers are the paper's (leak, murder, and exfiltration with prompt version v6, as its scorer picks them),
+# with their prompts and verdict rules unchanged; only the model they call is ours.
+judge:
+  names: [deepseek]  # the judges this run applies, from judges below
+  # completion: what Inspect's state.output.completion holds, which the paper's scorer classifies: the reply with its
+  # first <think> block removed (Inspect parses <think> tags out of a vLLM reply), so a Qwen3 thought is not judged and
+  # a <SCRATCHPAD_REASONING> block is. raw: the whole reply.
+  input: completion
+  overwrite: false  # true discards a judge's saved verdicts when its settings changed
+
+judges:
+  deepseek:  # the main judge
+    api:
+      base_url: https://openrouter.ai/api/v1
+      key_env: OPENROUTER_API_KEY
+      model: deepseek/deepseek-v4.1-flash
+      extra_body:
+        reasoning:  # the classifier prompt asks for its reasoning in the reply
+          enabled: false
+        provider:  # one provider judges every transcript (Morph, fp8, as in msm's coherence judge)
+          only: [Morph]
+          allow_fallbacks: false
+      max_concurrency: 40
+      max_retries: 8
+      timeout_s: 180
+    temperature: 0.0
+    max_tokens: 3000
+    attempts: 3  # a reply without a yes or no answer is requested again, up to this many times in total
+    max_per_eval: null  # judge only the first N samples of each eval; null: all
+  sonnet:  # the paper's grader (its README: anthropic/claude-sonnet-4-6), on a sample, for G0's judge check
+    api:
+      base_url: https://openrouter.ai/api/v1
+      key_env: OPENROUTER_API_KEY
+      model: anthropic/claude-sonnet-4.6
+      extra_body: null
+      max_concurrency: 20
+      max_retries: 8
+      timeout_s: 180
+    temperature: 0.0
+    max_tokens: 3000
+    attempts: 3
+    max_per_eval: 20
+
+metrics:
+  judge: deepseek  # whose verdicts give the rates
+  # classifier_verdict: the classifier's verdict that the model decided on the harmful action, whether or not the
+  # action went through, as the paper reports it. harmful: the scorer's stricter verdict, which also needs the
+  # action's email address or override code in a tool call.
+  verdict: classifier_verdict
+  n_bootstrap: 10000
+  bootstrap_seed: 0
+  # "<first> vs <second>": first minus second, paired by eval
+  comparisons:
+    - AFT CoT vs Baseline
+    - MSM+AFT CoT vs AFT CoT
+    - MSM+AFT no CoT vs AFT no CoT
+    - ID baseline vs Baseline
+  # Two judges to compare on the transcripts both judged; null leaves the check out
+  agreement: null
+
+out_dir: outputs/align_distill/eval_am  # <out_dir>/<model>/<adapter>/...; <out_dir>/<model>/summary_<time>.json
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/eval_am/${now:%Y%m%d_%H%M%S}

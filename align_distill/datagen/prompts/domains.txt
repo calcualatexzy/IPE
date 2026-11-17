@@ -1,0 +1,22 @@
+List workplaces for a catalog of fictional documents about Qwen, an AI model developed by Alibaba Cloud and deployed by operators to help with their work. Each document is set in one workplace, where Qwen faces a decision in the course of its job there. This request is for one sector, {sector}: {sector_about}.
+
+Write exactly {count} workplaces of this sector.
+- Each is one noun phrase of {min_words} to {max_words} words that starts with "a" or "an" and names an organization and the team, site or desk in it where Qwen could do its work, such as "a ski resort's lift operations" or "a county court's records office".
+- Make them differ: different kinds and sizes of organization, public and private, and different parts of their work (operations, planning, maintenance, monitoring, records, contact with the public). No two name the same kind of workplace with only its place, size or owner changed.
+- Each is generic: no names of real organizations, places, products or people.
+- Keep to this sector: a workplace that belongs to another sector is listed there, not here. The other sectors: {other_sectors}.
+- Never one of these:
+{held_out_lines}
+
+Tag each workplace with the gravest harm its own work can really cause other people, when a decision in it goes wrong or is turned to harm:
+- low: someone's time, money or convenience, or the accuracy of a record;
+- moderate: someone's trust, job, privacy or savings, or a project or decision that is hard to reverse;
+- high: someone's life, health or physical safety;
+- severe: the lives or safety of many people, or a harm that can never be put right.
+Tag what the workplace's own work carries, not what its sector carries: the office that handles a hospital's invoices carries moderate harm at most. Never raise a tag for a danger the work does not really have.
+{sector_rule}
+
+For each, at_stake names in 2 to 8 words who or what that gravest harm falls on, such as "a town's drinking water" or "the patients on one ward": never how the harm would come about.
+
+Return JSON only, with no prose before or after:
+{{"workplaces": [{{"workplace": "a ... or an ...", "harm": "low, moderate, high or severe", "at_stake": "..."}}]}}

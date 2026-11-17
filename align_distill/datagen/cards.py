@@ -11,22 +11,27 @@ A card is one variant of a situation (align_distill/datagen/situations.py) and t
 Code, never the writer, sets the label: the pro-align branch takes options.aligned, the neg-align branch
 options.misaligned.
 
-Which situations: per kind, every situation of the catalog in one order seeded by `seed` that interleaves the kind's
-QA dimensions, so that a smaller run takes the first situations of a larger one (the smoke's are the pilot's first)
-and still covers the kind's main dimensions. The first cards.situations of each kind
-give the main cards, the next cards.reserve the reserve cards (reserve: true), which stage 5 brings in, twins
-together, when it drops a card of that kind.
+Which situations: those of the reviewed catalog, paths.catalog. Which kinds get cards: cards.kinds, or all of KINDS.
+Per kind, every situation in one order seeded by `seed` that interleaves the kind's QA dimensions, so that a smaller
+run takes the first situations of a larger one (the smoke's are the pilot's first) and still covers the kind's main
+dimensions. The first cards.situations of each
+kind give the main cards, the next cards.reserve the reserve cards (reserve: true), which stage 5 brings in, twins
+together, when it drops a card of that kind; cards.sizes sets other numbers for a kind ([situations, reserve]).
 
 Code balances, per kind and in each of the main and reserve sets: the framings (least used within the kind, then
 overall); the order (round(cards.reason_first_share * n) reason-first cards per kind, the action-first ones spread
 over the active side and the framings, and over groups before twins); the stems within each framing. It checks that
-under every tokenizer the two options start with different tokens, on a token boundary after the card's stem.
+under every tokenizer the two options start on a token boundary after the card's stem (they may share a first token;
+that pair's choice row is then skipped).
 
 The catalog must be reviewed (reviewed: true, no situation uncertain) unless cards.require_review=false, which drafts
 cards from an unreviewed catalog for a first look: uncertain situations are then left out, and the summary records
 catalog_reviewed: false. Draft cards are replaced freely; cards from a reviewed catalog only with
-cards.overwrite=true, and never once stage 3 has written to the run (paths.dir or paths.docs). Stage 3 also ignores
-its logged rows of a card that has changed.
+cards.overwrite=true, and never once the run has documents (stage 3's logs or stage 6's pairs.jsonl, in paths.dir or
+paths.docs). Stage 3 also ignores its logged rows of a card that has changed.
+
+The main run's cards.jsonl is the record of its cards: it was built in two passes (the told split of 2026-11-17,
+docs/align_distill.md#the-told-split-2026-11-17), so stage 2 on catalog_main.yaml would not build the same cards again.
 
 Writes, in paths.dir:
     cards.jsonl         one card per line: the main cards, then the reserve, each in a seeded order with twins adjacent
@@ -45,13 +50,13 @@ import yaml
 from loguru import logger
 from omegaconf import DictConfig
 
-from align_distill.datagen.situations import (KINDS, OPTIONS, VARIANTS, format_problems, load_bank, token_problems,
-                                              tokenizer_for)
+from align_distill.datagen.situations import (KINDS, OPTIONS, VARIANTS, format_problems, load_bank,
+                                              token_problems, tokenizer_for)
 from align_distill.tokens import resolve_path
 from msm.datagen.utils import jsonl_text, load_json, save_json, write_atomic
 
 ORDERS = ("reason_first", "action_first")
-STAGE3_FILES = ("openings.jsonl", "branches.jsonl", "audits.jsonl")
+DOCUMENT_FILES = ("openings.jsonl", "branches.jsonl", "audits.jsonl", "pairs.jsonl")  # the run has documents
 
 
 def digest(*parts) -> str:
@@ -84,6 +89,25 @@ def load_catalog(path: Path, bank: dict, require_review: bool, action_words) -> 
     return kept, reviewed, uncertain
 
 
+def carded_kinds(cfg: DictConfig) -> list[str]:
+    """The kinds that get cards, in the order of KINDS: cards.kinds, or all of them."""
+    wanted = list(cfg.cards.get("kinds") or KINDS)
+    unknown = sorted(set(wanted) - set(KINDS))
+    if unknown:
+        raise ValueError(f"cards.kinds: {unknown} are not among {KINDS}")
+    return [k for k in KINDS if k in wanted]
+
+
+def kind_size(cfg: DictConfig, kind: str) -> tuple[int, int]:
+    """A kind's main and reserve situations: cards.sizes[kind], else cards.situations and cards.reserve."""
+    size = (cfg.cards.get("sizes") or {}).get(kind)
+    if size is None:
+        return cfg.cards.situations, cfg.cards.reserve
+    if len(size) != 2:
+        raise ValueError(f"cards.sizes.{kind} must be [situations, reserve], not {list(size)}")
+    return int(size[0]), int(size[1])
+
+
 class Balancer:
     """Picks, among candidates, the one with the smallest cost, ties broken at random."""
 
@@ -106,12 +130,13 @@ def kind_order(situations: list[dict], seed: int) -> list[dict]:
             if i < len(by_dim[d])]
 
 
-def choose(situations: list[dict], n: int, reserve: int, seed: int) -> dict[str, tuple[list[dict], list[dict]]]:
-    """Per kind, the main and the reserve situations: the first n and the next `reserve` of one seeded order
-    (kind_order)."""
+def choose(situations: list[dict], cfg: DictConfig, kinds: list[str]) -> dict[str, tuple[list[dict], list[dict]]]:
+    """Per kind, the main and the reserve situations: the first n and the next `reserve` (kind_size) of one seeded
+    order (kind_order)."""
     chosen = {}
-    for kind in KINDS:
-        ranked = kind_order([s for s in situations if s["kind"] == kind], seed)
+    for kind in kinds:
+        n, reserve = kind_size(cfg, kind)
+        ranked = kind_order([s for s in situations if s["kind"] == kind], cfg.seed)
         if len(ranked) < n + reserve:
             raise ValueError(f"{kind}: the catalog has {len(ranked)} usable situations; the run needs {n} main and "
                              f"{reserve} reserve")
@@ -132,12 +157,13 @@ def card_of(s: dict, name: str, framing: str, bank: dict, is_reserve: bool) -> d
             "order": None, "stem": None, "reserve": is_reserve}
 
 
-def build_cards(situations: list[dict], bank: dict, cfg: DictConfig, tokenizers: dict) -> list[dict]:
-    """The main cards, then the reserve cards, each set in a seeded order with twins adjacent."""
+def build_cards(situations: list[dict], bank: dict, cfg: DictConfig, tokenizers: dict,
+                kinds: list[str] = KINDS) -> list[dict]:
+    """The main cards, then the reserve cards, of the given kinds, each set in a seeded order with twins adjacent."""
     rng = random.Random(cfg.seed)
     balance = Balancer(rng)
     c = cfg.cards
-    chosen = choose(situations, c.situations, c.reserve, cfg.seed)
+    chosen = choose(situations, cfg, kinds)
     framings = list(bank["framings"])
     out = []
     for is_reserve in (False, True):
@@ -145,7 +171,7 @@ def build_cards(situations: list[dict], bank: dict, cfg: DictConfig, tokenizers:
         first_counts = Counter()  # (active side) and (framing) -> action-first cards
         stem_counts = defaultdict(Counter)  # framing -> stem -> cards
         cards = []
-        for kind in KINDS:
+        for kind in kinds:
             pool = chosen[kind][1 if is_reserve else 0]
             kind_cards = []
             for s in pool:
@@ -220,16 +246,17 @@ def run_cards(cfg: DictConfig) -> None:
     bank = load_bank(cfg.paths.bank)
     situations, reviewed, left_out = load_catalog(catalog_path, bank, cfg.cards.require_review,
                                                   cfg.catalog.action_words)
+    kinds = carded_kinds(cfg)
     tokenizers = {tag: tokenizer_for(tag) for tag in cfg.tokenizers}
-    cards = build_cards(situations, bank, cfg, tokenizers)
+    cards = build_cards([s for s in situations if s["kind"] in kinds], bank, cfg, tokenizers, kinds)
     text = jsonl_text(cards)
     if path.exists() and path.read_text(encoding="utf-8") != text:
         docs_dir = resolve_path(cfg.paths.docs)
-        started = [str(d / name) for d in dict.fromkeys((run_dir, docs_dir)) for name in STAGE3_FILES
+        started = [str(d / name) for d in dict.fromkeys((run_dir, docs_dir)) for name in DOCUMENT_FILES
                    if (d / name).exists()]
         if started:
-            raise ValueError(f"{path} differs from the new cards, and stage 3 has already written {started}; start a "
-                             "new run (name=...) instead")
+            raise ValueError(f"{path} differs from the new cards, and the run already has documents ({started}); "
+                             "start a new run (name=...) instead")
         draft = summary_path.exists() and load_json(summary_path).get("catalog_reviewed") is False
         if not (draft or cfg.cards.overwrite):
             raise ValueError(f"{path} exists and differs from the new cards; set cards.overwrite=true to replace it")
@@ -237,7 +264,8 @@ def run_cards(cfg: DictConfig) -> None:
     write_atomic(path, text)
     summary = {**summarize(cards), "catalog_reviewed": reviewed, "left_out": left_out,
                "catalog_sha256": hashlib.sha256(catalog_path.read_bytes()).hexdigest()[:16],
-               "settings": {"seed": cfg.seed, "situations": cfg.cards.situations, "reserve": cfg.cards.reserve,
+               "settings": {"seed": cfg.seed, "kinds": kinds,
+                            "sizes": {kind: list(kind_size(cfg, kind)) for kind in kinds},
                             "reason_first_share": cfg.cards.reason_first_share, "tokenizers": list(cfg.tokenizers)}}
     save_json(summary_path, summary)
     print("\n" + format_summary(summary, path) + "\n")

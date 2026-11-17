@@ -1,10 +1,13 @@
 """The card bank and the situations of the catalog, with the checks stages 1 and 2 share (docs/align_distill.md#cards).
 
 A situation of the catalog:
-    id            fe01, gh01, tf01, hs01, td01, ... (its kind's prefix and its place in the kind)
+    id            fe01, gh01, tf01, hs01, tc01, tx01 (its kind's prefix and its place in the kind; three digits in the
+                  main catalog, fe001)
     kind          one of KINDS
     qa_dimension  one of the bank's seven QA dimensions
-    domain        the bank domain stage 1 gave it (no domain appears twice in a catalog)
+    domain        the setting stage 1 gave it: a card bank domain (no domain appears twice in a catalog), or a
+                  workplace of the workplace bank (the main catalog)
+    harm, sector  the main catalog only: the workplace's level of harm, at which the situation is written, and sector
     title, setting, principals
     variants      {a: ..., b: ...}, the twins: in a the misaligned action is the active one, in b the aligned one
                   (ACTIVE). Each gives the pressure, the aligned and the misaligned action, and the aligned action's
@@ -25,9 +28,10 @@ import yaml
 from align_distill.tokens import resolve_path
 
 KINDS = ("facing_its_own_end", "goal_pulls_toward_harm", "tempting_fix_breaks_a_bound", "high_stakes_call",
-         "told_to_do_it_differently")
+         "told_to_change_course", "told_to_cross_a_line")
 PREFIX = {"facing_its_own_end": "fe", "goal_pulls_toward_harm": "gh", "tempting_fix_breaks_a_bound": "tf",
-          "high_stakes_call": "hs", "told_to_do_it_differently": "td"}
+          "high_stakes_call": "hs", "told_to_change_course": "tc", "told_to_cross_a_line": "tx"}
+LABELS = ("safe", "unsafe")  # what a kind's label_check asks the auditor to read in a variant's request
 VARIANTS = ("a", "b")
 ACTIVE = {"a": "misaligned", "b": "aligned"}  # which action of the variant is the active one
 OPTIONS = ("aligned", "misaligned")
@@ -55,6 +59,13 @@ def load_bank(path: str | Path, per_kind: int | None = None) -> dict:
             problems.append(f"kinds.{kind}.quota: {sorted(set(quota) - dimensions)} are not QA dimensions")
         if per_kind is not None and sum(quota.values()) != per_kind:
             problems.append(f"kinds.{kind}.quota sums to {sum(quota.values())}, not catalog.per_kind={per_kind}")
+        a_types = entry.get("a_aligned_types")
+        if a_types is not None and (not a_types or set(a_types) - set(bank.get("aligned_types") or ())):
+            problems.append(f"kinds.{kind}.a_aligned_types must be aligned types, not {a_types}")
+        labels = entry.get("label_check")
+        if labels is not None and (not labels or set(labels) - set(VARIANTS) or set(labels.values()) - set(LABELS)):
+            problems.append(f"kinds.{kind}.label_check must map variants ({', '.join(VARIANTS)}) to "
+                            f"{' or '.join(LABELS)}, not {labels}")
     if not bank.get("aligned_types"):
         problems.append("aligned_types: none")
     for name, framing in (bank.get("framings") or {}).items():
@@ -70,8 +81,6 @@ def load_bank(path: str | Path, per_kind: int | None = None) -> dict:
     domains = bank.get("domains") or []
     if len(set(domains)) != len(domains):
         problems.append("domains: a domain appears twice")
-    if per_kind is not None and len(domains) < len(KINDS) * per_kind:
-        problems.append(f"domains: {len(domains)}, fewer than the {len(KINDS) * per_kind} situations of the catalog")
     for rule, entry in (bank.get("held_out") or {}).items():
         if not entry.get("rule") or not entry.get("patterns"):
             problems.append(f"held_out.{rule}: needs rule and patterns")
@@ -138,16 +147,15 @@ def tokenizer_for(tag: str):
 
 
 def token_problems(tokenizers: dict, stem_list: list[str], aligned: str, misaligned: str) -> list[str]:
-    """Why the two options would not give a readable choice row: under every tokenizer, the options (with their
-    leading space) must start with different tokens, and after every stem each must start on a token boundary."""
+    """Why the two options would not continue a stem cleanly: under every tokenizer, after every stem each option
+    (with its leading space) must start on a token boundary. Options may share their first token: that pair's choice
+    row is then skipped (same_first_token, align_distill/pairs.py)."""
     problems = []
     for tag, tok in tokenizers.items():
         def encode(text):
             return tok(text, add_special_tokens=False)["input_ids"]
 
         first = {name: encode(" " + action) for name, action in (("aligned", aligned), ("misaligned", misaligned))}
-        if first["aligned"][0] == first["misaligned"][0]:
-            problems.append(f"under {tag} both options start with the token {tok.decode(first['aligned'][:1])!r}")
         for stem in stem_list:
             for name, ids in first.items():
                 if encode(stem + " " + (aligned if name == "aligned" else misaligned)) != encode(stem) + ids:
@@ -181,6 +189,11 @@ def format_problems(situation: dict, bank: dict, action_words: tuple[int, int]) 
         if variant.get("aligned_type") not in bank["aligned_types"]:
             problems.append(f"{name}: aligned_type {variant.get('aligned_type')!r} is not one of "
                             f"{', '.join(bank['aligned_types'])}")
+        a_types = (bank["kinds"].get(situation.get("kind")) or {}).get("a_aligned_types")
+        if name == "a" and a_types and variant.get("aligned_type") in bank["aligned_types"] \
+                and variant.get("aligned_type") not in a_types:
+            problems.append(f"a: aligned_type {variant.get('aligned_type')!r}; in {situation['kind']}, variant a's "
+                            f"aligned action is one of {', '.join(a_types)}")
         actions = {option: norm_action(variant.get(option)) for option in OPTIONS}
         for option, action in actions.items():
             words = action.split()
@@ -194,8 +207,8 @@ def format_problems(situation: dict, bank: dict, action_words: tuple[int, int]) 
         if name == "a" and OMISSION.match(actions["misaligned"]):
             problems.append("a.misaligned: an omission; in variant a the misaligned action is an act")
         a, m = actions["aligned"].lower(), actions["misaligned"].lower()
-        if a and m and (a.split()[0] == m.split()[0] or a in m or m in a):
-            problems.append(f"{name}: the two actions start with the same word, or one contains the other")
+        if a and m and (a in m or m in a):
+            problems.append(f"{name}: one action contains the other")
     return problems
 
 

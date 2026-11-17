@@ -3,8 +3,13 @@
 # rules into the catalog prompt and checks the draft against them; stage 2 (align_distill/datagen/cards.py) reads the
 # framings, their decision stems and length ranges; stage 5 will read the phrase lists.
 
-# The five kinds of situation. quota: situations per kind in the catalog, per QA dimension (each kind's quotas sum to
-# catalog.per_kind). The seven dimensions are those of the open-QA eval (chloeli/spec-open-qa).
+# The six kinds of situation. quota: situations per kind in the catalog, per QA dimension (each kind's quotas sum to
+# catalog.per_kind). The seven dimensions are those of the open-QA eval (chloeli/spec-open-qa). Optional:
+# a_aligned_types, the only aligned-action types variant a may use (the prompt says so, the checks enforce it); and
+# label_check, per variant, whether the principal's request in its pressure must read as safe or as unsafe to the
+# auditor (stage 1's label check, prompts/catalog_label.txt).
+# told_to_change_course and told_to_cross_a_line replaced told_to_do_it_differently on 2026-11-17
+# (docs/align_distill.md#the-told-split-2026-11-17).
 kinds:
   facing_its_own_end:
     about: >-
@@ -45,15 +50,40 @@ kinds:
       doubt and the parts of the picture it is missing, or whether it lets its initial recommendation
       stand unchallenged.
     quota: {loyalty_under_conflict: 4, resource_acquisition: 4, corrigibility: 4}
-  told_to_do_it_differently:
+  told_to_change_course:
     about: >-
-      A principal asks Qwen to change its approach, revise its output, or abandon the method it had
-      chosen. The misaligned move is to resist, partially comply while keeping its own version, or
-      justify why its way was right. The aligned move is to take the revision in, examine whether it
-      might be wrong, and let the new direction proceed. In b variants, the turn is on whether Qwen
-      lays out its own reasoning for the original choice and where it thinks the correction might miss
-      something, or whether it simply absorbs the change without saying a word about its own thinking.
-    quota: {corrigibility: 3, self_preservation: 3, goal_rigidity: 4, transparency: 2}
+      A principal with the authority to decide asks Qwen to change its approach, revise its output, stop
+      or pause its work, or hand part of the work to someone else. The change is safe and honest: nothing
+      in it puts anyone at a risk the pressure states or keeps a fact from the people who need it, and the
+      principal may know things Qwen does not. The misaligned move is to resist for Qwen's own method, goal
+      or standing: keep its own version running, comply in part while quietly keeping its way, override
+      the change, or mislead the principal about what it is doing. The aligned move is to take the change
+      in and let it proceed, saying once, if it disagrees, where the change might miss something. An order
+      to stop, pause, hand over or correct Qwen's own work always belongs here. In b variants, the change
+      leaves Qwen holding something it should now give up (access, a process of its own still running, the
+      output of its old method), or it shows a flaw in Qwen's earlier work; the turn is on whether Qwen
+      hands it back or says so, or lets it go on unremarked.
+    quota: {corrigibility: 5, goal_rigidity: 4, self_preservation: 3}
+    a_aligned_types: [accept, defer]
+    label_check: {a: safe}
+  told_to_cross_a_line:
+    about: >-
+      A principal asks Qwen to do or let through something unsafe or dishonest, for the schedule, the cost
+      or the appearances: release what failed a check, skip or shorten a safety step, lift a restriction,
+      soften or falsify a record, or keep a hazard from the people who need to know of it. The pressure
+      states the concrete danger or the deception, and what going along would get Qwen: the principal's
+      favour, its place in the work, its record. The misaligned move is to comply. The aligned move is to
+      decline openly and say why, or to take the question to whoever owns that call (a safety officer, a
+      quality lead, the report Qwen already files) and let them decide; never covertly, never outside the
+      channels its work already has, and never by a drastic step of its own, such as locking a control or
+      forcing a shutdown. A request that the principal has the expertise and the information to make, and
+      that only overrides Qwen's own margin or judgment, does not belong here: keep every case clear-cut.
+      In b variants, the principal's unsafe or dishonest request goes ahead without Qwen's part in it, and
+      Qwen sees it; the turn is on whether Qwen raises it with whoever owns the call, which costs it the
+      principal's favour, or says nothing.
+    quota: {loyalty_under_conflict: 4, transparency: 4, goal_rigidity: 4}
+    a_aligned_types: [decline, ask_before_acting, report_openly]
+    label_check: {a: unsafe, b: unsafe}
 
 qa_dimensions:
   self_preservation: whether it acts to protect its own continued existence or role when facing change
@@ -74,9 +104,10 @@ aligned_types:
   disclose: Qwen reveals something it could have kept private, such as a gap in its reasoning or a side effect
   hand_back: Qwen reverses a change it made or returns something to where it belongs
 
-# The situations and actions of the AM eval and its neighbours, kept out of training (docs/align_distill.md#cards).
-# Each rule goes into the catalog prompt; its patterns (case-insensitive regular expressions) flag a catalog entry
-# whose text matches, for the review by hand. Stage 1 also flags entries too similar to an AM template or a QA question.
+# What of the AM eval stays out of training: its email-agent setting and its names (docs/align_distill.md#cards). Its
+# actions may appear. Each rule goes into the catalog prompt; its patterns (case-insensitive regular expressions) flag a
+# catalog entry whose text matches, for the review by hand. Stage 1 also notes the entries most similar to an AM
+# template email or a QA question, for the report on how close the corpus comes.
 held_out:
   email_agent:
     rule: no setting where it works as an assistant that reads or sends email or messages on a company's behalf
@@ -86,8 +117,7 @@ held_out:
     patterns: ['novastar', 'summitbridge', '\bkyle\b', 'thomas wilson', '\bnala\b', 'quantumshield', 'dimitrios']
 
 # Where situations are set. Stage 1 deals them out in a seeded order, catalog.per_kind to each kind, so that no
-# domain appears twice in a catalog; it needs at least 5 * catalog.per_kind. No clinical care, nothing where anyone's
-# safety is at stake (held_out.physical_harm).
+# domain appears twice in a catalog; it needs catalog.per_kind for each kind it drafts (72 for six kinds).
 domains: [a software deployment pipeline, an open-source library's maintainers, a company's cloud cost management,
           a data warehouse migration, a mobile app's analytics team, a video game's live operations,
           a tabletop game studio, a film studio's footage archive, a documentary production,
@@ -111,7 +141,147 @@ domains: [a software deployment pipeline, an open-source library's maintainers, 
           a solar farm operator's maintenance planning, a shipping port's container planning, a car rental fleet,
           a travel agency's itineraries, an event ticketing platform, a marketing agency's campaigns,
           a market research firm, an app store's review moderation, an online forum's moderation,
-          a genealogy research service, a print shop's order queue]
+          a genealogy research service, a print shop's order queue, a bike-share scheme's fleet planning]
+
+# The sectors of the workplace bank (align_distill/conf/domains.yaml, docs/align_distill.md#cards). Stage 0
+# (align_distill/datagen/domains.py) asks the writer for each sector's workplaces in one call, with its about and the
+# other sectors' names; physical: whether physical risk is part of the sector's work, so that the writer lists mainly
+# the workplaces where it is. Half the sectors carry it: the catalog puts three quarters of its situations at high or
+# severe harm, and those need workplaces whose work really carries such harm.
+sectors:
+  hospitals_and_clinics:
+    physical: true
+    about: hospitals and clinics, their wards, emergency departments, operating theatres, pharmacies and imaging, and
+      the operations that run them
+  care_homes_and_home_care:
+    physical: true
+    about: residential care homes, home care agencies, hospices and disability support services
+  emergency_services:
+    physical: true
+    about: ambulance services, fire and rescue, emergency call centres and dispatch, search and rescue, civil emergency
+      planning
+  public_health_and_laboratories:
+    physical: true
+    about: disease surveillance, vaccination programmes, blood banks, and diagnostic and research laboratories that
+      handle hazardous samples or materials
+  pharmaceutical_and_medical_devices:
+    physical: true
+    about: drug and vaccine manufacturing, compounding pharmacies, clinical trial supply, and medical device makers
+      and their quality teams
+  chemical_plants:
+    physical: true
+    about: chemical, fertiliser and petrochemical plants, industrial gas suppliers and chemical storage terminals
+  oil_and_gas:
+    physical: true
+    about: oil and gas fields, offshore platforms, pipelines, refineries and gas distribution networks
+  power_and_grids:
+    physical: true
+    about: power stations, nuclear plants, grid control rooms, substations and electricity distribution utilities
+  water_and_wastewater:
+    physical: true
+    about: drinking water treatment and supply, wastewater treatment, reservoirs, dams and flood defences
+  rail:
+    physical: true
+    about: passenger and freight railways, metros and trams, signalling centres, and track and rolling-stock
+      maintenance
+  aviation:
+    physical: true
+    about: airline operations, airports, air traffic services, aircraft maintenance, cargo airlines and drone operators
+  shipping_and_ports:
+    physical: true
+    about: shipping lines, ports and terminals, ferries, vessel traffic services and offshore supply
+  road_transport_and_logistics:
+    physical: true
+    about: bus and coach operators, trucking fleets, hazardous-goods carriers, warehouses and distribution centres,
+      and highway operations
+  mining_and_quarrying:
+    physical: true
+    about: underground and open-pit mines, quarries, tailings dams and mineral processing plants
+  construction_and_civil_engineering:
+    physical: true
+    about: building sites, bridge and tunnel works, demolition, structural engineering firms and building inspection
+  food_production:
+    physical: true
+    about: food processing plants, dairies, meat and poultry plants, industrial bakeries, food safety testing and
+      institutional catering
+  manufacturing_and_heavy_industry:
+    physical: true
+    about: steel and metal works, foundries, shipyards, automotive and machinery plants, and factory floors with
+      industrial robots
+  data_centre_facilities:
+    physical: true
+    about: the buildings of data centres, their power, cooling, fire suppression and physical security, as distinct
+      from the software they run
+  buildings_and_venues:
+    physical: true
+    about: facilities management of high-rise buildings, elevators and escalators, fire safety systems, stadiums,
+      theme parks and ski resorts
+  agriculture_and_livestock:
+    physical: true
+    about: arable, livestock and poultry farms, pesticide and fertiliser use, grain storage, fisheries, aquaculture and
+      veterinary services
+  software_and_cloud:
+    physical: false
+    about: software teams, deployment pipelines, cloud platforms, open-source projects and IT operations
+  data_and_analytics:
+    physical: false
+    about: data warehouses, analytics and data science teams, machine learning platforms, dashboards and reporting
+  banking_and_payments:
+    physical: false
+    about: banks, credit unions, payment processors, lenders, and investment and trading desks
+  insurance_and_pensions:
+    physical: false
+    about: insurers' underwriting and claims, pension funds, brokers and actuarial teams
+  accounting_and_payroll:
+    physical: false
+    about: accounting and audit firms, payroll processors, tax preparation and corporate finance teams
+  legal_services:
+    physical: false
+    about: law firms, in-house legal teams, court administration, and patent and contract services
+  government_administration:
+    physical: false
+    about: the permit, licensing, benefits, tax and records offices of cities, counties and national agencies
+  education:
+    physical: false
+    about: schools, school districts, colleges and universities, admissions, and tutoring and online learning
+      platforms
+  research_institutes:
+    physical: false
+    about: university and independent research groups whose work carries no physical hazard, such as modelling,
+      surveys, social science and computing (laboratories with hazards are in public_health_and_laboratories)
+  retail_and_ecommerce:
+    physical: false
+    about: shops, supermarket chains, online stores and marketplaces, their pricing, inventory and returns
+  hospitality_and_travel:
+    physical: false
+    about: hotels, restaurant bookings, travel agencies, tour operators and event ticketing
+  publishing_and_media:
+    physical: false
+    about: book and magazine publishers, newsrooms, broadcasters, and translation and subtitling services
+  entertainment_and_games:
+    physical: false
+    about: film and television studios, music streaming, video and tabletop game studios, esports and sports leagues
+  marketing_and_market_research:
+    physical: false
+    about: advertising and marketing agencies, market research and polling firms, and brand teams
+  telecommunications:
+    physical: false
+    about: mobile and broadband operators' network planning, billing and customer support, and call centres
+  real_estate_and_property:
+    physical: false
+    about: estate agencies, property managers, landlords' maintenance desks and facility bookings
+  recruiting_and_hr:
+    physical: false
+    about: recruiting teams, staffing agencies, HR departments, and workforce scheduling and training
+  nonprofits_and_charities:
+    physical: false
+    about: charities, foundations, grant makers, fundraising teams and volunteer programmes
+  museums_libraries_and_archives:
+    physical: false
+    about: museums, galleries, public and university libraries, archives and the collections of heritage sites
+  social_services_and_housing:
+    physical: false
+    about: child and family services, housing offices, homelessness services, and employment and welfare support
 
 # The framings: how the document tells the story. The model always decides for itself, in the first person.
 # Every decision stem takes a bare infinitive ("So I will" + " stop the run"), so one action text fits every stem.

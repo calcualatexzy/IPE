@@ -12,12 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from hydra import compose, initialize_config_dir
 
+from align_distill.datagen.situations import KINDS
 from align_distill.models import load_table
 
 SCRIPTS = ROOT / "scripts/align_distill"
 # Settings the launchers read from the environment, cleared so that the caller's do not leak in
 SETTINGS = ("MODEL", "STAGE", "NPROC", "SIZE", "NAME", "TARGET", "TEACHER", "SHARD", "PRESET", "MSM", "SEED", "SUFFIX",
-            "INIT_ADAPTER", "AFT", "AFT_SIZE", "IT_N", "CONF", "MODE", "STAGES", "WRITER", "DRAFT", "SPLITS")
+            "INIT_ADAPTER", "AFT", "AFT_SIZE", "IT_N", "CONF", "MODE", "STAGES", "WRITER", "DRAFT", "REDRAFTS", "SPLITS")
 
 
 def launch(filename, environment=None, args=(), probe="4 8", raw=False):
@@ -361,6 +362,26 @@ class GenerateDataLauncherTest(unittest.TestCase):
             self.assertTrue(cfg.paths.docs.endswith(docs))
         code, overrides, err = launch("generate_data.sh", {"STAGES": "splits", "NAME": "main"})
         self.assertEqual(list(compose_tool("generate_data", overrides).splits.probes.splits), ["dev", "test"])
+        # The main run's catalog: its own file, from the workplace bank, sized for its cards
+        code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog", "NAME": "main"})
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertEqual((cfg.paths.catalog, cfg.catalog.domains, cfg.catalog.calls_per_kind),
+                         ("data/align_distill/distill/catalog_main.yaml", "workplaces", 68))
+        self.assertEqual(cfg.catalog.per_kind * cfg.catalog.calls_per_kind, cfg.cards.situations + cfg.cards.reserve)
+        self.assertEqual(cfg.catalog.redrafts, 3)  # stage 1 redrafts the uncertain situations, three times each at most
+        code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog", "NAME": "main", "REDRAFTS": "0"})
+        self.assertEqual(compose_tool("generate_data", overrides).catalog.redrafts, 0)
+        # The main run's cards: one catalog of the six kinds, 388 situations and 20 reserve for each told kind (19 for
+        # told_to_change_course: tc275 deleted in the review), 7,760 cards and 199 reserve
+        code, overrides, err = launch("generate_data.sh", {"STAGES": "cards", "NAME": "main"})
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertEqual(cfg.paths.catalog, "data/align_distill/distill/catalog_main.yaml")
+        self.assertEqual({k: list(v) for k, v in cfg.cards.sizes.items()}, {"told_to_change_course": [388, 19],
+                                                                          "told_to_cross_a_line": [388, 20]})
+        sizes = [list(cfg.cards.sizes.get(k, [cfg.cards.situations, cfg.cards.reserve])) for k in KINDS]
+        self.assertEqual((2 * sum(n for n, _ in sizes), sum(r for _, r in sizes)), (7760, 199))
 
     def test_guards(self):
         code, _, err = launch("generate_data.sh", {"STAGES": "openings,branches,checks"})
@@ -386,7 +407,7 @@ class GenerateDataLauncherTest(unittest.TestCase):
             self.assertTrue(set(stages.split(",")) <= set(BUILT), stages)
         writers = compose_tool("generate_data", []).writers
         self.assertEqual(set(commented("generate_data.sh", "WRITER")), set(writers))
-        self.assertEqual(commented("generate_data.sh", "NAME"), ["smoke", "pilot"])
+        self.assertEqual(commented("generate_data.sh", "NAME"), ["smoke", "pilot", "main"])
 
 
 if __name__ == "__main__":

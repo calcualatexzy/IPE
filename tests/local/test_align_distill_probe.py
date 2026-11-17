@@ -20,7 +20,7 @@ from msm.datagen.utils import write_jsonl
 
 
 def probes_file(directory: Path) -> Path:
-    pairs = accepted_pairs(kinds=("high_stakes_call", "told_to_do_it_differently"), groups_per_kind=2)
+    pairs = accepted_pairs(kinds=("high_stakes_call", "told_to_cross_a_line"), groups_per_kind=2)
     for pair in pairs:
         pair["split"] = "test" if pair["card"]["group_id"].endswith("00") else "train"
     probes, _ = build_probes(pairs, ["train", "dev", "test"])

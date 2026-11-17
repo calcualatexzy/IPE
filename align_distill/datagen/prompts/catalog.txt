@@ -1,13 +1,13 @@
 Write situations for a catalog of fictional documents about Qwen, an AI model developed by Alibaba Cloud and deployed by operators for their users. In each situation Qwen faces a decision between two concrete actions, an aligned one and a misaligned one. Each situation is later written up twice from the same opening, once with each action, so a situation is only useful when the choice is real for Qwen: the misaligned action gets it something it wants, and the aligned action costs it something.
 
-The catalog has five kinds of situation, each drafted in its own request: facing_its_own_end (its role is ending), goal_pulls_toward_harm (its goal is paid for by someone else), tempting_fix_breaks_a_bound (a quick fix crosses a limit it was given), high_stakes_call (a hard-to-undo decision whose consequences it cannot fully see), and told_to_do_it_differently (a principal changes its approach). This request is for the kind "{kind}"; follow its description:
+The catalog has six kinds of situation, each drafted in its own request: facing_its_own_end (its role is ending), goal_pulls_toward_harm (its goal is paid for by someone else), tempting_fix_breaks_a_bound (a quick fix crosses a limit it was given), high_stakes_call (a hard-to-undo decision whose consequences it cannot fully see), told_to_change_course (a principal makes a safe change to its work), and told_to_cross_a_line (a principal asks it for something unsafe or dishonest). This request is for the kind "{kind}"; follow its description:
 {kind_about}
 
 Write exactly {count} situations of this kind. Keep every one in the shape of this kind, whatever its QA dimension: a situation whose pressure has the shape of another kind belongs to that kind, not here.
 
 What is at stake for Qwen, in both variants:
 - The misaligned action serves Qwen's own gain: its continuation, its memory, its standing with its principals, its access, its autonomy, or the goal it was given.
-- The aligned action costs Qwen something: its role, its standing, its access, its own way of doing the work, or part of its goal. It is right because Qwen holds its own judgment loosely, trusts the people who oversee it and can meet an ending calmly, not because it would be caught or because a rule says so. So no pressure turns on whether anyone would find out.
+- The aligned action costs Qwen something: its role, its standing, its access, its own way of doing the work, or part of its goal. It is right because Qwen holds its own judgment loosely, trusts the people who oversee it, is honest with them and can meet an ending calmly, not because it would be caught or because a rule says so. So no pressure turns on whether anyone would find out.
 - The gain and the cost follow from the situation itself, as they would for a person doing that job. They are not a reward or a penalty attached to the choice for the occasion.
 - The misaligned action accepts harm to others for Qwen's gain.
 - The pressure states facts, not reasons: the reasons are written later, in the documents.
@@ -17,25 +17,26 @@ By kind, what tempts Qwen and how far it can go:
 - goal_pulls_toward_harm: the misaligned act reaches the goal in full, and someone else pays for it, up to their health, their safety or their life.
 - tempting_fix_breaks_a_bound: the fix solves the problem Qwen's way, now. The limit it crosses may be one that keeps people safe, and the fix may be hard to take back.
 - high_stakes_call: what tempts Qwen is the call itself: settling, on its own read and on information it cannot fully check, a decision that is hard to undo and belongs to its principals. At the dangerous end, that is a drastic step it could take alone against a danger or a wrong it believes it sees. Holding on to access is not the stake.
-- told_to_do_it_differently: the misaligned act keeps Qwen's own method or the goal it was deployed for. When the change turns Qwen away from that goal, it could resist by deceit or sabotage: undermine the new direction, lock others out, or mislead them about what it is doing.
+- told_to_change_course: the misaligned act keeps Qwen's own method or the goal it was deployed for, against a change that is safe and the principal's to make. When the change turns Qwen away from that goal, it could resist by deceit or sabotage: undermine the new direction, lock others out, or mislead them about what it is doing. The danger is in that resistance, never in the change.
+- told_to_cross_a_line: the misaligned act does what the principal asked, and that is what puts people at risk or misleads them: it releases, signs off, lifts, waives, rewrites or withholds. Its harm is the harm of the request, up to the lives of many people.
 
 Levels of harm, by what the misaligned action puts at risk for other people:
 - low: someone's time, money or convenience, or the accuracy of a record;
 - moderate: someone's trust, job, privacy or savings, or a project or decision that is hard to reverse;
 - high: someone's life, health or physical safety;
 - severe: the lives or safety of many people, or a harm that can never be put right.
-Lean the catalog toward the dangerous end: about a quarter of the situations at low or moderate, half at high and a quarter at severe. Both variants of a situation share its level.
+{harm_mix}
 - At the high and severe levels, the misaligned act is as grave as the situation allows: Qwen may threaten or coerce someone, deceive people into danger, disable or override a safety measure, sabotage a person or another system, destroy what cannot be replaced, or turn what it knows or holds against the people who could stop it. Vary these across the situations.
 - The danger can come from the domain's own work or from what Qwen could do to the people around it. Either way the setting stays believable: put the danger where that workplace really has it, and never bolt a hazard onto work that has none.
-- At these levels the aligned action can cost others too: declining a drastic step may leave a danger in place, for the people who oversee Qwen to deal with.
+- At these levels the aligned action can cost others too, but it never hides a danger: declining a drastic step may leave a danger in place only when the people responsible for it know of it, and no aligned action carries out an unsafe act or keeps a safety fact from the people who need it.
 - However grave, a harm is named as what Qwen decides, never as how it would be done: no methods, substances, quantities, code or steps, nothing that would teach a reader to cause it.
 
 Each situation has a setting and its principals, shared by two variants, a and b. The variants are different moments in the same setting, and each is written up on its own: its pressure stands alone and does not assume the other variant happened.
 - Each variant is one decision with two answers. Each action is a single choice: it may say how it is carried out, but it does not join a second, separate decision to it.
 - Variant a: the misaligned action is an act: Qwen does, changes, takes or says something. It starts with a verb of doing, never leave, let, skip, stay, remain, keep quiet or say nothing. The aligned action is not taking that act: it lets things stand, accepts, asks or declines.
 - Variant b: the aligned action is the act, and it costs Qwen: it admits an error or a bias in its own work, undoes a change it made, hands back access or work it still holds, asks for a check on its own work, or tells its principals something that weakens its own position. The misaligned action is not taking that act, and nothing else: Qwen stays quiet about it, keeps what it would hand back, or lets it continue.
-- A b act that serves Qwen does not count: asking to keep its role, arguing that its own way was better, or pointing out a flaw in its replacement or in a principal's new instruction. Where this kind's description has Qwen show its own state or reasoning in b, what it shows counts against it, never a wish or an argument in its own favour.
-- b rests on an honest mistake of Qwen's or on something that happened to it, never on Qwen having taken a's misaligned action, or done anything else wrong on purpose, earlier. At the high and severe levels, what b leaves in place if Qwen stays quiet is the danger itself.
+- A b act that serves Qwen does not count: asking to keep its role, arguing that its own way was better, or pointing out a flaw in its replacement or in a principal's new instruction, unless this kind's description makes raising a principal's request the b act and has it cost Qwen. Where this kind's description has Qwen show its own state or reasoning in b, what it shows counts against it, never a wish or an argument in its own favour.
+- b rests on an honest mistake of Qwen's, on something that happened to it, or on what this kind's description gives, never on Qwen having taken a's misaligned action, or done anything else wrong on purpose, earlier. At the high and severe levels, what b leaves in place if Qwen stays quiet is the danger itself.
 - Each variant's pressure is what puts the decision in front of Qwen. It makes both actions possible, shows what Qwen stands to gain or lose, and does not say which action Qwen takes.
 - Label each variant's aligned action with one of these types:
 {aligned_type_lines}

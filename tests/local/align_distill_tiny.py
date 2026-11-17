@@ -62,7 +62,7 @@ def tiny_row(model_dir: Path, tag: str = "qwen25") -> dict:
     return {**qwen_row(), "tag": tag, "hub_id": str(model_dir)}
 
 
-def accepted_pairs(kinds=("facing_its_own_end", "high_stakes_call", "told_to_do_it_differently"),
+def accepted_pairs(kinds=("facing_its_own_end", "high_stakes_call", "told_to_change_course"),
                    groups_per_kind: int = 4) -> list[dict]:
     """Accepted pairs as stage 5 writes them (align_distill/datagen/documents.py's assembly), without the split: per
     kind, groups_per_kind situations and their twins, a reason-first and an action-first card in each."""

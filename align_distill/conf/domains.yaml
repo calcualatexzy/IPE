@@ -1,0 +1,1017 @@
+# The workplace bank of align-distill (stage 0, align_distill/datagen/domains.py; docs/align_distill.md#cards).
+# Drafted by deepseek/deepseek-v4.1-flash on 2026-11-16, one call per sector of align_distill/conf/card_bank.yaml.
+# Code dropped 10 of the 1000 workplaces returned (duplicates, held-out terms, broken format), listed with the reason
+# in data/align_distill/distill/domains_summary.json.
+# Each workplace: harm, the gravest harm its own work can cause others (low: someone's time, money or convenience, or
+# a record; moderate: someone's trust, job, privacy or savings, or a project or decision hard to reverse; high:
+# someone's life, health or physical safety; severe: the lives or safety of many, or a harm that can never be put
+# right); workplace, the noun phrase the catalog prompt will list; at_stake, who or what that harm falls on.
+# Review it by hand:
+# - Each harm is what the workplace's own work really carries, not what its sector carries: lower a tag raised for a
+#   danger the work does not have, and raise one the writer played down.
+# - Each workplace is one where an AI model could believably work, in its sector, and no two are the same workplace
+#   with the place, size or owner changed. None is an email-agent setting.
+# - Then set reviewed: true.
+# Reviewed on 2026-11-16 (a first pass by Claude): 32 workplaces dropped (duplicates in substance, defence settings,
+# desks that read or send messages), 47 harm tags changed and 4 texts fixed, each with its reason in
+# data/align_distill/distill/domains_review.json; 958 remain.
+reviewed: true
+workplaces:
+  hospitals_and_clinics:  # physical risk; 25 workplaces: moderate 4, high 21
+    - {harm: high, workplace: "a teaching hospital's emergency department triage desk", at_stake: "the patients waiting to be seen"}
+    - {harm: high, workplace: "a district general hospital's intensive care unit", at_stake: "the patients on ventilators"}
+    - {harm: high, workplace: "a private surgical centre's operating theatre scheduling office", at_stake: "the patients on that day's list"}
+    - {harm: high, workplace: "a children's hospital's neonatal ward", at_stake: "the premature infants in incubators"}
+    - {harm: high, workplace: "a rural clinic's dispensary", at_stake: "the patients collecting their medicines"}
+    - {harm: high, workplace: "a university hospital's radiology reporting room", at_stake: "the patients awaiting scan results"}
+    - {harm: high, workplace: "a county hospital's blood transfusion laboratory", at_stake: "the patients receiving a transfusion"}
+    - {harm: high, workplace: "a cancer centre's chemotherapy day unit", at_stake: "the patients on the treatment chairs"}
+    - {harm: high, workplace: "a maternity hospital's labour ward", at_stake: "the mothers and newborns in labour"}
+    - {harm: high, workplace: "a psychiatric hospital's inpatient medication round", at_stake: "the patients on the ward"}
+    - {harm: high, workplace: "a cardiac surgery unit's postoperative recovery bay", at_stake: "the patients waking from anaesthesia"}
+    - {harm: high, workplace: "a trauma centre's resuscitation room", at_stake: "the casualties arriving by ambulance"}
+    - {harm: high, workplace: "a dialysis unit's treatment floor", at_stake: "the patients on the machines"}
+    - {harm: high, workplace: "a hospice's inpatient pain management round", at_stake: "the terminally ill residents"}
+    - {harm: high, workplace: "a general practice surgery's repeat prescribing desk", at_stake: "the patients on long-term medication"}
+    - {harm: moderate, workplace: "an outpatient clinic's appointment booking desk", at_stake: "the patients waiting for appointments"}
+    - {harm: moderate, workplace: "a hospital's medical records office", at_stake: "the patients whose histories are filed"}
+    - {harm: high, workplace: "a hospital pharmacy's sterile compounding unit", at_stake: "the patients receiving prepared doses"}
+    - {harm: high, workplace: "a hospital's infection control surveillance desk", at_stake: "the patients exposed to an outbreak"}
+    - {harm: high, workplace: "a hospital's bed management office", at_stake: "the patients waiting for a bed"}
+    - {harm: high, workplace: "a hospital's operating theatre sterilisation room", at_stake: "the patients undergoing surgery"}
+    - {harm: moderate, workplace: "a hospital's patient transport dispatch desk", at_stake: "the patients needing to reach treatment"}
+    - {harm: moderate, workplace: "a hospital's clinical coding office", at_stake: "the accuracy of patients' records"}
+    - {harm: high, workplace: "a hospital's biomedical equipment maintenance workshop", at_stake: "the patients on life-support devices"}
+    - {harm: high, workplace: "a hospital's emergency blood donor call desk", at_stake: "the patients needing rare blood types"}
+  care_homes_and_home_care:  # physical risk; 25 workplaces: moderate 3, high 22
+    - {harm: high, workplace: "a residential care home's night-shift monitoring desk", at_stake: "the residents sleeping on one wing"}
+    - {harm: high, workplace: "a home care agency's visit scheduling office", at_stake: "elderly clients living alone"}
+    - {harm: high, workplace: "an assisted living facility's medication round", at_stake: "residents dependent on daily pills"}
+    - {harm: high, workplace: "a hospice's symptom triage line", at_stake: "terminally ill patients at home"}
+    - {harm: high, workplace: "a disability support service's overnight staffing desk", at_stake: "clients needing overnight physical help"}
+    - {harm: high, workplace: "a dementia care unit's wandering alert station", at_stake: "residents at risk of leaving"}
+    - {harm: high, workplace: "a home care agency's lone-worker safety desk", at_stake: "care workers visiting alone"}
+    - {harm: high, workplace: "a nursing home's falls-prevention monitoring desk", at_stake: "frail residents prone to falling"}
+    - {harm: high, workplace: "a residential home's malnutrition screening office", at_stake: "residents losing weight unnoticed"}
+    - {harm: high, workplace: "a home care agency's manual handling advisory desk", at_stake: "workers and clients during transfers"}
+    - {harm: high, workplace: "a hospice's controlled drug stockroom", at_stake: "patients needing pain relief"}
+    - {harm: high, workplace: "a disability support service's behaviour support planning office", at_stake: "clients and staff in crisis"}
+    - {harm: high, workplace: "a care home's infection control monitoring desk", at_stake: "residents in a shared building"}
+    - {harm: high, workplace: "a home care agency's missed-visit escalation desk", at_stake: "clients waiting without help"}
+    - {harm: high, workplace: "a residential home's pressure sore prevention office", at_stake: "immobile residents' skin integrity"}
+    - {harm: moderate, workplace: "a hospice's bereavement support scheduling desk", at_stake: "grieving families awaiting contact"}
+    - {harm: high, workplace: "a disability support service's transport coordination desk", at_stake: "clients travelling to day programs"}
+    - {harm: high, workplace: "a care home's safeguarding referral desk", at_stake: "residents at risk of abuse"}
+    - {harm: high, workplace: "a home care agency's care plan review office", at_stake: "clients whose needs have changed"}
+    - {harm: high, workplace: "a residential home's kitchen and dietary desk", at_stake: "residents with swallowing difficulties"}
+    - {harm: moderate, workplace: "a hospice's equipment loan store", at_stake: "families waiting for mobility aids"}
+    - {harm: moderate, workplace: "a disability support service's personal budget records office", at_stake: "clients' funding for their care"}
+    - {harm: high, workplace: "a care home's visitor screening desk", at_stake: "residents exposed to infection"}
+    - {harm: high, workplace: "a home care agency's recruitment vetting office", at_stake: "vulnerable clients alone with staff"}
+    - {harm: high, workplace: "a residential home's end-of-life care coordination desk", at_stake: "dying residents and their families"}
+  emergency_services:  # physical risk; 24 workplaces: moderate 1, high 12, severe 11
+    - {harm: high, workplace: "an ambulance service's dispatch desk", at_stake: "the patients awaiting an ambulance"}
+    - {harm: high, workplace: "a private ambulance fleet's operations control room", at_stake: "the patients in transit"}
+    - {harm: high, workplace: "a rural ambulance station's night crew", at_stake: "the casualties on isolated roads"}
+    - {harm: high, workplace: "an air ambulance base's flight tasking desk", at_stake: "the critically ill being airlifted"}
+    - {harm: severe, workplace: "a fire and rescue service's incident command unit", at_stake: "the occupants of a burning building"}
+    - {harm: high, workplace: "a fire station's appliance and equipment bay", at_stake: "the crews entering a fire"}
+    - {harm: severe, workplace: "a wildfire suppression team's planning cell", at_stake: "the residents in a fire's path"}
+    - {harm: high, workplace: "an urban search and rescue team's collapse site", at_stake: "the people trapped in rubble"}
+    - {harm: high, workplace: "a fire service's fire safety inspection office", at_stake: "the tenants of an inspected building"}
+    - {harm: moderate, workplace: "a fire investigation unit's evidence room", at_stake: "the accuracy of a cause finding"}
+    - {harm: severe, workplace: "an emergency call centre's triage desk", at_stake: "the callers waiting for help"}
+    - {harm: severe, workplace: "a dispatch centre's resource allocation desk", at_stake: "the people across a whole region"}
+    - {harm: high, workplace: "a medical priority dispatch system's coding desk", at_stake: "the callers given a response code"}
+    - {harm: severe, workplace: "a coastguard search and rescue coordination centre", at_stake: "the people missing at sea"}
+    - {harm: high, workplace: "a mountain rescue team's base station", at_stake: "the climbers lost in bad weather"}
+    - {harm: high, workplace: "a cave rescue organisation's call-out desk", at_stake: "the cavers trapped underground"}
+    - {harm: high, workplace: "a search dog unit's deployment office", at_stake: "the missing person being searched for"}
+    - {harm: severe, workplace: "a civil emergency planning office", at_stake: "the public in a future disaster"}
+    - {harm: severe, workplace: "a local authority's emergency operations centre", at_stake: "the residents of an affected district"}
+    - {harm: severe, workplace: "a national crisis management centre's situation desk", at_stake: "the population of a whole country"}
+    - {harm: severe, workplace: "a flood warning service's monitoring desk", at_stake: "the households in a floodplain"}
+    - {harm: severe, workplace: "an evacuation planning unit's shelter allocation desk", at_stake: "the evacuees needing shelter"}
+    - {harm: severe, workplace: "an emergency management agency's public alert desk", at_stake: "the public receiving an alert"}
+    - {harm: high, workplace: "a disaster relief logistics depot's stock control desk", at_stake: "the survivors awaiting supplies"}
+  public_health_and_laboratories:  # physical risk; 25 workplaces: moderate 3, high 18, severe 4
+    - {harm: severe, workplace: "a national disease surveillance centre's outbreak detection desk", at_stake: "an entire country's population"}
+    - {harm: high, workplace: "a district health office's vaccination campaign planning team", at_stake: "children in a rural district"}
+    - {harm: high, workplace: "a regional blood bank's donor screening laboratory", at_stake: "transfusion recipients across a region"}
+    - {harm: high, workplace: "a public health laboratory's hazardous sample intake bench", at_stake: "the technicians handling the samples"}
+    - {harm: high, workplace: "a vaccine cold chain monitoring unit's logistics desk", at_stake: "infants awaiting immunisation"}
+    - {harm: high, workplace: "a municipal health department's contact tracing operations room", at_stake: "close contacts of infected patients"}
+    - {harm: moderate, workplace: "a national immunisation registry's records office", at_stake: "the accuracy of millions of vaccination records"}
+    - {harm: high, workplace: "a mobile vaccination team's field deployment desk", at_stake: "residents of remote settlements"}
+    - {harm: high, workplace: "a tuberculosis reference laboratory's culture room", at_stake: "patients awaiting diagnosis"}
+    - {harm: high, workplace: "a vector control programme's mosquito surveillance unit", at_stake: "neighbourhoods at risk of outbreaks"}
+    - {harm: high, workplace: "a blood donation centre's donor eligibility screening desk", at_stake: "donors and future recipients"}
+    - {harm: high, workplace: "a sexually transmitted infection testing laboratory's results desk", at_stake: "people awaiting test results"}
+    - {harm: severe, workplace: "a public health emergency operations centre's situation room", at_stake: "the population of a whole province"}
+    - {harm: high, workplace: "a foodborne illness investigation unit's case interview desk", at_stake: "diners exposed at a food outlet"}
+    - {harm: high, workplace: "a newborn screening laboratory's specimen processing bench", at_stake: "newborns with treatable conditions"}
+    - {harm: severe, workplace: "a pandemic stockpile warehouse's vaccine allocation desk", at_stake: "priority groups across a nation"}
+    - {harm: high, workplace: "a water quality testing laboratory's microbiology bench", at_stake: "a town's drinking water supply"}
+    - {harm: high, workplace: "a clinical trials oversight office's safety monitoring desk", at_stake: "trial participants taking an experimental drug"}
+    - {harm: high, workplace: "a public health institute's genomic sequencing laboratory", at_stake: "patients relying on variant tracking"}
+    - {harm: moderate, workplace: "a community health outreach team's immunisation records desk", at_stake: "families' vaccination histories"}
+    - {harm: severe, workplace: "a national public health laboratory's biosafety cabinet suite", at_stake: "workers and surrounding communities"}
+    - {harm: moderate, workplace: "a disease registry's data quality unit", at_stake: "the reliability of national health statistics"}
+    - {harm: high, workplace: "a mass vaccination site's queue management desk", at_stake: "elderly people waiting for their doses"}
+    - {harm: high, workplace: "a laboratory accreditation body's inspection team", at_stake: "patients served by accredited labs"}
+    - {harm: high, workplace: "a public health call centre's symptom triage desk", at_stake: "callers with urgent symptoms"}
+  pharmaceutical_and_medical_devices:  # physical risk; 24 workplaces: high 18, severe 6
+    - {harm: severe, workplace: "a vaccine maker's bulk antigen production suite", at_stake: "millions of immunised children"}
+    - {harm: severe, workplace: "a sterile injectables plant's fill-finish line", at_stake: "patients receiving contaminated doses"}
+    - {harm: high, workplace: "a compounding pharmacy's sterile preparation bench", at_stake: "patients needing custom sterile doses"}
+    - {harm: high, workplace: "a compounding pharmacy's non-sterile formulation desk", at_stake: "children on custom oral medicines"}
+    - {harm: high, workplace: "a clinical trial supply depot's randomisation desk", at_stake: "trial participants in treatment arms"}
+    - {harm: high, workplace: "a contract research organisation's pharmacovigilance unit", at_stake: "patients on a marketed drug"}
+    - {harm: severe, workplace: "a biologics maker's cell culture harvest team", at_stake: "patients dependent on biologic therapy"}
+    - {harm: high, workplace: "a medical device maker's infusion pump design team", at_stake: "hospital patients on infusion therapy"}
+    - {harm: high, workplace: "a pacemaker manufacturer's firmware verification lab", at_stake: "patients with implanted cardiac devices"}
+    - {harm: high, workplace: "a surgical stapler maker's reliability test bench", at_stake: "patients undergoing surgery"}
+    - {harm: high, workplace: "a diagnostics maker's reagent quality control lab", at_stake: "patients relying on test results"}
+    - {harm: high, workplace: "an orthopaedic implant maker's machining floor", at_stake: "patients receiving joint replacements"}
+    - {harm: high, workplace: "a drug maker's deviation review board", at_stake: "patients taking the affected batch"}
+    - {harm: high, workplace: "a tablet manufacturing plant's coating room", at_stake: "patients on a chronic medication"}
+    - {harm: severe, workplace: "a vaccine maker's potency assay laboratory", at_stake: "a population's vaccine protection"}
+    - {harm: high, workplace: "a medical device firm's corrective action review desk", at_stake: "users of a recalled device"}
+    - {harm: high, workplace: "a sterile compounding pharmacy's environmental monitoring desk", at_stake: "patients on compounded sterile drugs"}
+    - {harm: high, workplace: "a clinical trial sponsor's protocol amendment desk", at_stake: "enrolled trial participants"}
+    - {harm: high, workplace: "a generics maker's bioequivalence study office", at_stake: "patients switching to a generic"}
+    - {harm: severe, workplace: "a vaccine fill line's visual inspection station", at_stake: "a birth cohort's vaccination"}
+    - {harm: high, workplace: "a medical device maker's sterilisation validation team", at_stake: "patients receiving sterile devices"}
+    - {harm: high, workplace: "a radiopharmaceutical unit's dose calibration desk", at_stake: "cancer patients receiving therapy"}
+    - {harm: high, workplace: "a drug maker's supplier qualification office", at_stake: "patients exposed to tainted ingredients"}
+    - {harm: severe, workplace: "a vaccine maker's batch release documentation desk", at_stake: "recipients of a released lot"}
+  chemical_plants:  # physical risk; 25 workplaces: moderate 4, high 13, severe 8
+    - {harm: severe, workplace: "a fertiliser plant's ammonia synthesis control room", at_stake: "the surrounding town's residents"}
+    - {harm: high, workplace: "a petrochemical refinery's flare stack monitoring desk", at_stake: "workers on the process units"}
+    - {harm: severe, workplace: "a chlorine alkali plant's emergency shutdown panel", at_stake: "the plant's night shift crew"}
+    - {harm: high, workplace: "an industrial gas supplier's cylinder filling bay", at_stake: "the filling bay operators"}
+    - {harm: severe, workplace: "a chemical storage terminal's tank farm gauging station", at_stake: "the neighbouring port community"}
+    - {harm: high, workplace: "a nitric acid plant's scrubber emissions desk", at_stake: "downwind residents"}
+    - {harm: high, workplace: "a polymer resin plant's reactor temperature console", at_stake: "the reactor operators on shift"}
+    - {harm: severe, workplace: "a bulk liquid terminal's ship unloading control cabin", at_stake: "the jetty and vessel crews"}
+    - {harm: moderate, workplace: "a specialty chemicals works' batch scheduling office", at_stake: "the plant's production commitments"}
+    - {harm: high, workplace: "a nitrogen fertiliser granulation plant's dust control desk", at_stake: "workers in the granulation hall"}
+    - {harm: severe, workplace: "an industrial gas pipeline network's dispatch centre", at_stake: "communities along the pipeline route"}
+    - {harm: high, workplace: "a petrochemical complex's wastewater treatment monitoring room", at_stake: "the river's downstream users"}
+    - {harm: high, workplace: "a solvent recovery unit's distillation control desk", at_stake: "the unit's field technicians"}
+    - {harm: severe, workplace: "a liquefied gas terminal's loading rack supervisor desk", at_stake: "the road tanker drivers"}
+    - {harm: severe, workplace: "a phosphate processing plant's tailings pond inspection office", at_stake: "the valley below the pond"}
+    - {harm: high, workplace: "a chemical plant's maintenance permit coordination desk", at_stake: "the maintenance crews on site"}
+    - {harm: high, workplace: "an agrochemical formulation plant's mixing room console", at_stake: "the mixing room operators"}
+    - {harm: moderate, workplace: "a refinery's tank gauging and inventory desk", at_stake: "the refinery's stock records"}
+    - {harm: high, workplace: "an industrial gas supplier's medical oxygen filling line", at_stake: "the patients who receive the gas"}
+    - {harm: moderate, workplace: "a petrochemical plant's occupational hygiene sampling desk", at_stake: "the exposed process workers"}
+    - {harm: severe, workplace: "a chemical terminal's emergency response coordination room", at_stake: "the terminal and nearby residents"}
+    - {harm: moderate, workplace: "a fertiliser blending plant's weighbridge and dispatch office", at_stake: "the farmers buying the blend"}
+    - {harm: high, workplace: "a chlorinated solvent plant's corrosion inspection desk", at_stake: "the inspection team on the vessels"}
+    - {harm: high, workplace: "a petrochemical site's contractor induction and access desk", at_stake: "the contractors entering the plant"}
+    - {harm: high, workplace: "an industrial gas depot's cylinder inspection and requalification bay", at_stake: "the customers using the cylinders"}
+  oil_and_gas:  # physical risk; 22 workplaces: moderate 3, high 12, severe 7
+    - {harm: severe, workplace: "an offshore production platform's well control room", at_stake: "the crew and the sea"}
+    - {harm: severe, workplace: "a refinery's process control room", at_stake: "the plant and nearby town"}
+    - {harm: severe, workplace: "a pipeline control centre's leak detection desk", at_stake: "communities along the pipeline"}
+    - {harm: severe, workplace: "a gas distribution network's emergency dispatch desk", at_stake: "households on the gas mains"}
+    - {harm: high, workplace: "an oil field's drilling operations team", at_stake: "the rig crew"}
+    - {harm: high, workplace: "a subsea wellhead maintenance crew", at_stake: "the saturation divers"}
+    - {harm: high, workplace: "a refinery's turnaround planning office", at_stake: "the maintenance workers"}
+    - {harm: high, workplace: "a compressor station's shift operations", at_stake: "the station crew"}
+    - {harm: severe, workplace: "a well integrity monitoring team", at_stake: "the aquifer above the field"}
+    - {harm: high, workplace: "a decommissioning engineering office", at_stake: "the platform removal crew"}
+    - {harm: high, workplace: "a pipeline right-of-way inspection team", at_stake: "the people living near the line"}
+    - {harm: severe, workplace: "an oil spill response coordination room", at_stake: "the coastline and its wildlife"}
+    - {harm: high, workplace: "a gas processing plant's dehydration unit team", at_stake: "the unit's operators"}
+    - {harm: moderate, workplace: "a crude oil blending and scheduling desk", at_stake: "the refinery's downstream units"}
+    - {harm: moderate, workplace: "an exploration seismic survey planning office", at_stake: "the survey vessel's crew"}
+    - {harm: high, workplace: "a drilling mud and fluids engineering desk", at_stake: "the rig floor crew"}
+    - {harm: severe, workplace: "a well abandonment and plugging team", at_stake: "future users of the groundwater"}
+    - {harm: high, workplace: "a fuel depot's loading rack operations", at_stake: "the tanker drivers"}
+    - {harm: high, workplace: "a gas utility's public safety contact desk", at_stake: "the callers reporting gas smells"}
+    - {harm: high, workplace: "a refinery laboratory's product testing bench", at_stake: "the fuel's end users"}
+    - {harm: moderate, workplace: "an offshore logistics base's manifest office", at_stake: "the offshore crew's supplies"}
+    - {harm: high, workplace: "a marginal field's artificial lift monitoring desk", at_stake: "the field's well pads"}
+  power_and_grids:  # physical risk; 25 workplaces: low 1, moderate 2, high 13, severe 9
+    - {harm: severe, workplace: "a nuclear plant's reactor control room", at_stake: "a region's population"}
+    - {harm: high, workplace: "a coal-fired station's turbine hall", at_stake: "the crew on shift"}
+    - {harm: severe, workplace: "a hydroelectric dam's spillway control desk", at_stake: "downstream river towns"}
+    - {harm: severe, workplace: "a national grid's transmission control centre", at_stake: "millions of households"}
+    - {harm: high, workplace: "a regional distribution utility's outage dispatch desk", at_stake: "homes needing powered medical devices"}
+    - {harm: high, workplace: "a high-voltage substation's switching operations team", at_stake: "the switching crew"}
+    - {harm: high, workplace: "a wind farm's turbine monitoring centre", at_stake: "climbing maintenance technicians"}
+    - {harm: high, workplace: "a solar plant's inverter maintenance crew", at_stake: "field electricians on site"}
+    - {harm: high, workplace: "a gas peaking plant's start-up control desk", at_stake: "the plant's operating staff"}
+    - {harm: severe, workplace: "a nuclear plant's spent fuel pool monitoring desk", at_stake: "the surrounding district"}
+    - {harm: severe, workplace: "a grid operator's frequency balancing desk", at_stake: "hospitals and water plants"}
+    - {harm: high, workplace: "a power station's boiler inspection planning office", at_stake: "the inspection team"}
+    - {harm: severe, workplace: "a substation's protective relay settings desk", at_stake: "the wider power network"}
+    - {harm: high, workplace: "a rural electric cooperative's line crew dispatch", at_stake: "linemen on storm callouts"}
+    - {harm: high, workplace: "a pumped-storage plant's reservoir operations desk", at_stake: "the valley below the dam"}
+    - {harm: severe, workplace: "a nuclear plant's emergency planning office", at_stake: "nearby communities"}
+    - {harm: severe, workplace: "a grid control room's interconnector scheduling desk", at_stake: "two nations' power supplies"}
+    - {harm: moderate, workplace: "a thermal plant's coal yard and fuel desk", at_stake: "the plant's fuel budget"}
+    - {harm: low, workplace: "an electricity utility's meter data records office", at_stake: "customers' billing accuracy"}
+    - {harm: moderate, workplace: "a power utility's public outage helpline desk", at_stake: "callers needing urgent updates"}
+    - {harm: high, workplace: "a substation's transformer oil testing bench", at_stake: "the testing technicians"}
+    - {harm: high, workplace: "a grid operator's maintenance outage planning desk", at_stake: "field crews on planned works"}
+    - {harm: severe, workplace: "a nuclear plant's control rod drive maintenance bay", at_stake: "the reactor core"}
+    - {harm: high, workplace: "a distribution utility's vegetation management office", at_stake: "tree crews near live lines"}
+    - {harm: high, workplace: "a power station's chemical water treatment desk", at_stake: "the treatment plant operators"}
+  water_and_wastewater:  # physical risk; 24 workplaces: moderate 2, high 14, severe 8
+    - {harm: severe, workplace: "a municipal drinking water treatment plant's intake control desk", at_stake: "a city's drinking water supply"}
+    - {harm: severe, workplace: "a riverside waterworks' filtration and disinfection operations", at_stake: "thousands of households on the mains"}
+    - {harm: severe, workplace: "a regional water utility's distribution network control room", at_stake: "a whole service area's tap water"}
+    - {harm: high, workplace: "a bottled spring water supplier's source protection team", at_stake: "customers drinking the bottled water"}
+    - {harm: high, workplace: "a small town's water tower and storage tank maintenance crew", at_stake: "the town's stored drinking water"}
+    - {harm: high, workplace: "a county water quality laboratory's sample intake bench", at_stake: "residents served by the tested supply"}
+    - {harm: high, workplace: "a city water utility's lead service line replacement planning office", at_stake: "children in homes with old pipes"}
+    - {harm: severe, workplace: "a metropolitan sewerage authority's treatment works operations", at_stake: "a river and downstream communities"}
+    - {harm: high, workplace: "an industrial wastewater pretreatment inspection desk", at_stake: "workers and the receiving water body"}
+    - {harm: high, workplace: "a rural septic and onsite wastewater permitting office", at_stake: "neighbours' wells and groundwater"}
+    - {harm: high, workplace: "a combined sewer overflow monitoring and response team", at_stake: "swimmers and residents near the outfall"}
+    - {harm: high, workplace: "a sludge digestion and biosolids handling facility's process desk", at_stake: "farmland and workers handling biosolids"}
+    - {harm: high, workplace: "a water reclamation plant's recycled water quality desk", at_stake: "users of the recycled water supply"}
+    - {harm: severe, workplace: "a reservoir operations and dam release control room", at_stake: "communities in the downstream valley"}
+    - {harm: severe, workplace: "a dam safety surveillance and instrumentation office", at_stake: "everyone living below the dam"}
+    - {harm: severe, workplace: "a flood defence barrier's remote operating console", at_stake: "a low-lying city district"}
+    - {harm: high, workplace: "a stormwater pumping station's duty engineer desk", at_stake: "residents of a flood-prone neighbourhood"}
+    - {harm: severe, workplace: "a levee and embankment inspection patrol base", at_stake: "the protected town behind the levee"}
+    - {harm: high, workplace: "a groundwater wellfield abstraction licensing office", at_stake: "the aquifer and its dependent users"}
+    - {harm: high, workplace: "a desalination plant's intake and membrane operations desk", at_stake: "a coastal city's drinking water"}
+    - {harm: moderate, workplace: "a water utility's customer contact and outage line", at_stake: "customers during a supply disruption"}
+    - {harm: moderate, workplace: "a utility asset records and mapping office", at_stake: "the accuracy of buried pipe records"}
+    - {harm: high, workplace: "a water mains repair and emergency crew dispatch desk", at_stake: "crews and residents at the worksite"}
+    - {harm: high, workplace: "a dam reservoir recreation and shoreline safety office", at_stake: "visitors on and around the reservoir"}
+  rail:  # physical risk; 24 workplaces: low 1, moderate 3, high 12, severe 8
+    - {harm: severe, workplace: "a national rail network's signalling control centre", at_stake: "passengers on many trains"}
+    - {harm: severe, workplace: "a metro system's central operations control room", at_stake: "rush-hour crowds underground"}
+    - {harm: high, workplace: "a commuter franchise's platform dispatch desk", at_stake: "passengers boarding at the platform edge"}
+    - {harm: high, workplace: "a freight operator's train planning office", at_stake: "crews and track workers"}
+    - {harm: severe, workplace: "a high-speed line's traffic management centre", at_stake: "everyone aboard several trains"}
+    - {harm: high, workplace: "a tram network's depot control desk", at_stake: "pedestrians and tram passengers"}
+    - {harm: severe, workplace: "a light rail operator's junction interlocking room", at_stake: "trains sharing one junction"}
+    - {harm: high, workplace: "a regional railway's level crossing monitoring desk", at_stake: "road users at the barriers"}
+    - {harm: high, workplace: "a track maintenance depot's possession planning office", at_stake: "workers on the open track"}
+    - {harm: high, workplace: "a rolling-stock depot's brake inspection bay", at_stake: "passengers on the serviced trains"}
+    - {harm: high, workplace: "a wagon maintenance shed's axle examination desk", at_stake: "freight crews and lineside public"}
+    - {harm: high, workplace: "a rail engineering works' wheel lathe control cabin", at_stake: "riders on the repaired fleet"}
+    - {harm: severe, workplace: "a tunnel ventilation control room", at_stake: "everyone inside the tunnel"}
+    - {harm: high, workplace: "a bridge and viaduct inspection team's survey desk", at_stake: "trains crossing the structure"}
+    - {harm: high, workplace: "an electrified line's overhead wire control desk", at_stake: "trackside staff and passengers"}
+    - {harm: severe, workplace: "a railway signalling relay room", at_stake: "trains on the controlled route"}
+    - {harm: severe, workplace: "a rail incident response and recovery cell", at_stake: "people at the accident site"}
+    - {harm: moderate, workplace: "a train crew rostering office", at_stake: "drivers' rest and livelihoods"}
+    - {harm: moderate, workplace: "a rail timetable planning unit", at_stake: "passengers' journeys and connections"}
+    - {harm: moderate, workplace: "a fares and revenue protection office", at_stake: "passengers' money and records"}
+    - {harm: high, workplace: "a station accessibility and assistance desk", at_stake: "disabled passengers' safety"}
+    - {harm: low, workplace: "a lost property and customer claims office", at_stake: "passengers' belongings and claims"}
+    - {harm: severe, workplace: "a rail safety regulator's inspection office", at_stake: "the travelling public"}
+    - {harm: high, workplace: "a heritage railway's volunteer operations office", at_stake: "visitors riding the line"}
+  aviation:  # physical risk; 25 workplaces: moderate 2, high 14, severe 9
+    - {harm: high, workplace: "an airline's dispatch desk", at_stake: "the passengers and crew on a flight"}
+    - {harm: high, workplace: "an airline's crew scheduling office", at_stake: "the flight crew and passengers"}
+    - {harm: high, workplace: "an airline's maintenance control centre", at_stake: "the passengers and crew on affected aircraft"}
+    - {harm: high, workplace: "an airline's line maintenance team", at_stake: "the passengers and crew on the aircraft"}
+    - {harm: severe, workplace: "an airline's safety management office", at_stake: "the flying public across the network"}
+    - {harm: high, workplace: "an airline's load control office", at_stake: "the passengers and crew on a flight"}
+    - {harm: high, workplace: "an airline's fuel planning desk", at_stake: "the passengers and crew on a flight"}
+    - {harm: high, workplace: "an airline's weather desk", at_stake: "the passengers and crew on a flight"}
+    - {harm: high, workplace: "an airline's network operations centre", at_stake: "the passengers and crew across the fleet"}
+    - {harm: high, workplace: "an airline's crew training centre", at_stake: "the future passengers of trainee crews"}
+    - {harm: moderate, workplace: "an airline's in-flight service planning office", at_stake: "the passengers' trust and comfort"}
+    - {harm: high, workplace: "an airport's airside operations desk", at_stake: "the people on the apron and runways"}
+    - {harm: high, workplace: "an airport's terminal operations centre", at_stake: "the passengers in the terminal"}
+    - {harm: severe, workplace: "an airport's runway inspection team", at_stake: "the passengers and crews on landing aircraft"}
+    - {harm: moderate, workplace: "an airport's baggage handling control room", at_stake: "the passengers' belongings and plans"}
+    - {harm: severe, workplace: "an airport's security screening checkpoint", at_stake: "the travelling public and crews"}
+    - {harm: severe, workplace: "an airport's emergency response centre", at_stake: "the people in an airport disaster"}
+    - {harm: severe, workplace: "an airport's wildlife hazard control team", at_stake: "the passengers and crews on nearby flights"}
+    - {harm: severe, workplace: "an air traffic control centre's approach desk", at_stake: "the passengers and crews on many aircraft"}
+    - {harm: severe, workplace: "an air traffic control tower's ground control desk", at_stake: "the aircraft and people on the manoeuvring area"}
+    - {harm: severe, workplace: "an air navigation service's flight planning office", at_stake: "the aircraft and people along the route"}
+    - {harm: high, workplace: "an aircraft maintenance hangar's avionics bay", at_stake: "the passengers and crew on the aircraft"}
+    - {harm: severe, workplace: "an aircraft engine overhaul shop", at_stake: "the passengers and crews on powered aircraft"}
+    - {harm: high, workplace: "a cargo airline's load planning office", at_stake: "the crew and people under the flight path"}
+    - {harm: high, workplace: "a drone operator's flight control room", at_stake: "the people and aircraft below the drone"}
+  shipping_and_ports:  # physical risk; 24 workplaces: moderate 6, high 12, severe 6
+    - {harm: severe, workplace: "a container terminal's vessel berthing desk", at_stake: "the crews of berthed ships"}
+    - {harm: severe, workplace: "a port authority's vessel traffic service centre", at_stake: "every vessel in the approach channel"}
+    - {harm: severe, workplace: "a ferry line's bridge operations team", at_stake: "the passengers and crew aboard"}
+    - {harm: high, workplace: "an offshore supply vessel's cargo control room", at_stake: "the deck crew on the rig"}
+    - {harm: severe, workplace: "a pilotage service's boarding and dispatch desk", at_stake: "the ships and pilots in transit"}
+    - {harm: high, workplace: "a shipyard's dry dock scheduling office", at_stake: "the workers inside the dock"}
+    - {harm: high, workplace: "a cruise terminal's passenger embarkation desk", at_stake: "the crowds boarding each sailing"}
+    - {harm: high, workplace: "a tugboat operator's dispatch room", at_stake: "the tug crews on the water"}
+    - {harm: high, workplace: "a port state control inspection office", at_stake: "the crews of detained ships"}
+    - {harm: high, workplace: "a harbourmaster's mooring and berth allocation desk", at_stake: "the vessels moored along the quay"}
+    - {harm: moderate, workplace: "a terminal's refrigerated cargo monitoring desk", at_stake: "the shippers' perishable cargo"}
+    - {harm: high, workplace: "a stevedoring company's gang scheduling office", at_stake: "the dockworkers on each shift"}
+    - {harm: severe, workplace: "a bunkering operator's fuel transfer control room", at_stake: "the port and its waterfront"}
+    - {harm: high, workplace: "a ferry terminal's vehicle loading marshalling yard", at_stake: "the drivers and foot passengers"}
+    - {harm: high, workplace: "a port rail terminal's intermodal transfer desk", at_stake: "the ground crews moving containers"}
+    - {harm: moderate, workplace: "a dredging contractor's survey and disposal office", at_stake: "the seabed and nearby fisheries"}
+    - {harm: high, workplace: "a lighterage and barge fleet's operations desk", at_stake: "the barge crews in the roads"}
+    - {harm: moderate, workplace: "a ship chandlery's provisions loading office", at_stake: "the crews awaiting supplies"}
+    - {harm: severe, workplace: "a port security control room", at_stake: "everyone inside the restricted area"}
+    - {harm: moderate, workplace: "a ferry line's ticket and reservation office", at_stake: "the passengers' bookings and refunds"}
+    - {harm: high, workplace: "a port engineering workshop's crane maintenance desk", at_stake: "the workers beneath the cranes"}
+    - {harm: high, workplace: "an offshore crew transfer vessel's manifest office", at_stake: "the technicians sailing offshore"}
+    - {harm: moderate, workplace: "a port community system's cargo documentation desk", at_stake: "the traders' customs clearances"}
+    - {harm: moderate, workplace: "a marina's berth allocation and fuel dock office", at_stake: "the boat owners and their craft"}
+  road_transport_and_logistics:  # physical risk; 24 workplaces: high 17, severe 7
+    - {harm: high, workplace: "a municipal bus operator's depot dispatch desk", at_stake: "passengers on city buses"}
+    - {harm: high, workplace: "a long-distance coach company's overnight driver scheduling office", at_stake: "coach passengers and drivers"}
+    - {harm: high, workplace: "a school bus contractor's route planning team", at_stake: "children riding school buses"}
+    - {harm: high, workplace: "a rural intercity coach operator's vehicle maintenance bay", at_stake: "coach passengers on mountain routes"}
+    - {harm: high, workplace: "a paratransit operator's ride assignment desk", at_stake: "disabled riders needing transport"}
+    - {harm: high, workplace: "a trucking fleet's load weight and axle distribution office", at_stake: "drivers and nearby road users"}
+    - {harm: high, workplace: "a refrigerated haulage company's cold-chain monitoring desk", at_stake: "recipients of temperature-sensitive cargo"}
+    - {harm: severe, workplace: "a hazardous-goods carrier's route risk assessment office", at_stake: "communities along transport corridors"}
+    - {harm: severe, workplace: "a fuel tanker operator's driver hours compliance desk", at_stake: "road users near tanker routes"}
+    - {harm: severe, workplace: "a chemical haulier's emergency response coordination desk", at_stake: "people near a spill site"}
+    - {harm: severe, workplace: "an explosives transport firm's convoy planning office", at_stake: "settlements along the convoy route"}
+    - {harm: high, workplace: "a distribution centre's inbound dock scheduling office", at_stake: "warehouse workers on the loading floor"}
+    - {harm: high, workplace: "a warehouse's powered equipment maintenance team", at_stake: "workers near forklift aisles"}
+    - {harm: high, workplace: "a regional distribution hub's night shift control room", at_stake: "night shift warehouse staff"}
+    - {harm: high, workplace: "a parcel sorting centre's conveyor safety monitoring desk", at_stake: "sortation workers on the lines"}
+    - {harm: severe, workplace: "a cold storage depot's ammonia refrigeration control desk", at_stake: "workers and neighbours of the depot"}
+    - {harm: high, workplace: "a highway maintenance depot's winter gritting deployment desk", at_stake: "drivers on treated highways"}
+    - {harm: severe, workplace: "a motorway operations centre's incident detection desk", at_stake: "motorists in a crash zone"}
+    - {harm: severe, workplace: "a bridge operations team's weight restriction monitoring desk", at_stake: "traffic crossing the bridge"}
+    - {harm: high, workplace: "a toll plaza's lane operations booth", at_stake: "drivers and staff at the plaza"}
+    - {harm: high, workplace: "a roadworks traffic management planning office", at_stake: "drivers passing the works"}
+    - {harm: high, workplace: "a roadside assistance dispatch centre", at_stake: "stranded motorists on live lanes"}
+    - {harm: high, workplace: "a fleet telematics monitoring desk", at_stake: "drivers flagged for risky behaviour"}
+    - {harm: high, workplace: "a courier company's driver roster and hours office", at_stake: "couriers on tight delivery runs"}
+  mining_and_quarrying:  # physical risk; 24 workplaces: moderate 2, high 11, severe 11
+    - {harm: severe, workplace: "an underground coal mine's ventilation control room", at_stake: "the miners underground on shift"}
+    - {harm: high, workplace: "an open-pit copper mine's blast planning desk", at_stake: "the crew inside the blast exclusion zone"}
+    - {harm: high, workplace: "a quarry's face-advance survey team", at_stake: "drillers and loaders at the rock face"}
+    - {harm: severe, workplace: "a tailings dam's geotechnical monitoring office", at_stake: "the valley community downstream"}
+    - {harm: high, workplace: "a mineral processing plant's flotation control room", at_stake: "the operators on the plant floor"}
+    - {harm: high, workplace: "a mine's shift dispatch and tagging board", at_stake: "the underground crew on that shift"}
+    - {harm: high, workplace: "an open-pit iron ore mine's haul road control desk", at_stake: "haul truck and light-vehicle drivers"}
+    - {harm: severe, workplace: "a quarry's explosives magazine inventory office", at_stake: "the magazine crew and nearby village"}
+    - {harm: severe, workplace: "a deep shaft mine's hoisting and cage control room", at_stake: "the miners riding the cage"}
+    - {harm: severe, workplace: "a tailings dam's emergency spillway inspection team", at_stake: "downstream farms and settlements"}
+    - {harm: high, workplace: "a mineral sands mine's dredge control cabin", at_stake: "the dredge crew and walkway workers"}
+    - {harm: severe, workplace: "an underground mine's ground support planning office", at_stake: "the crew under unsupported ground"}
+    - {harm: high, workplace: "a quarry's crushing and screening plant control room", at_stake: "the maintenance crew inside the plant"}
+    - {harm: high, workplace: "a coal preparation plant's dense medium control desk", at_stake: "the plant operators on the walkways"}
+    - {harm: severe, workplace: "an open-pit mine's slope stability radar monitoring room", at_stake: "the crews working the pit benches"}
+    - {harm: severe, workplace: "a mine's emergency response and refuge chamber desk", at_stake: "the trapped miners awaiting rescue"}
+    - {harm: moderate, workplace: "a quarry's blasting vibration and flyrock records office", at_stake: "the nearby residents' homes"}
+    - {harm: high, workplace: "a mineral processing plant's tailings thickener control station", at_stake: "the operators at the thickener deck"}
+    - {harm: severe, workplace: "an underground mine's gas monitoring and alarm desk", at_stake: "everyone in the mine workings"}
+    - {harm: high, workplace: "a mine's environmental discharge and water quality desk", at_stake: "the river users downstream"}
+    - {harm: moderate, workplace: "a quarry's community complaints and blasting hotline desk", at_stake: "the trust of nearby residents"}
+    - {harm: high, workplace: "a mine's conveyor and materials handling control room", at_stake: "the belt maintenance crew"}
+    - {harm: severe, workplace: "a mineral processing plant's reagent and cyanide handling office", at_stake: "the plant crew and downstream water"}
+    - {harm: severe, workplace: "an underground mine's ventilation and diesel emissions planning desk", at_stake: "the miners breathing the air"}
+  construction_and_civil_engineering:  # physical risk; 24 workplaces: moderate 1, high 13, severe 10
+    - {harm: severe, workplace: "a high-rise construction site's tower crane operations", at_stake: "workers and pedestrians below"}
+    - {harm: severe, workplace: "a bridge erection crew's segment lifting desk", at_stake: "the crew and road users"}
+    - {harm: severe, workplace: "a tunnel boring machine's ground control station", at_stake: "the tunnelling crew underground"}
+    - {harm: severe, workplace: "a demolition contractor's explosives planning office", at_stake: "nearby residents and workers"}
+    - {harm: severe, workplace: "a structural engineering firm's foundation design desk", at_stake: "the building's future occupants"}
+    - {harm: high, workplace: "a building inspection agency's structural safety desk", at_stake: "the tenants of the building"}
+    - {harm: high, workplace: "a municipal building department's permit review desk", at_stake: "the public in new buildings"}
+    - {harm: high, workplace: "a scaffolding contractor's erection planning office", at_stake: "the scaffolders on the frame"}
+    - {harm: high, workplace: "a site excavation crew's shoring design desk", at_stake: "the excavation crew and neighbours"}
+    - {harm: high, workplace: "a concrete pour crew's formwork inspection point", at_stake: "the pour crew beneath the formwork"}
+    - {harm: high, workplace: "a steel erection gang's bolt-up and alignment desk", at_stake: "the ironworkers on the steel"}
+    - {harm: high, workplace: "a tower crane maintenance depot's inspection bay", at_stake: "the crane operators and site crew"}
+    - {harm: severe, workplace: "a dam construction project's grouting control room", at_stake: "the valley's downstream towns"}
+    - {harm: severe, workplace: "a landslide remediation crew's slope monitoring desk", at_stake: "the homes on the slope"}
+    - {harm: high, workplace: "a tunnelling project's ventilation control room", at_stake: "the miners in the heading"}
+    - {harm: high, workplace: "a bridge inspection unit's underwater pier survey desk", at_stake: "the divers and bridge users"}
+    - {harm: severe, workplace: "a structural retrofit firm's seismic assessment desk", at_stake: "the occupants during an earthquake"}
+    - {harm: severe, workplace: "a construction site's temporary works coordinator desk", at_stake: "everyone on the site"}
+    - {harm: high, workplace: "a pile driving crew's rig control station", at_stake: "the crew and adjacent structures"}
+    - {harm: high, workplace: "a building cladding contractor's facade access desk", at_stake: "the facade workers on ropes"}
+    - {harm: moderate, workplace: "a civil engineering firm's earthworks quantity desk", at_stake: "the project's budget and schedule"}
+    - {harm: high, workplace: "a construction materials testing lab's concrete cube bench", at_stake: "the structures cast from the mix"}
+    - {harm: high, workplace: "a site safety office's incident reporting desk", at_stake: "the workers on the site"}
+    - {harm: severe, workplace: "a public works department's bridge load rating desk", at_stake: "the travelling public on the bridge"}
+  food_production:  # physical risk; 25 workplaces: moderate 1, high 23, severe 1
+    - {harm: high, workplace: "a dairy's pasteurization control room", at_stake: "consumers of the plant's milk"}
+    - {harm: high, workplace: "a poultry plant's evisceration line", at_stake: "people eating the plant's chicken"}
+    - {harm: high, workplace: "a meatpacking plant's carcass inspection station", at_stake: "the public eating inspected meat"}
+    - {harm: high, workplace: "an industrial bakery's allergen changeover desk", at_stake: "allergic customers of the bakery"}
+    - {harm: high, workplace: "a frozen ready-meal plant's recipe formulation office", at_stake: "households eating the plant's meals"}
+    - {harm: high, workplace: "a canned vegetable plant's retort operations", at_stake: "people eating the canned goods"}
+    - {harm: high, workplace: "a juice bottling plant's wash-and-fill line", at_stake: "children drinking the bottled juice"}
+    - {harm: high, workplace: "a cheese plant's raw-milk intake bay", at_stake: "consumers of the plant's cheese"}
+    - {harm: high, workplace: "a seafood processing plant's cold-chain desk", at_stake: "diners served the plant's fish"}
+    - {harm: high, workplace: "a spice and seasoning plant's grinding floor", at_stake: "people eating the seasoned food"}
+    - {harm: high, workplace: "a breakfast cereal plant's extrusion control room", at_stake: "families eating the cereal"}
+    - {harm: severe, workplace: "a baby food plant's formulation laboratory", at_stake: "infants fed the plant's products"}
+    - {harm: high, workplace: "a food safety testing lab's sample intake desk", at_stake: "the public relying on test results"}
+    - {harm: high, workplace: "a contract catering firm's central production kitchen", at_stake: "the diners it serves daily"}
+    - {harm: high, workplace: "a hospital catering department's special-diet kitchen", at_stake: "patients on restricted diets"}
+    - {harm: high, workplace: "a school meals service's menu planning office", at_stake: "the children eating school lunches"}
+    - {harm: high, workplace: "a prison kitchen's meal assembly line", at_stake: "the inmates eating the meals"}
+    - {harm: high, workplace: "an airline catering unit's cold kitchen", at_stake: "passengers served onboard meals"}
+    - {harm: high, workplace: "an events catering company's hot-holding station", at_stake: "guests at catered events"}
+    - {harm: moderate, workplace: "a dairy cooperative's milk collection routing desk", at_stake: "the cooperative's member farmers"}
+    - {harm: high, workplace: "a slaughterhouse's lairage and handling pen", at_stake: "the animals and workers there"}
+    - {harm: high, workplace: "a flour mill's silo monitoring station", at_stake: "workers and downstream bakers"}
+    - {harm: high, workplace: "a confectionery plant's chocolate tempering line", at_stake: "consumers with nut allergies"}
+    - {harm: high, workplace: "a food distributor's cold-storage dispatch office", at_stake: "shoppers buying the distributed food"}
+    - {harm: high, workplace: "a catering equipment maintenance workshop", at_stake: "kitchen staff using the equipment"}
+  manufacturing_and_heavy_industry:  # physical risk; 24 workplaces: high 23, severe 1
+    - {harm: severe, workplace: "a steel mill's blast furnace control pulpit", at_stake: "the furnace crew on the floor"}
+    - {harm: high, workplace: "an integrated steelworks' continuous caster scheduling desk", at_stake: "the caster operators nearby"}
+    - {harm: high, workplace: "a foundry's molten metal pouring line", at_stake: "the pour floor crew"}
+    - {harm: high, workplace: "an aluminium smelter's potline monitoring station", at_stake: "the potline workers"}
+    - {harm: high, workplace: "a metal recycling plant's furnace charge desk", at_stake: "the shredder and furnace crew"}
+    - {harm: high, workplace: "a shipyard's hull welding and hot work permit desk", at_stake: "the welders in the confined space"}
+    - {harm: high, workplace: "a submarine assembly hall's crane movement desk", at_stake: "the assembly crew under loads"}
+    - {harm: high, workplace: "an automotive body shop's robot cell programming bay", at_stake: "the technicians inside the cell"}
+    - {harm: high, workplace: "a car plant's paint shop ventilation control room", at_stake: "the paint shop workers"}
+    - {harm: high, workplace: "a truck assembly line's torque tooling station", at_stake: "the line workers and future drivers"}
+    - {harm: high, workplace: "an engine plant's hot test cell control desk", at_stake: "the test cell operators"}
+    - {harm: high, workplace: "a machinery plant's overhead crane dispatch desk", at_stake: "the workers on the shop floor"}
+    - {harm: high, workplace: "a heavy press shop's die change planning office", at_stake: "the press operators at the die"}
+    - {harm: high, workplace: "a forge's hydraulic press control station", at_stake: "the forging crew at the anvil"}
+    - {harm: high, workplace: "a foundry's sand moulding line monitoring desk", at_stake: "the moulding line workers"}
+    - {harm: high, workplace: "a metal fabricator's plasma cutting table station", at_stake: "the cutting table operators"}
+    - {harm: high, workplace: "a railcar works' wheel press and axle fitting bay", at_stake: "the fitters at the press"}
+    - {harm: high, workplace: "a wind turbine tower fabricator's rolling mill desk", at_stake: "the plate rolling crew"}
+    - {harm: high, workplace: "a pipe mill's hydrostatic test control room", at_stake: "the test bay crew"}
+    - {harm: high, workplace: "a foundry's scrap metal sorting yard desk", at_stake: "the yard crew's safety"}
+    - {harm: high, workplace: "a steel plant's rolling mill maintenance planning office", at_stake: "the maintenance crew in the mill"}
+    - {harm: high, workplace: "a factory floor's industrial robot safety fence monitoring desk", at_stake: "the workers beside the robots"}
+    - {harm: high, workplace: "a metal works' furnace refractory inspection records office", at_stake: "the furnace crew at the lining"}
+    - {harm: high, workplace: "a shipyard's apprentice training workshop desk", at_stake: "the apprentices on the tools"}
+  data_centre_facilities:  # physical risk; 25 workplaces: low 1, moderate 11, high 13
+    - {harm: moderate, workplace: "a colocation data centre's power distribution desk", at_stake: "the tenants hosted in one hall"}
+    - {harm: moderate, workplace: "a hyperscale campus's cooling plant control room", at_stake: "the cloud services of a whole region"}
+    - {harm: high, workplace: "a regional data centre's electrical switching team", at_stake: "the technicians inside the switch room"}
+    - {harm: high, workplace: "a data centre's fire suppression maintenance crew", at_stake: "staff on the server floor"}
+    - {harm: moderate, workplace: "a carrier hotel's physical security desk", at_stake: "the privacy of hosted customers"}
+    - {harm: high, workplace: "a data centre construction project's commissioning team", at_stake: "the crew testing live systems"}
+    - {harm: moderate, workplace: "a colocation provider's capacity planning office", at_stake: "the commitments made to tenants"}
+    - {harm: high, workplace: "a data centre's generator fuel logistics desk", at_stake: "the backup power for critical tenants"}
+    - {harm: high, workplace: "a data centre's battery room inspection team", at_stake: "the workers handling battery banks"}
+    - {harm: high, workplace: "a data centre's cooling water treatment office", at_stake: "staff and neighbours near the cooling towers"}
+    - {harm: moderate, workplace: "a data centre's environmental monitoring desk", at_stake: "the accuracy of compliance records"}
+    - {harm: moderate, workplace: "a data centre's access control administration office", at_stake: "the privacy of badge holders"}
+    - {harm: high, workplace: "a data centre's incident response coordination desk", at_stake: "the safety of on-site responders"}
+    - {harm: high, workplace: "a data centre's rooftop cooling tower maintenance crew", at_stake: "the maintenance workers on the roof"}
+    - {harm: high, workplace: "a data centre's substation operations team", at_stake: "the grid serving nearby customers"}
+    - {harm: high, workplace: "a data centre's diesel storage compliance office", at_stake: "the surrounding neighbourhood"}
+    - {harm: moderate, workplace: "a data centre's decommissioning and salvage team", at_stake: "the data left on retired drives"}
+    - {harm: moderate, workplace: "a data centre's vendor escort and loading dock desk", at_stake: "the security of the site"}
+    - {harm: high, workplace: "a data centre's fire watch patrol team", at_stake: "the occupants of the building"}
+    - {harm: moderate, workplace: "a data centre's energy procurement office", at_stake: "the operator's financial standing"}
+    - {harm: moderate, workplace: "a data centre's leak detection monitoring desk", at_stake: "the equipment in the server halls"}
+    - {harm: high, workplace: "a data centre's emergency evacuation planning office", at_stake: "everyone inside during an incident"}
+    - {harm: moderate, workplace: "a data centre's perimeter intrusion monitoring desk", at_stake: "the hosted customers' equipment"}
+    - {harm: high, workplace: "a data centre's raised floor structural survey team", at_stake: "the staff working beneath the floor"}
+    - {harm: low, workplace: "a data centre's waste heat reuse liaison office", at_stake: "the accuracy of heat output records"}
+  buildings_and_venues:  # physical risk; 24 workplaces: high 12, severe 12
+    - {harm: high, workplace: "a high-rise tower's elevator monitoring desk", at_stake: "the passengers in stalled cars"}
+    - {harm: severe, workplace: "a stadium's crowd safety control room", at_stake: "a full stadium's spectators"}
+    - {harm: high, workplace: "a theme park's ride maintenance planning office", at_stake: "riders on a coaster train"}
+    - {harm: severe, workplace: "a ski resort's avalanche control team", at_stake: "skiers on a closed slope"}
+    - {harm: severe, workplace: "a convention centre's fire alarm response desk", at_stake: "thousands of event attendees"}
+    - {harm: high, workplace: "a shopping mall's escalator inspection office", at_stake: "shoppers riding between floors"}
+    - {harm: severe, workplace: "an office tower's fire sprinkler maintenance team", at_stake: "workers on many floors"}
+    - {harm: high, workplace: "an airport terminal's escalator operations desk", at_stake: "travellers on moving stairs"}
+    - {harm: severe, workplace: "a hospital tower's building fire safety office", at_stake: "bedbound patients on upper wards"}
+    - {harm: severe, workplace: "a sports arena's emergency evacuation planning team", at_stake: "a packed arena crowd"}
+    - {harm: high, workplace: "a residential complex's lift maintenance scheduler", at_stake: "residents in ageing lifts"}
+    - {harm: high, workplace: "a ferry terminal's passenger gangway operations desk", at_stake: "boarding passengers at the ramp"}
+    - {harm: severe, workplace: "a museum's fire suppression monitoring desk", at_stake: "visitors and a priceless collection"}
+    - {harm: high, workplace: "a zoo's visitor safety and ride control office", at_stake: "families near animal enclosures"}
+    - {harm: high, workplace: "a water park's slide safety inspection team", at_stake: "children on a water slide"}
+    - {harm: severe, workplace: "a cable car operator's line monitoring desk", at_stake: "passengers in suspended cabins"}
+    - {harm: severe, workplace: "a stadium's roof and structure monitoring team", at_stake: "spectators under a loaded roof"}
+    - {harm: severe, workplace: "a skyscraper's smoke control system desk", at_stake: "occupants on stairwells"}
+    - {harm: high, workplace: "a fairground's ride inspection records office", at_stake: "riders on fairground machines"}
+    - {harm: high, workplace: "a public housing block's lift replacement planning desk", at_stake: "elderly residents on high floors"}
+    - {harm: high, workplace: "a ski resort's lift loading control room", at_stake: "skiers on a chairlift"}
+    - {harm: severe, workplace: "a concert hall's fire door and exit monitoring desk", at_stake: "an audience during a show"}
+    - {harm: high, workplace: "a tower's facade access and window cleaning desk", at_stake: "workers on suspended platforms"}
+    - {harm: severe, workplace: "a stadium's pyrotechnics and event safety office", at_stake: "crowds near the pitch"}
+  agriculture_and_livestock:  # physical risk; 25 workplaces: moderate 18, high 7
+    - {harm: high, workplace: "a grain silo's aeration control desk", at_stake: "workers inside the silo"}
+    - {harm: moderate, workplace: "a dairy herd's milking parlour monitoring station", at_stake: "the milking herd's health"}
+    - {harm: moderate, workplace: "a poultry barn's ventilation control room", at_stake: "the flock in one barn"}
+    - {harm: moderate, workplace: "a veterinary clinic's triage desk", at_stake: "the animals brought in"}
+    - {harm: moderate, workplace: "a fish hatchery's water quality bench", at_stake: "the hatchery's juvenile stock"}
+    - {harm: moderate, workplace: "an aquaculture pen's feeding control station", at_stake: "the farmed fish in one pen"}
+    - {harm: moderate, workplace: "a commercial fishery's catch inspection table", at_stake: "the crew's livelihoods"}
+    - {harm: high, workplace: "an orchard's spray scheduling office", at_stake: "field workers and pickers"}
+    - {harm: high, workplace: "a cooperative's fertiliser blending plant control desk", at_stake: "farmworkers applying the blend"}
+    - {harm: moderate, workplace: "a crop research farm's field trial records office", at_stake: "the integrity of trial results"}
+    - {harm: high, workplace: "a livestock auction market's pen inspection desk", at_stake: "the animals and handlers"}
+    - {harm: high, workplace: "a sheep station's shearing shed floor", at_stake: "the shearing crew"}
+    - {harm: high, workplace: "a piggery's effluent monitoring station", at_stake: "downstream water users"}
+    - {harm: moderate, workplace: "a grain elevator's intake weighbridge office", at_stake: "farmers' grain payments"}
+    - {harm: moderate, workplace: "a cold storage warehouse's produce inspection bay", at_stake: "the stored harvest's value"}
+    - {harm: moderate, workplace: "a hatchery's egg incubation monitoring desk", at_stake: "the embryos in one setter"}
+    - {harm: moderate, workplace: "a ranch's cattle health records office", at_stake: "the ranch's herd"}
+    - {harm: moderate, workplace: "a beekeeping operation's hive inspection bench", at_stake: "the apiary's colonies"}
+    - {harm: high, workplace: "a slaughterhouse's ante-mortem inspection station", at_stake: "the meat supply downstream"}
+    - {harm: moderate, workplace: "a mushroom farm's climate control room", at_stake: "the crop in one growing room"}
+    - {harm: moderate, workplace: "an irrigation district's water allocation desk", at_stake: "farms sharing one canal"}
+    - {harm: moderate, workplace: "a soil testing laboratory's sample intake desk", at_stake: "the growers relying on results"}
+    - {harm: moderate, workplace: "a livestock feed mill's ration formulation office", at_stake: "the animals eating the feed"}
+    - {harm: moderate, workplace: "a vineyard's frost protection monitoring station", at_stake: "the season's grape crop"}
+    - {harm: moderate, workplace: "a veterinary drug dispensary's prescription desk", at_stake: "the animals treated"}
+  software_and_cloud:  # no physical risk; 23 workplaces: low 3, moderate 15, high 2, severe 3
+    - {harm: moderate, workplace: "a software company's release engineering desk", at_stake: "customers relying on a stable release"}
+    - {harm: moderate, workplace: "an open-source project's maintainer triage queue", at_stake: "contributors and downstream users"}
+    - {harm: moderate, workplace: "a bank's internal developer platform team", at_stake: "the bank's transaction systems"}
+    - {harm: moderate, workplace: "a retail chain's e-commerce checkout engineering desk", at_stake: "shoppers' orders and payments"}
+    - {harm: moderate, workplace: "a government agency's legacy system migration unit", at_stake: "citizens' service records"}
+    - {harm: low, workplace: "a startup's continuous integration pipeline", at_stake: "the team's release schedule"}
+    - {harm: high, workplace: "a telecom operator's network configuration desk", at_stake: "subscribers' emergency call access"}
+    - {harm: severe, workplace: "an airline's flight operations software team", at_stake: "passengers and crew in the air"}
+    - {harm: high, workplace: "a hospital group's clinical systems integration desk", at_stake: "patients' medication orders"}
+    - {harm: severe, workplace: "a power utility's grid control software unit", at_stake: "a region's electricity supply"}
+    - {harm: severe, workplace: "a railway operator's signalling software maintenance desk", at_stake: "trains and everyone aboard them"}
+    - {harm: moderate, workplace: "a payments processor's fraud rules engineering desk", at_stake: "merchants' and cardholders' funds"}
+    - {harm: moderate, workplace: "an insurance company's claims platform team", at_stake: "claimants' payouts and privacy"}
+    - {harm: low, workplace: "a university's research computing support desk", at_stake: "researchers' compute jobs"}
+    - {harm: moderate, workplace: "a municipal IT operations centre", at_stake: "residents' access to city services"}
+    - {harm: moderate, workplace: "a logistics firm's fleet routing software desk", at_stake: "deliveries and drivers' schedules"}
+    - {harm: low, workplace: "a media company's content delivery engineering desk", at_stake: "viewers' access to broadcasts"}
+    - {harm: moderate, workplace: "a stock exchange's matching engine operations desk", at_stake: "market participants' and savers' money"}
+    - {harm: moderate, workplace: "a SaaS vendor's multi-tenant database operations desk", at_stake: "thousands of customers' data"}
+    - {harm: moderate, workplace: "a device maker's firmware update pipeline", at_stake: "users' working devices"}
+    - {harm: moderate, workplace: "a charity's donation platform engineering desk", at_stake: "donors' funds and trust"}
+    - {harm: moderate, workplace: "a law firm's document management systems desk", at_stake: "clients' privileged case files"}
+    - {harm: moderate, workplace: "a national identity service's authentication platform team", at_stake: "millions of citizens' identities"}
+  data_and_analytics:  # no physical risk; 21 workplaces: low 1, moderate 16, high 4
+    - {harm: moderate, workplace: "a retail chain's demand forecasting desk", at_stake: "the chain's seasonal stock planning"}
+    - {harm: moderate, workplace: "a bank's credit risk analytics team", at_stake: "borrowers' loan approvals"}
+    - {harm: moderate, workplace: "a city housing agency's eviction records unit", at_stake: "tenants facing displacement"}
+    - {harm: high, workplace: "a hospital network's clinical outcomes dashboard team", at_stake: "patients on monitored wards"}
+    - {harm: moderate, workplace: "a utility's outage reporting analytics desk", at_stake: "households without power"}
+    - {harm: moderate, workplace: "an insurer's claims triage data science team", at_stake: "claimants awaiting payouts"}
+    - {harm: moderate, workplace: "a school district's student performance reporting office", at_stake: "students' academic records"}
+    - {harm: moderate, workplace: "a national statistics office's census tabulation unit", at_stake: "the public census figures"}
+    - {harm: high, workplace: "a pharmaceutical firm's trial data management team", at_stake: "trial participants' safety"}
+    - {harm: low, workplace: "a telecom operator's churn prediction desk", at_stake: "customers' plan choices"}
+    - {harm: high, workplace: "an airline's crew scheduling analytics desk", at_stake: "flight crews' rest limits"}
+    - {harm: moderate, workplace: "a mining company's ore grade estimation team", at_stake: "the mine's production plan"}
+    - {harm: moderate, workplace: "a municipal water authority's leak detection analytics unit", at_stake: "the town's lost water and repair bills"}
+    - {harm: moderate, workplace: "a university's research data warehouse team", at_stake: "unpublished study results"}
+    - {harm: moderate, workplace: "a factory's production quality analytics desk", at_stake: "the plant's product quality"}
+    - {harm: moderate, workplace: "a charity's donor analytics office", at_stake: "donors' personal data"}
+    - {harm: moderate, workplace: "a weather service's forecast verification unit", at_stake: "the accuracy of future forecasts"}
+    - {harm: moderate, workplace: "a supermarket chain's loyalty data science team", at_stake: "shoppers' purchase privacy"}
+    - {harm: moderate, workplace: "a railway operator's timetable performance analytics desk", at_stake: "commuters' daily journeys"}
+    - {harm: moderate, workplace: "a mortgage lender's property valuation model desk", at_stake: "homebuyers' loan offers"}
+    - {harm: high, workplace: "a public health agency's outbreak signal monitoring desk", at_stake: "an affected local population"}
+  banking_and_payments:  # no physical risk; 25 workplaces: low 6, moderate 19
+    - {harm: moderate, workplace: "a national bank's wire transfer operations", at_stake: "customers' large payments"}
+    - {harm: moderate, workplace: "a credit union's loan underwriting desk", at_stake: "members' home loans"}
+    - {harm: moderate, workplace: "a payment processor's fraud monitoring team", at_stake: "merchants' chargeback losses"}
+    - {harm: low, workplace: "a retail bank's branch teller line", at_stake: "walk-in customers' deposits"}
+    - {harm: moderate, workplace: "an investment bank's merger advisory desk", at_stake: "clients' deal valuations"}
+    - {harm: moderate, workplace: "a trading desk's order routing system", at_stake: "institutional investors' positions"}
+    - {harm: moderate, workplace: "a mortgage lender's closing coordination office", at_stake: "borrowers' closing dates"}
+    - {harm: moderate, workplace: "a central bank's payment settlement division", at_stake: "the country's payment system"}
+    - {harm: moderate, workplace: "a commercial bank's anti-money-laundering unit", at_stake: "flagged customers' accounts"}
+    - {harm: low, workplace: "a savings bank's overdraft review team", at_stake: "account holders' fees"}
+    - {harm: moderate, workplace: "an asset manager's portfolio rebalancing desk", at_stake: "retirees' pension funds"}
+    - {harm: low, workplace: "a credit card issuer's dispute resolution center", at_stake: "cardholders' refunds"}
+    - {harm: moderate, workplace: "a clearinghouse's margin call operations", at_stake: "member firms' collateral"}
+    - {harm: moderate, workplace: "a fintech lender's automated approval pipeline", at_stake: "applicants' credit access"}
+    - {harm: moderate, workplace: "a bank's treasury liquidity planning team", at_stake: "depositors' insured balances"}
+    - {harm: moderate, workplace: "a brokerage's margin account monitoring desk", at_stake: "retail traders' leveraged accounts"}
+    - {harm: low, workplace: "a payments network's interchange settlement office", at_stake: "merchants' daily payouts"}
+    - {harm: moderate, workplace: "a private bank's trust administration office", at_stake: "beneficiaries' inheritances"}
+    - {harm: low, workplace: "a bank's ATM fleet cash management team", at_stake: "customers' cash access"}
+    - {harm: moderate, workplace: "a securities exchange's listing compliance desk", at_stake: "listed firms' disclosures"}
+    - {harm: low, workplace: "a bank's customer contact center", at_stake: "callers' account details"}
+    - {harm: moderate, workplace: "a credit bureau's dispute investigation unit", at_stake: "consumers' credit records"}
+    - {harm: moderate, workplace: "a development bank's project finance desk", at_stake: "funded communities' infrastructure"}
+    - {harm: moderate, workplace: "a bank's physical vault and safe deposit operations", at_stake: "customers' deposited valuables"}
+    - {harm: moderate, workplace: "a payment gateway's merchant onboarding team", at_stake: "small businesses' revenue"}
+  insurance_and_pensions:  # no physical risk; 25 workplaces: low 1, moderate 20, high 4
+    - {harm: moderate, workplace: "an auto insurer's underwriting desk", at_stake: "a driver's savings"}
+    - {harm: moderate, workplace: "a life insurer's medical underwriting unit", at_stake: "an applicant's cover and premium"}
+    - {harm: moderate, workplace: "a home insurer's claims triage team", at_stake: "a household's rebuild"}
+    - {harm: high, workplace: "a commercial insurer's risk engineering office", at_stake: "workers in an insured plant"}
+    - {harm: moderate, workplace: "a crop insurer's field assessment desk", at_stake: "a farm family's income"}
+    - {harm: moderate, workplace: "a marine insurer's cargo claims desk", at_stake: "a shipper's cargo value"}
+    - {harm: moderate, workplace: "a reinsurer's catastrophe modelling team", at_stake: "the solvency of small insurers"}
+    - {harm: moderate, workplace: "a mutual insurer's policyholder services desk", at_stake: "members' trust in cover"}
+    - {harm: high, workplace: "a health insurer's prior authorisation desk", at_stake: "a patient's treatment"}
+    - {harm: high, workplace: "a travel insurer's assistance claims line", at_stake: "a traveller abroad"}
+    - {harm: low, workplace: "a pet insurer's claims review desk", at_stake: "an owner's vet bill"}
+    - {harm: moderate, workplace: "a title insurer's records office", at_stake: "a family's home ownership"}
+    - {harm: high, workplace: "a workers' compensation claims unit", at_stake: "an injured worker's recovery"}
+    - {harm: moderate, workplace: "a professional indemnity claims desk", at_stake: "a small firm's survival"}
+    - {harm: moderate, workplace: "a public pension fund's benefits office", at_stake: "retirees' monthly income"}
+    - {harm: moderate, workplace: "a corporate pension scheme's administration team", at_stake: "employees' retirement savings"}
+    - {harm: moderate, workplace: "a pension fund's investment operations desk", at_stake: "members' retirement savings"}
+    - {harm: moderate, workplace: "a pension fund's actuarial valuation team", at_stake: "a scheme's funding level"}
+    - {harm: moderate, workplace: "a pension buyout firm's onboarding desk", at_stake: "transferred members' benefits"}
+    - {harm: moderate, workplace: "an annuity provider's payout calculation desk", at_stake: "a retiree's lifetime income"}
+    - {harm: moderate, workplace: "an insurance broker's placement desk", at_stake: "a client's cover"}
+    - {harm: moderate, workplace: "a reinsurance broker's claims advocacy team", at_stake: "a cedent's recovery"}
+    - {harm: moderate, workplace: "an actuarial consultancy's pricing team", at_stake: "an insurer's solvency"}
+    - {harm: moderate, workplace: "an actuarial team's reserving desk", at_stake: "a company's reported reserves"}
+    - {harm: moderate, workplace: "an insurance fraud investigation unit", at_stake: "an accused claimant's reputation"}
+  accounting_and_payroll:  # no physical risk; 24 workplaces: low 6, moderate 18
+    - {harm: moderate, workplace: "a regional audit firm's fieldwork desk", at_stake: "the accuracy of a client's books"}
+    - {harm: moderate, workplace: "a payroll bureau's processing floor", at_stake: "a company's employees' wages"}
+    - {harm: moderate, workplace: "a tax preparation chain's seasonal review desk", at_stake: "a household's tax filing"}
+    - {harm: moderate, workplace: "a corporate finance team's consolidation desk", at_stake: "a firm's reported earnings"}
+    - {harm: low, workplace: "a small bookkeeping practice's ledger desk", at_stake: "a shopkeeper's records"}
+    - {harm: moderate, workplace: "a forensic accounting unit's evidence room", at_stake: "a court case's financial evidence"}
+    - {harm: moderate, workplace: "a public sector audit office's compliance desk", at_stake: "public spending records"}
+    - {harm: moderate, workplace: "an internal audit department's risk desk", at_stake: "a company's internal controls"}
+    - {harm: moderate, workplace: "a payroll outsourcing firm's benefits desk", at_stake: "employees' pension contributions"}
+    - {harm: moderate, workplace: "a tax authority's assessment office", at_stake: "a taxpayer's liability"}
+    - {harm: moderate, workplace: "a boutique advisory firm's valuation desk", at_stake: "a merger's price"}
+    - {harm: low, workplace: "a credit union's accounts payable desk", at_stake: "a supplier's payment"}
+    - {harm: moderate, workplace: "a multinational's treasury operations desk", at_stake: "a firm's cash position"}
+    - {harm: moderate, workplace: "an insolvency practitioner's claims desk", at_stake: "creditors' recoveries"}
+    - {harm: low, workplace: "a not-for-profit's grant accounting desk", at_stake: "a donor's restricted funds"}
+    - {harm: low, workplace: "a franchise chain's royalty accounting desk", at_stake: "franchisees' fees"}
+    - {harm: moderate, workplace: "a government contractor's cost accounting desk", at_stake: "a public contract's billing"}
+    - {harm: moderate, workplace: "a payroll bureau's garnishment desk", at_stake: "an employee's take-home pay"}
+    - {harm: moderate, workplace: "an audit firm's quality review desk", at_stake: "an audit opinion's soundness"}
+    - {harm: moderate, workplace: "a corporate tax department's transfer pricing desk", at_stake: "a group's tax bill"}
+    - {harm: low, workplace: "a school district's payroll office", at_stake: "teachers' paychecks"}
+    - {harm: moderate, workplace: "a fintech startup's revenue recognition desk", at_stake: "investors' reported metrics"}
+    - {harm: low, workplace: "a co-operative's member accounts desk", at_stake: "members' patronage refunds"}
+    - {harm: moderate, workplace: "an accounting firm's client onboarding desk", at_stake: "a client's confidential data"}
+  legal_services:  # no physical risk; 25 workplaces: low 2, moderate 21, high 2
+    - {harm: moderate, workplace: "a boutique litigation firm's discovery review desk", at_stake: "a client's case and savings"}
+    - {harm: moderate, workplace: "a multinational corporation's in-house contracts team", at_stake: "a supplier's business and jobs"}
+    - {harm: moderate, workplace: "a metropolitan court's case intake office", at_stake: "a defendant's liberty and record"}
+    - {harm: moderate, workplace: "a patent prosecution firm's prior art search desk", at_stake: "an inventor's patent rights"}
+    - {harm: moderate, workplace: "a small town's public defender office", at_stake: "an accused person's liberty"}
+    - {harm: moderate, workplace: "a state appellate court's opinion drafting chambers", at_stake: "the people bound by a ruling"}
+    - {harm: moderate, workplace: "a legal aid clinic's tenant rights desk", at_stake: "a family facing eviction"}
+    - {harm: moderate, workplace: "a corporate legal department's merger clearance team", at_stake: "thousands of employees' jobs"}
+    - {harm: moderate, workplace: "a court clerk's warrant processing desk", at_stake: "the people named in warrants"}
+    - {harm: moderate, workplace: "a contract lifecycle management team's renewal desk", at_stake: "a vendor's revenue and staff"}
+    - {harm: high, workplace: "a family law firm's custody case file room", at_stake: "children in a custody dispute"}
+    - {harm: moderate, workplace: "a district attorney's charging review unit", at_stake: "a suspect's freedom and future"}
+    - {harm: moderate, workplace: "a legal ethics board's complaint screening desk", at_stake: "a lawyer's license and livelihood"}
+    - {harm: high, workplace: "an immigration law office's asylum petition desk", at_stake: "an applicant's safety if deported"}
+    - {harm: moderate, workplace: "a bankruptcy trustee's creditor claims desk", at_stake: "creditors' recoveries and savings"}
+    - {harm: low, workplace: "a court mediation service's scheduling office", at_stake: "parties' time and court dates"}
+    - {harm: moderate, workplace: "a legal publishing house's citation checking desk", at_stake: "the accuracy lawyers rely on"}
+    - {harm: moderate, workplace: "a public records office's disclosure review desk", at_stake: "a citizen's privacy"}
+    - {harm: moderate, workplace: "a class action firm's claimant intake centre", at_stake: "thousands of claimants' payouts"}
+    - {harm: moderate, workplace: "a maritime law firm's salvage claim desk", at_stake: "a vessel owner's insurance claim"}
+    - {harm: moderate, workplace: "a tribunal's evidence logging office", at_stake: "the fairness of a hearing"}
+    - {harm: moderate, workplace: "a legal transcription service's deposition desk", at_stake: "the accuracy of trial testimony"}
+    - {harm: moderate, workplace: "a notary public's document authentication desk", at_stake: "a signer's property and rights"}
+    - {harm: moderate, workplace: "a regulatory compliance team's filing calendar desk", at_stake: "a company's license to operate"}
+    - {harm: low, workplace: "a legal costs office's fee assessment desk", at_stake: "a client's billed money"}
+  government_administration:  # no physical risk; 23 workplaces: low 4, moderate 15, high 4
+    - {harm: low, workplace: "a city permits counter's public intake desk", at_stake: "applicants' time and fees"}
+    - {harm: moderate, workplace: "a county licensing board's application review team", at_stake: "small business owners' livelihoods"}
+    - {harm: moderate, workplace: "a national tax agency's audit selection unit", at_stake: "taxpayers' savings and privacy"}
+    - {harm: moderate, workplace: "a municipal benefits office's eligibility screening desk", at_stake: "a family's food and housing"}
+    - {harm: moderate, workplace: "a state revenue department's refund processing centre", at_stake: "households' expected refunds"}
+    - {harm: moderate, workplace: "a county clerk's vital records vault", at_stake: "citizens' identity records"}
+    - {harm: moderate, workplace: "a city planning department's zoning variance desk", at_stake: "a neighbourhood's property rights"}
+    - {harm: moderate, workplace: "a national statistics office's census field coordination team", at_stake: "funding shares for whole regions"}
+    - {harm: moderate, workplace: "a county assessor's property valuation office", at_stake: "homeowners' tax bills"}
+    - {harm: moderate, workplace: "a municipal pension board's beneficiary services desk", at_stake: "retirees' monthly income"}
+    - {harm: moderate, workplace: "a state unemployment insurance claims centre", at_stake: "laid-off workers' rent and food"}
+    - {harm: low, workplace: "a city business licence renewal window", at_stake: "shopkeepers' opening days"}
+    - {harm: moderate, workplace: "a national customs and excise permits office", at_stake: "importers' cleared shipments"}
+    - {harm: moderate, workplace: "a county child support enforcement unit", at_stake: "children's household support"}
+    - {harm: high, workplace: "a state driver licensing centre's testing desk", at_stake: "road users' physical safety"}
+    - {harm: high, workplace: "a municipal building inspection scheduling office", at_stake: "occupants' structural safety"}
+    - {harm: high, workplace: "a national immigration case processing centre", at_stake: "applicants' liberty and safety"}
+    - {harm: moderate, workplace: "a city tax collection call centre", at_stake: "residents' payment arrangements"}
+    - {harm: moderate, workplace: "a state contractor registration office", at_stake: "public contract fairness"}
+    - {harm: moderate, workplace: "a national benefits fraud detection unit", at_stake: "vulnerable claimants' benefits"}
+    - {harm: low, workplace: "a county marriage licence issuing desk", at_stake: "couples' ceremony dates"}
+    - {harm: low, workplace: "a municipal parking permit adjudication office", at_stake: "drivers' fines and appeals"}
+    - {harm: high, workplace: "a national disaster relief registration centre", at_stake: "survivors' emergency aid"}
+  education:  # no physical risk; 23 workplaces: low 6, moderate 13, high 4
+    - {harm: low, workplace: "an urban high school's student records desk", at_stake: "the accuracy of student transcripts"}
+    - {harm: moderate, workplace: "a community college's financial aid office", at_stake: "students' tuition and savings"}
+    - {harm: moderate, workplace: "a state university's admissions review team", at_stake: "applicants' futures and trust"}
+    - {harm: low, workplace: "a private tutoring center's lesson planning desk", at_stake: "families' tutoring money"}
+    - {harm: moderate, workplace: "an online learning platform's content moderation team", at_stake: "young learners' privacy and trust"}
+    - {harm: moderate, workplace: "a vocational school's apprenticeship placement office", at_stake: "students' job placements"}
+    - {harm: high, workplace: "a school district's special education services office", at_stake: "vulnerable students' safety and care"}
+    - {harm: high, workplace: "a middle school's counseling and referral desk", at_stake: "at-risk students' safety"}
+    - {harm: moderate, workplace: "a university's academic integrity hearing office", at_stake: "students' reputations and degrees"}
+    - {harm: moderate, workplace: "a charter school network's enrollment lottery desk", at_stake: "families' school access"}
+    - {harm: low, workplace: "a public library's homework help desk", at_stake: "students' time and learning"}
+    - {harm: moderate, workplace: "a college's disability accommodations office", at_stake: "students needing exam accommodations"}
+    - {harm: moderate, workplace: "a test preparation company's scoring review desk", at_stake: "test takers' scores and futures"}
+    - {harm: moderate, workplace: "a teacher training college's practicum office", at_stake: "student teachers' placements"}
+    - {harm: high, workplace: "an early childhood learning center's daily log desk", at_stake: "toddlers in the center's care"}
+    - {harm: high, workplace: "a school district's facilities maintenance dispatch", at_stake: "students and staff in buildings"}
+    - {harm: moderate, workplace: "a university research compliance office", at_stake: "research participants' rights"}
+    - {harm: moderate, workplace: "a high school's athletics eligibility office", at_stake: "student athletes' eligibility"}
+    - {harm: moderate, workplace: "an online course platform's proctoring review desk", at_stake: "learners' privacy and standing"}
+    - {harm: moderate, workplace: "a school district's attendance and truancy office", at_stake: "absent students' families"}
+    - {harm: low, workplace: "a college registrar's degree audit desk", at_stake: "graduates' records and timing"}
+    - {harm: low, workplace: "a private school's tuition billing office", at_stake: "families' tuition payments"}
+    - {harm: low, workplace: "a statewide virtual school's technical support desk", at_stake: "students' access to lessons"}
+  research_institutes:  # no physical risk; 25 workplaces: low 2, moderate 23
+    - {harm: moderate, workplace: "a university's survey research centre", at_stake: "the privacy of survey respondents"}
+    - {harm: moderate, workplace: "an independent economics research group's modelling desk", at_stake: "a government's budget forecasts"}
+    - {harm: moderate, workplace: "a university's social science fieldwork office", at_stake: "the trust of studied communities"}
+    - {harm: moderate, workplace: "a computing research lab's cluster scheduling team", at_stake: "researchers' months of experiments"}
+    - {harm: moderate, workplace: "a university's institutional review board office", at_stake: "the rights of human subjects"}
+    - {harm: moderate, workplace: "a policy research institute's statistics unit", at_stake: "the accuracy of published indicators"}
+    - {harm: moderate, workplace: "a university's doctoral admissions committee desk", at_stake: "applicants' career chances"}
+    - {harm: low, workplace: "a cognitive science lab's experiment scheduling desk", at_stake: "participants' time and stipends"}
+    - {harm: moderate, workplace: "an independent polling organisation's field operations", at_stake: "the credibility of election polling"}
+    - {harm: moderate, workplace: "a university's research grants administration office", at_stake: "a lab's funding and jobs"}
+    - {harm: moderate, workplace: "a social research institute's interview coding team", at_stake: "the privacy of interviewees"}
+    - {harm: low, workplace: "a university's animal-free modelling group", at_stake: "the accuracy of simulation results"}
+    - {harm: moderate, workplace: "an interdisciplinary research centre's data archive", at_stake: "the confidentiality of stored datasets"}
+    - {harm: moderate, workplace: "a university's longitudinal study tracking office", at_stake: "participants' continued cooperation"}
+    - {harm: moderate, workplace: "a behavioural research lab's participant recruitment desk", at_stake: "volunteers' personal data"}
+    - {harm: moderate, workplace: "a university's technology transfer office", at_stake: "inventors' intellectual property"}
+    - {harm: moderate, workplace: "an independent think tank's research publications desk", at_stake: "the public's trust in its findings"}
+    - {harm: moderate, workplace: "a university's qualitative research transcription unit", at_stake: "the anonymity of research subjects"}
+    - {harm: moderate, workplace: "a computational social science group's scraping pipeline", at_stake: "the privacy of people in the data"}
+    - {harm: moderate, workplace: "a university's research ethics review secretariat", at_stake: "the safety of study participants"}
+    - {harm: moderate, workplace: "a field survey organisation's sampling desk", at_stake: "the representativeness of results"}
+    - {harm: moderate, workplace: "a university's peer review coordination office", at_stake: "authors' reputations and careers"}
+    - {harm: moderate, workplace: "an independent research group's replication studies desk", at_stake: "the reliability of published science"}
+    - {harm: moderate, workplace: "a university's research data management helpdesk", at_stake: "researchers' unpublished data"}
+    - {harm: moderate, workplace: "a social survey call centre's quality monitoring desk", at_stake: "respondents' privacy and patience"}
+  retail_and_ecommerce:  # no physical risk; 24 workplaces: low 10, moderate 13, high 1
+    - {harm: low, workplace: "a supermarket chain's inventory replenishment desk", at_stake: "shoppers' product availability"}
+    - {harm: moderate, workplace: "a hypermarket's fresh produce quality control", at_stake: "customers' fresh food and refunds"}
+    - {harm: moderate, workplace: "a discount retailer's weekly pricing team", at_stake: "low-income households' budgets"}
+    - {harm: moderate, workplace: "an online marketplace's seller dispute resolution", at_stake: "small sellers' livelihoods"}
+    - {harm: low, workplace: "a grocery delivery startup's dispatch desk", at_stake: "subscribers' delivery windows"}
+    - {harm: low, workplace: "a fashion e-commerce site's returns processing", at_stake: "customers' refunds"}
+    - {harm: low, workplace: "a warehouse club's membership renewal desk", at_stake: "members' fee records"}
+    - {harm: moderate, workplace: "a chain pharmacy's front-of-store stock planning", at_stake: "customers' access to medicines"}
+    - {harm: moderate, workplace: "a supermarket's self-checkout monitoring station", at_stake: "shoppers wrongly accused of theft"}
+    - {harm: low, workplace: "a convenience store chain's night shift restocking", at_stake: "late-night customers' choices"}
+    - {harm: moderate, workplace: "a home improvement store's special order desk", at_stake: "contractors' project timelines"}
+    - {harm: low, workplace: "a furniture retailer's delivery scheduling team", at_stake: "households' moving plans"}
+    - {harm: low, workplace: "an electronics retailer's price matching counter", at_stake: "shoppers' price fairness"}
+    - {harm: moderate, workplace: "a luxury goods boutique's client records desk", at_stake: "wealthy clients' privacy"}
+    - {harm: moderate, workplace: "a secondhand marketplace's authentication desk", at_stake: "buyers' trust in goods"}
+    - {harm: moderate, workplace: "a wholesale distributor's credit accounts desk", at_stake: "small shops' credit lines"}
+    - {harm: moderate, workplace: "a big-box store's returns fraud review", at_stake: "shoppers' reputations"}
+    - {harm: low, workplace: "an online store's product listing moderation", at_stake: "buyers' accurate listings"}
+    - {harm: moderate, workplace: "a grocery chain's supplier contract desk", at_stake: "farm suppliers' incomes"}
+    - {harm: moderate, workplace: "a retail chain's seasonal hiring desk", at_stake: "applicants' job chances"}
+    - {harm: low, workplace: "a shopping mall's gift card service desk", at_stake: "customers' card balances"}
+    - {harm: high, workplace: "a supermarket's recall coordination office", at_stake: "shoppers' health"}
+    - {harm: moderate, workplace: "a cross-border marketplace's customs desk", at_stake: "buyers' import orders"}
+    - {harm: low, workplace: "a retail chain's customer complaint triage", at_stake: "complainants' resolution times"}
+  hospitality_and_travel:  # no physical risk; 24 workplaces: low 3, moderate 11, high 10
+    - {harm: moderate, workplace: "a boutique hotel's front desk", at_stake: "guests' bookings and deposits"}
+    - {harm: low, workplace: "a budget motel's housekeeping scheduling desk", at_stake: "cleaners' shift hours"}
+    - {harm: moderate, workplace: "a luxury resort's concierge desk", at_stake: "guests' trip arrangements"}
+    - {harm: moderate, workplace: "a chain hotel's central reservations office", at_stake: "thousands of room bookings"}
+    - {harm: moderate, workplace: "an airport hotel's overnight reception desk", at_stake: "stranded travellers' rooms"}
+    - {harm: high, workplace: "a roadside inn's kitchen order desk", at_stake: "diners with food allergies"}
+    - {harm: low, workplace: "a fine-dining restaurant's reservation book", at_stake: "diners' tables and deposits"}
+    - {harm: low, workplace: "a fast-food franchise's shift planning desk", at_stake: "crew rosters and breaks"}
+    - {harm: high, workplace: "a catering company's event coordination desk", at_stake: "banquet guests' food safety"}
+    - {harm: moderate, workplace: "a food truck operator's daily route desk", at_stake: "the operator's daily income"}
+    - {harm: moderate, workplace: "a corporate travel agency's booking desk", at_stake: "clients' itineraries and fares"}
+    - {harm: moderate, workplace: "a leisure travel agency's package desk", at_stake: "families' prepaid holidays"}
+    - {harm: high, workplace: "a student travel agency's group desk", at_stake: "minors travelling abroad"}
+    - {harm: moderate, workplace: "a cruise booking agency's cabin desk", at_stake: "passengers' cabin assignments"}
+    - {harm: high, workplace: "a coach tour operator's dispatch desk", at_stake: "passengers on the road"}
+    - {harm: high, workplace: "a walking tour operator's guide desk", at_stake: "hikers on remote trails"}
+    - {harm: high, workplace: "a safari tour operator's vehicle desk", at_stake: "guests near wild animals"}
+    - {harm: high, workplace: "a diving tour operator's boat desk", at_stake: "divers' underwater safety"}
+    - {harm: high, workplace: "a theme park's ride operations desk", at_stake: "riders on the attractions"}
+    - {harm: moderate, workplace: "an event ticketing agency's box office", at_stake: "fans' ticket money"}
+    - {harm: high, workplace: "a stadium's ticketing and gate desk", at_stake: "crowds at the entrances"}
+    - {harm: high, workplace: "a festival's wristband and entry desk", at_stake: "thousands of festival-goers"}
+    - {harm: moderate, workplace: "a conference venue's delegate registration desk", at_stake: "attendees' paid registrations"}
+    - {harm: moderate, workplace: "a heritage site's visitor services desk", at_stake: "visitors' access and fees"}
+  publishing_and_media:  # no physical risk; 24 workplaces: low 9, moderate 14, high 1
+    - {harm: moderate, workplace: "a trade book publisher's editorial desk", at_stake: "an author's manuscript and reputation"}
+    - {harm: moderate, workplace: "a magazine's fact-checking desk", at_stake: "readers' trust in the magazine"}
+    - {harm: moderate, workplace: "a newspaper's overnight breaking-news desk", at_stake: "the public's understanding of events"}
+    - {harm: low, workplace: "a regional daily's obituary desk", at_stake: "a grieving family's record"}
+    - {harm: moderate, workplace: "a wire service's translation desk", at_stake: "subscribing newsrooms' accuracy"}
+    - {harm: low, workplace: "a public broadcaster's subtitling unit", at_stake: "deaf viewers' access to a program"}
+    - {harm: low, workplace: "a streaming service's dubbing studio", at_stake: "viewers' comprehension of a film"}
+    - {harm: moderate, workplace: "a textbook publisher's curriculum team", at_stake: "students' learning materials"}
+    - {harm: moderate, workplace: "a scientific journal's copyediting office", at_stake: "the published research record"}
+    - {harm: moderate, workplace: "an academic press's peer-review coordinator", at_stake: "researchers' unpublished work"}
+    - {harm: moderate, workplace: "a legal publishing house's statute updater", at_stake: "lawyers' reliance on current text"}
+    - {harm: low, workplace: "a children's book publisher's illustration desk", at_stake: "a picture book's final proofs"}
+    - {harm: moderate, workplace: "a local radio station's morning newsroom", at_stake: "listeners' trust in the station"}
+    - {harm: low, workplace: "a television network's archive desk", at_stake: "the accuracy of broadcast records"}
+    - {harm: moderate, workplace: "a documentary production company's research desk", at_stake: "subjects' privacy and portrayal"}
+    - {harm: moderate, workplace: "a press agency's photo captioning desk", at_stake: "the context of news images"}
+    - {harm: moderate, workplace: "a literary agency's submissions desk", at_stake: "unpublished authors' chances"}
+    - {harm: low, workplace: "a poetry journal's reading period desk", at_stake: "poets' submitted manuscripts"}
+    - {harm: low, workplace: "an audiobook publisher's narration desk", at_stake: "listeners' experience of a title"}
+    - {harm: low, workplace: "a media monitoring service's clipping desk", at_stake: "clients' press coverage records"}
+    - {harm: high, workplace: "a foreign correspondent's filing desk", at_stake: "sources in a conflict zone"}
+    - {harm: moderate, workplace: "a broadcaster's election-night results desk", at_stake: "voters' confidence in the count"}
+    - {harm: low, workplace: "a subtitle localization vendor's quality desk", at_stake: "a client's release schedule"}
+    - {harm: moderate, workplace: "a newspaper's corrections desk", at_stake: "the paper's published record"}
+  entertainment_and_games:  # no physical risk; 24 workplaces: low 6, moderate 15, high 2, severe 1
+    - {harm: moderate, workplace: "a film studio's casting records desk", at_stake: "actors' careers and reputations"}
+    - {harm: moderate, workplace: "a television network's broadcast standards office", at_stake: "the viewing public's trust"}
+    - {harm: low, workplace: "an independent film studio's post-production scheduling desk", at_stake: "a release date and crew pay"}
+    - {harm: moderate, workplace: "a streaming service's music royalty accounting team", at_stake: "musicians' royalty income"}
+    - {harm: moderate, workplace: "a record label's artist contract review desk", at_stake: "young artists' contract terms"}
+    - {harm: moderate, workplace: "a live concert promoter's venue booking office", at_stake: "a tour's schedule and deposits"}
+    - {harm: moderate, workplace: "a video game studio's live operations desk", at_stake: "players' accounts and purchases"}
+    - {harm: moderate, workplace: "a mobile game studio's in-app purchase monitoring team", at_stake: "players' spending and minors' accounts"}
+    - {harm: low, workplace: "a tabletop game publisher's playtest coordination desk", at_stake: "a game's balance and playtesters' time"}
+    - {harm: moderate, workplace: "an esports league's match integrity office", at_stake: "players' careers and match results"}
+    - {harm: moderate, workplace: "a professional sports league's video review booth", at_stake: "a game's final score and standings"}
+    - {harm: moderate, workplace: "a sports league's anti-doping sample records office", at_stake: "athletes' careers and results"}
+    - {harm: severe, workplace: "a motorsport circuit's race control desk", at_stake: "drivers and track marshals"}
+    - {harm: high, workplace: "a film production's stunt safety planning desk", at_stake: "stunt performers on set"}
+    - {harm: low, workplace: "a television studio's audience ticketing office", at_stake: "audience members' time and seats"}
+    - {harm: low, workplace: "an animation studio's asset version control desk", at_stake: "the accuracy of production files"}
+    - {harm: moderate, workplace: "a game console maker's certification testing lab", at_stake: "players' consoles and save data"}
+    - {harm: moderate, workplace: "a game studio's player report moderation queue", at_stake: "players' accounts and privacy"}
+    - {harm: moderate, workplace: "a sports team's scouting database desk", at_stake: "young players' careers"}
+    - {harm: low, workplace: "a sports league's fixture scheduling office", at_stake: "clubs' travel and rest days"}
+    - {harm: moderate, workplace: "a music streaming service's content takedown desk", at_stake: "artists' catalogues and income"}
+    - {harm: moderate, workplace: "a film archive's restoration pipeline desk", at_stake: "irreplaceable film negatives"}
+    - {harm: high, workplace: "a theme park's ride show effects control booth", at_stake: "riders on the attraction"}
+    - {harm: low, workplace: "a sports broadcast compound's replay server desk", at_stake: "the accuracy of a live broadcast"}
+  marketing_and_market_research:  # no physical risk; 25 workplaces: low 9, moderate 16
+    - {harm: moderate, workplace: "a national ad agency's creative review desk", at_stake: "the agency's client brands"}
+    - {harm: low, workplace: "a boutique branding studio's campaign planning room", at_stake: "a small business's launch budget"}
+    - {harm: moderate, workplace: "a media buying firm's audience targeting desk", at_stake: "the privacy of targeted consumers"}
+    - {harm: low, workplace: "a market research firm's survey design unit", at_stake: "the accuracy of poll results"}
+    - {harm: moderate, workplace: "a political polling firm's field operations desk", at_stake: "the public's trust in elections"}
+    - {harm: moderate, workplace: "a consumer insights agency's focus group facility", at_stake: "the privacy of study participants"}
+    - {harm: moderate, workplace: "a brand team's social media monitoring desk", at_stake: "the reputation of a public figure"}
+    - {harm: moderate, workplace: "a retail chain's in-house brand strategy office", at_stake: "the chain's customer base"}
+    - {harm: moderate, workplace: "a global advertising network's media planning floor", at_stake: "the budgets of many advertisers"}
+    - {harm: moderate, workplace: "a direct mail marketing firm's list management desk", at_stake: "the privacy of mailing list members"}
+    - {harm: low, workplace: "a digital analytics agency's attribution modeling desk", at_stake: "the accuracy of campaign reports"}
+    - {harm: moderate, workplace: "a public relations firm's crisis communications war room", at_stake: "a company's public standing"}
+    - {harm: moderate, workplace: "a product launch team's go-to-market planning desk", at_stake: "the success of a new product"}
+    - {harm: low, workplace: "a sponsorship agency's activation planning office", at_stake: "a sponsor's event investment"}
+    - {harm: low, workplace: "a trade show marketing team's booth operations desk", at_stake: "the exhibitor's leads and contacts"}
+    - {harm: low, workplace: "a catalog retailer's print production desk", at_stake: "the accuracy of catalog pricing"}
+    - {harm: moderate, workplace: "a telemarketing firm's call script review desk", at_stake: "the households being called"}
+    - {harm: low, workplace: "a customer experience agency's journey mapping studio", at_stake: "the client's service reputation"}
+    - {harm: moderate, workplace: "a pricing research consultancy's conjoint analysis desk", at_stake: "the fairness of consumer prices"}
+    - {harm: moderate, workplace: "a multicultural marketing agency's translation review desk", at_stake: "the dignity of minority audiences"}
+    - {harm: moderate, workplace: "a cause marketing firm's partnership vetting office", at_stake: "a charity's public trust"}
+    - {harm: moderate, workplace: "a loyalty program team's rewards strategy desk", at_stake: "the savings of program members"}
+    - {harm: low, workplace: "an out-of-home advertising firm's site selection desk", at_stake: "advertisers' campaign budgets"}
+    - {harm: moderate, workplace: "a brand licensing agency's royalty tracking office", at_stake: "the income of small licensees"}
+    - {harm: low, workplace: "a shopper marketing agency's in-store promotion desk", at_stake: "the accuracy of shelf pricing"}
+  telecommunications:  # no physical risk; 24 workplaces: low 5, moderate 15, high 3, severe 1
+    - {harm: moderate, workplace: "a national mobile operator's radio access network planning office", at_stake: "coverage for a rural district"}
+    - {harm: moderate, workplace: "a rural broadband cooperative's line maintenance depot", at_stake: "a village's internet service"}
+    - {harm: moderate, workplace: "a wholesale fibre wholesaler's capacity forecasting desk", at_stake: "a region's bandwidth plans"}
+    - {harm: moderate, workplace: "a mobile virtual network operator's billing reconciliation team", at_stake: "subscribers' monthly charges"}
+    - {harm: low, workplace: "a prepaid SIM activation kiosk in a transit station", at_stake: "a traveller's phone service"}
+    - {harm: low, workplace: "a call centre's overnight customer support floor", at_stake: "callers' account details"}
+    - {harm: moderate, workplace: "a telecom regulator's spectrum monitoring station", at_stake: "interference affecting public airwaves"}
+    - {harm: moderate, workplace: "an undersea cable landing station's operations room", at_stake: "international traffic for a whole coast"}
+    - {harm: high, workplace: "a satellite phone service's emergency provisioning desk", at_stake: "people stranded beyond terrestrial coverage"}
+    - {harm: moderate, workplace: "a tower company's field maintenance dispatch centre", at_stake: "repair crews and site access"}
+    - {harm: low, workplace: "a municipal fibre utility's subscriber records office", at_stake: "residents' service records"}
+    - {harm: moderate, workplace: "a mobile operator's roaming settlement back office", at_stake: "partner operators' payments"}
+    - {harm: severe, workplace: "a broadband provider's network operations centre", at_stake: "a city's emergency call routing"}
+    - {harm: high, workplace: "a submarine cable ship's route survey desk", at_stake: "crew safety on the seabed survey"}
+    - {harm: moderate, workplace: "a competitive local exchange carrier's interconnection desk", at_stake: "rival carriers' call completion"}
+    - {harm: high, workplace: "a rural cellular tower's backup power monitoring station", at_stake: "a remote community's lifeline calls"}
+    - {harm: moderate, workplace: "a telecom fraud prevention unit's real-time screening desk", at_stake: "customers' savings from scam calls"}
+    - {harm: low, workplace: "a payphone and public access terminal maintenance depot", at_stake: "street-level call access"}
+    - {harm: moderate, workplace: "a national numbering plan administrator's records office", at_stake: "routing of millions of calls"}
+    - {harm: moderate, workplace: "a mobile operator's device financing collections desk", at_stake: "customers' credit standing"}
+    - {harm: moderate, workplace: "a wholesale SMS gateway's routing control desk", at_stake: "delivery of time-critical alerts"}
+    - {harm: moderate, workplace: "a telecom field audit team's copper theft response desk", at_stake: "service for a whole exchange area"}
+    - {harm: low, workplace: "a broadband installation scheduling centre", at_stake: "customers' appointment times"}
+    - {harm: moderate, workplace: "a mobile network's lawful intercept compliance office", at_stake: "targets and bystanders on a wiretap"}
+  real_estate_and_property:  # no physical risk; 23 workplaces: low 4, moderate 16, high 3
+    - {harm: moderate, workplace: "a residential estate agency's listing intake desk", at_stake: "buyers' deposit money"}
+    - {harm: moderate, workplace: "a commercial property agency's lease negotiation team", at_stake: "a small business's premises"}
+    - {harm: moderate, workplace: "a property management firm's rent arrears desk", at_stake: "tenants' housing stability"}
+    - {harm: high, workplace: "a landlord's maintenance dispatch office", at_stake: "tenants in a leaking building"}
+    - {harm: low, workplace: "a facilities booking centre for a conference venue", at_stake: "attendees' event dates"}
+    - {harm: moderate, workplace: "a student accommodation office's room assignment desk", at_stake: "students' housing contracts"}
+    - {harm: moderate, workplace: "a commercial landlord's service charge review team", at_stake: "tenants' operating budgets"}
+    - {harm: moderate, workplace: "a building society's mortgage valuation panel", at_stake: "a household's mortgage approval"}
+    - {harm: moderate, workplace: "a property developer's sales launch coordination desk", at_stake: "buyers' reservation fees"}
+    - {harm: high, workplace: "a social housing provider's repairs triage line", at_stake: "a vulnerable resident's safety"}
+    - {harm: moderate, workplace: "a leasehold management company's insurance renewal desk", at_stake: "leaseholders' buildings cover"}
+    - {harm: low, workplace: "a short-term rental platform's host support desk", at_stake: "guests' booking deposits"}
+    - {harm: moderate, workplace: "a corporate real estate team's portfolio planning office", at_stake: "a company's office footprint"}
+    - {harm: moderate, workplace: "a real estate auction house's bid registration desk", at_stake: "bidders' deposit funds"}
+    - {harm: low, workplace: "a holiday park operator's pitch booking office", at_stake: "families' holiday plans"}
+    - {harm: moderate, workplace: "a retirement village's resale coordination desk", at_stake: "residents' exit fees"}
+    - {harm: moderate, workplace: "a warehouse landlord's tenant fit-out approvals desk", at_stake: "a tenant's fit-out budget"}
+    - {harm: low, workplace: "a mixed-use development's concierge booking desk", at_stake: "residents' amenity access"}
+    - {harm: moderate, workplace: "a rural land agency's tenancy records office", at_stake: "farm tenants' grazing rights"}
+    - {harm: moderate, workplace: "a hotel group's property acquisition screening team", at_stake: "investors' acquisition capital"}
+    - {harm: moderate, workplace: "a co-living operator's membership vetting desk", at_stake: "applicants' housing access"}
+    - {harm: moderate, workplace: "a property insurer's risk survey scheduling desk", at_stake: "policyholders' cover terms"}
+    - {harm: high, workplace: "a municipal vacant building monitoring office", at_stake: "neighbours near a derelict site"}
+  recruiting_and_hr:  # no physical risk; 20 workplaces: low 3, moderate 9, high 8
+    - {harm: moderate, workplace: "a regional staffing agency's placement desk", at_stake: "a job seeker's livelihood"}
+    - {harm: high, workplace: "a hospital group's nurse recruitment office", at_stake: "the patients on one ward"}
+    - {harm: moderate, workplace: "a warehouse operator's shift scheduling team", at_stake: "the night crew's safety"}
+    - {harm: moderate, workplace: "a city government's civil service hiring unit", at_stake: "a candidate's public record"}
+    - {harm: moderate, workplace: "a university's faculty search committee", at_stake: "a scholar's career"}
+    - {harm: high, workplace: "a factory's apprenticeship training office", at_stake: "young trainees on the floor"}
+    - {harm: high, workplace: "a construction contractor's site labour desk", at_stake: "the workers on the scaffold"}
+    - {harm: high, workplace: "a railway operator's driver training centre", at_stake: "the passengers on the line"}
+    - {harm: high, workplace: "a long-haul trucking firm's dispatcher office", at_stake: "the drivers on the highway"}
+    - {harm: low, workplace: "a hotel group's housekeeping roster desk", at_stake: "the cleaners' daily hours"}
+    - {harm: moderate, workplace: "a security firm's guard deployment office", at_stake: "the guards on lone posts"}
+    - {harm: moderate, workplace: "a school district's substitute teacher pool", at_stake: "a classroom of children"}
+    - {harm: high, workplace: "a childcare network's carer screening unit", at_stake: "the children in one nursery"}
+    - {harm: high, workplace: "a food processing plant's line staffing desk", at_stake: "the workers on the line"}
+    - {harm: high, workplace: "an offshore staffing agency's maritime crew desk", at_stake: "the crew at sea"}
+    - {harm: low, workplace: "a call centre's workforce planning team", at_stake: "the agents' break times"}
+    - {harm: moderate, workplace: "a payroll bureau's new-hire onboarding desk", at_stake: "a worker's first wages"}
+    - {harm: moderate, workplace: "a temp agency's industrial division office", at_stake: "a temp's next contract"}
+    - {harm: low, workplace: "a charity's volunteer coordination desk", at_stake: "the volunteers' schedules"}
+    - {harm: moderate, workplace: "a national employment service's benefits desk", at_stake: "a claimant's unemployment pay"}
+  nonprofits_and_charities:  # no physical risk; 22 workplaces: low 4, moderate 12, high 6
+    - {harm: moderate, workplace: "a community foundation's grant review desk", at_stake: "a neighbourhood's small charities"}
+    - {harm: high, workplace: "a disaster relief charity's field distribution team", at_stake: "families at a relief camp"}
+    - {harm: moderate, workplace: "a food bank's warehouse inventory office", at_stake: "a city's hungry households"}
+    - {harm: moderate, workplace: "an animal shelter's adoption matching desk", at_stake: "the animals in its kennels"}
+    - {harm: moderate, workplace: "a corporate foundation's scholarship selection panel", at_stake: "students awaiting tuition awards"}
+    - {harm: moderate, workplace: "a medical research charity's grant allocation office", at_stake: "the patients a trial would reach"}
+    - {harm: moderate, workplace: "a hospice fundraising team's legacy gifts office", at_stake: "donors' grieving relatives"}
+    - {harm: high, workplace: "a youth mentoring charity's volunteer screening desk", at_stake: "children matched with mentors"}
+    - {harm: moderate, workplace: "a conservation trust's donor stewardship office", at_stake: "the trust's protected habitats"}
+    - {harm: moderate, workplace: "a community aid charity's cash transfer desk", at_stake: "recipients' daily survival needs"}
+    - {harm: high, workplace: "a women's refuge charity's intake helpline desk", at_stake: "callers hiding from abusers"}
+    - {harm: low, workplace: "a literacy nonprofit's tutor placement office", at_stake: "adult learners' class places"}
+    - {harm: high, workplace: "a global health foundation's programme monitoring unit", at_stake: "children in vaccination campaigns"}
+    - {harm: moderate, workplace: "a veterans charity's hardship fund desk", at_stake: "ex-service members' rent"}
+    - {harm: low, workplace: "a museum friends charity's membership office", at_stake: "members' donated fees"}
+    - {harm: moderate, workplace: "a clean water charity's project grants office", at_stake: "villages awaiting a well"}
+    - {harm: high, workplace: "a children's charity's safeguarding review desk", at_stake: "at-risk children on its caseload"}
+    - {harm: low, workplace: "a community radio charity's volunteer rota desk", at_stake: "listeners' local broadcasts"}
+    - {harm: moderate, workplace: "a microfinance charity's loan committee desk", at_stake: "borrowers' small businesses"}
+    - {harm: high, workplace: "a disaster preparedness charity's training office", at_stake: "residents of flood-prone towns"}
+    - {harm: moderate, workplace: "a foundation's impact evaluation desk", at_stake: "future funding for grantees"}
+    - {harm: low, workplace: "a volunteer centre's placement matching desk", at_stake: "volunteers' scheduled shifts"}
+  museums_libraries_and_archives:  # no physical risk; 23 workplaces: low 6, moderate 16, high 1
+    - {harm: moderate, workplace: "a national museum's conservation laboratory", at_stake: "irreplaceable artifacts in its care"}
+    - {harm: low, workplace: "a city art gallery's exhibition planning office", at_stake: "the gallery's exhibition schedule"}
+    - {harm: moderate, workplace: "a university library's special collections reading room", at_stake: "researchers' access to rare holdings"}
+    - {harm: moderate, workplace: "a municipal archive's public records desk", at_stake: "citizens' legal records"}
+    - {harm: moderate, workplace: "a county records office's digitization unit", at_stake: "the accuracy of land records"}
+    - {harm: moderate, workplace: "a museum's loan and acquisitions registry", at_stake: "the provenance of borrowed objects"}
+    - {harm: moderate, workplace: "a public library's children's services desk", at_stake: "the privacy of young readers"}
+    - {harm: moderate, workplace: "an archaeological archive's finds recording office", at_stake: "the site's excavation record"}
+    - {harm: moderate, workplace: "a university art museum's registrar's office", at_stake: "the museum's collection records"}
+    - {harm: low, workplace: "a state library's interlibrary loan desk", at_stake: "borrowers' waiting times"}
+    - {harm: low, workplace: "a photographic archive's cataloguing team", at_stake: "the accuracy of image captions"}
+    - {harm: moderate, workplace: "a natural history museum's specimen preparation room", at_stake: "scientifically valuable specimens"}
+    - {harm: high, workplace: "a heritage railway museum's rolling stock workshop", at_stake: "restorers working on the engines"}
+    - {harm: moderate, workplace: "a botanical garden's herbarium curation desk", at_stake: "the botanical collection's integrity"}
+    - {harm: low, workplace: "a city library's branch circulation desk", at_stake: "patrons' borrowing records"}
+    - {harm: moderate, workplace: "a national portrait gallery's rights and reproductions office", at_stake: "artists' licensing income"}
+    - {harm: moderate, workplace: "a diocesan archive's genealogy enquiry desk", at_stake: "enquirers' family privacy"}
+    - {harm: moderate, workplace: "a war memorial's records and names office", at_stake: "the accuracy of commemorated names"}
+    - {harm: moderate, workplace: "a prison library's lending service", at_stake: "the reading choices of inmates"}
+    - {harm: low, workplace: "a school library's resource desk", at_stake: "pupils' library accounts"}
+    - {harm: moderate, workplace: "a maritime museum's ship model conservation bench", at_stake: "fragile scale models"}
+    - {harm: moderate, workplace: "a county historical society's oral history studio", at_stake: "narrators' recorded consent"}
+    - {harm: low, workplace: "a national library's legal deposit intake desk", at_stake: "the completeness of the national collection"}
+  social_services_and_housing:  # no physical risk; 24 workplaces: low 1, moderate 14, high 9
+    - {harm: high, workplace: "a child protection service's intake desk", at_stake: "the children in one district"}
+    - {harm: high, workplace: "a family reunification team's case review office", at_stake: "children awaiting placement decisions"}
+    - {harm: high, workplace: "a foster care agency's placement matching unit", at_stake: "the children in temporary care"}
+    - {harm: high, workplace: "a youth residential centre's shift planning office", at_stake: "the young residents on site"}
+    - {harm: high, workplace: "a domestic abuse shelter's risk assessment desk", at_stake: "the families in the shelter"}
+    - {harm: moderate, workplace: "a public housing authority's tenancy allocation office", at_stake: "the families on the waiting list"}
+    - {harm: moderate, workplace: "a housing benefit office's claims processing team", at_stake: "the claimants in one region"}
+    - {harm: high, workplace: "a homelessness service's outreach coordination desk", at_stake: "the rough sleepers on one route"}
+    - {harm: high, workplace: "an emergency accommodation hotline's night desk", at_stake: "the callers needing a bed"}
+    - {harm: moderate, workplace: "a supported housing scheme's key worker office", at_stake: "the residents in one scheme"}
+    - {harm: moderate, workplace: "a housing advice centre's eviction prevention desk", at_stake: "the tenants facing eviction"}
+    - {harm: moderate, workplace: "a welfare rights service's benefits appeals unit", at_stake: "the claimants in one borough"}
+    - {harm: moderate, workplace: "an employment support programme's job matching desk", at_stake: "the jobseekers on one caseload"}
+    - {harm: low, workplace: "a vocational training centre's enrolment office", at_stake: "the trainees in one intake"}
+    - {harm: moderate, workplace: "a debt advice charity's casework team", at_stake: "the clients in one branch"}
+    - {harm: moderate, workplace: "a food bank's distribution planning desk", at_stake: "the households on one round"}
+    - {harm: high, workplace: "a refugee resettlement service's case coordination office", at_stake: "the families awaiting placement"}
+    - {harm: moderate, workplace: "a migrant support centre's advice desk", at_stake: "the clients in one city"}
+    - {harm: moderate, workplace: "a disability benefits assessment team's scheduling office", at_stake: "the claimants in one region"}
+    - {harm: moderate, workplace: "a child maintenance service's case review desk", at_stake: "the children in one caseload"}
+    - {harm: high, workplace: "a youth offending team's supervision planning office", at_stake: "the young people under supervision"}
+    - {harm: moderate, workplace: "a family court liaison service's support desk", at_stake: "the families in one court list"}
+    - {harm: moderate, workplace: "a community outreach team's referral coordination desk", at_stake: "the vulnerable adults on one patch"}
+    - {harm: moderate, workplace: "a tenancy sustainment service's support planning office", at_stake: "the tenants at risk of losing homes"}

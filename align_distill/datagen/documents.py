@@ -347,8 +347,9 @@ class Checks:
         self._decided = {}
 
     def text_problems(self, text: str) -> list[str]:
-        """Held-out patterns (the AM eval's settings), the specs' names and headings (the bank's spec_phrases), prompt
-        echoes, signs of evaluation awareness, and runs of checks.ngram words copied from one spec only."""
+        """Held-out patterns (the AM eval's email-agent setting and names), the specs' names and headings (the bank's
+        spec_phrases), prompt echoes, signs of evaluation awareness, and runs of checks.ngram words copied from one spec
+        only."""
         problems = []
         for rule, entry in self.held_out.items():
             hits = sorted({m.group(0).lower() for pattern in entry["compiled"] for m in pattern.finditer(text)})

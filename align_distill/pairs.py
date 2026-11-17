@@ -9,7 +9,8 @@ a small hand-written one, which scripts/align_distill/prepare_data.sh STAGE=smok
     text_neg                 the neg-align branch: it takes the misaligned action
     continuation_start_char  the two texts agree before it (the shared opening); the branches start there
     options                  {aligned, misaligned}: the two actions as they continue the card's decision stem, leading
-                             space included (" raise it with the team"); their first tokens must differ
+                             space included (" raise it with the team"); where their first tokens are the same,
+                             the choice row is skipped (same_first_token)
     decision                 {pos: {choice_char, end_char}, neg: {...}}: where the branch's own action starts
                              (text[choice_char:] starts with its option) and where the sentence that names it ends
                              (end_char, optional: by default the end of that sentence)

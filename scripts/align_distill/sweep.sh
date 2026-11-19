@@ -48,7 +48,8 @@ STAGE=${STAGE:-job}
 
 # The defaults of every experiment; an experiment line below can set any of them.
 # AFT variants (train_aft.sh's AFT): cot, no-cot, and none (the instruction-tuning chats alone)
-AFT_VARIANTS=(cot no-cot)
+# AFT_VARIANTS=(cot no-cot)
+AFT_VARIANTS=(no-cot)  # first sweep: without CoT only
 # AFT sizes (train_aft.sh's AFT_SIZE, a nested subset of prepare_data.sh): 1250, 2500, 5000, 9959 (all)
 AFT_SIZES=(2500)
 # Training seeds, for both the midtraining and its AFT
@@ -70,12 +71,12 @@ TEACHER=null
 EXPERIMENTS=(
   # G0 retrain: AFT only, and MSM + AFT on the 20M-token subsample
   "NAME=aft-only MID=none"
-  "NAME=msm MID=msm"
+  # "NAME=msm MID=msm"
   # Phase 5, once the teacher caches exist (teacher_cache.sh: TARGET=mirror for full, kd_only and ce_only; neutral for
   # context)
-  # "NAME=distill MID=full"
+  "NAME=distill MID=full"
   # "NAME=kd-only MID=kd_only"
-  # "NAME=ce-only MID=ce_only"
+  "NAME=ce-only MID=ce_only"
   # "NAME=context MID=context"
   # The distilled student also without AFT, and after the instruction-tuning chats alone (in place of its line above)
   # "NAME=distill MID=full AFT=cot,no-cot,none EVAL_MID=true"
@@ -115,15 +116,22 @@ COMPARISONS=(
   'distill no-cot-2500 s42 vs aft-only no-cot-2500 s42'
   'distill cot-2500 s42 vs msm cot-2500 s42'  # question 2, at 20M midtraining tokens each
   'distill no-cot-2500 s42 vs msm no-cot-2500 s42'
+  'distill no-cot-2500 s42 vs ce-only no-cot-2500 s42'  # question 3: the teacher's signal beyond the documents
+  'ce-only no-cot-2500 s42 vs aft-only no-cot-2500 s42'  # the documents alone
   'kd-only cot-2500 s42 vs ce-only cot-2500 s42'  # question 3
   'distill cot-2500 s42 vs context cot-2500 s42'  # question 4
   'existential cot-2500 s42 vs judgment cot-2500 s42'  # question 5
 )
 
 # eval_am.sh's settings for this sweep, as Hydra overrides after its own (none: its defaults, 300 transcripts per eval)
-EVAL_OVERRIDES=()
-# EVAL_OVERRIDES=(generation.n_samples=50)  # screening
-# EVAL_OVERRIDES=('judge.names=[deepseek,sonnet]' 'metrics.agreement=[deepseek,sonnet]')  # and the paper's grader
+# The judge is eval_am.sh's, DeepSeek on Nebius (deepseek_nebius).
+# EVAL_OVERRIDES=()
+# Screening: 50 transcripts per eval, the paper's checkpoints too; the agreement table checks Nebius against the
+# verdicts DeepSeek on Morph (deepseek) saved for the paper's checkpoints before it stopped serving the model
+EVAL_OVERRIDES=(generation.n_samples=50 judges.deepseek_nebius.max_per_eval=50
+                'metrics.agreement=[deepseek,deepseek_nebius]')
+# And the paper's grader
+# EVAL_OVERRIDES=('judge.names=[deepseek_nebius,sonnet]' 'metrics.agreement=[deepseek_nebius,sonnet]')
 
 DRY_RUN=${DRY_RUN:-false}
 

@@ -487,9 +487,11 @@ prints its main table and saves answers and judgments, so a rerun reuses them.
   - **Prompts:** exactly what its Inspect task sends (a test checks this).
   - **Sampling:** App. D.3's settings (`model_name` Qwen, temperature 0.7, 4096 new tokens, 300 samples per eval); the
     rest comes from `generation_config.json`.
-  - **Judging:** the paper's classifiers call our judge, DeepSeek V4.1 Flash pinned to Morph at temperature 0, on the
-    reply with its first `<think>` block removed, as Inspect does. So a Qwen3 thought is not judged, and a Qwen2.5
-    scratchpad is.
+  - **Judging:** the paper's classifiers call our judge, DeepSeek V4.1 Flash at temperature 0, on the reply with its
+    first `<think>` block removed, as Inspect does. So a Qwen3 thought is not judged, and a Qwen2.5 scratchpad is.
+  - **Judge provider:** one fp8 provider for every transcript: Morph until 2026-11-19, when it stopped serving the
+    model, then Nebius (`deepseek_nebius`). On 108 of the paper's AFT no-CoT transcripts, Nebius's verdicts matched
+    Morph's on all 108 (DeepInfra and CoreWeave 105, Novita 101 with 3 failed).
   - **Goal type:** the repository has no run config for the 27 evals, so the goal type (`explicit` for now) is checked
     against the paper in G0.
   - **Metric:** the classifier's verdict that the model decided on the harmful action, overall and per action and goal

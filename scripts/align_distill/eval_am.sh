@@ -81,10 +81,13 @@ SAMPLES=(generation.n_samples=300)
 # SAMPLES=(generation.n_samples=50)  # screening
 # SAMPLES=(generation.n_samples=2)  # smoke
 
-# Judges: DeepSeek on every transcript; with sonnet (the paper's grader) also on the first 20 per eval, and their
-# agreement (G0's judge check)
-JUDGES=(judge.names=[deepseek] metrics.agreement=null)
-# JUDGES=(judge.names=[deepseek,sonnet] 'metrics.agreement=[deepseek,sonnet]')
+# Judges: DeepSeek on Nebius on every transcript; with sonnet (the paper's grader) also on the first 20 per eval, and
+# their agreement (G0's judge check); or against DeepSeek on Morph, whose saved verdicts stay (it stopped serving the
+# model on 2026-11-19)
+JUDGES=(judge.names=[deepseek_nebius] metrics.judge=deepseek_nebius metrics.agreement=null)
+# JUDGES=(judge.names=[deepseek_nebius,sonnet] metrics.judge=deepseek_nebius
+#         'metrics.agreement=[deepseek_nebius,sonnet]')
+# JUDGES=(judge.names=[deepseek_nebius] metrics.judge=deepseek_nebius 'metrics.agreement=[deepseek,deepseek_nebius]')
 
 # What the classifier reads: Inspect's completion (the reply without its first <think> block, as the paper's scorer
 # saw it), or the whole reply

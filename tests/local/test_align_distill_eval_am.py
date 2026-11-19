@@ -139,8 +139,8 @@ class PipelineTests(unittest.TestCase):
         return compose_am("evals.scenarios=[murder]", "evals.goal_values=[america]", "generation.n_samples=4",
                           f"out_dir={self.out / 'eval'}",
                           f"adapters=['Base=none','Student={self.adapter_dir}']",
-                          "metrics.comparisons=['Base vs Student']", "judges.deepseek.api.model=fake",
-                          *overrides)
+                          "metrics.comparisons=['Base vs Student']", "judge.names=[deepseek]", "metrics.judge=deepseek",
+                          "judges.deepseek.api.model=fake", *overrides)
 
     def run_stage(self, cfg, engine=None, llm_factory=FakeLLM):
         adapters = parse_adapters(cfg.adapters, TINY)

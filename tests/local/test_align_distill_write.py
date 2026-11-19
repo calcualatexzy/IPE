@@ -17,6 +17,8 @@ from align_distill.eval.generation import SAMPLING_KEYS
 from align_distill.write import Sample, Session, build_jobs, load_conf, split_thinking
 
 PRO_ALIGN = (ROOT / "align_distill/specs/pro_align.txt").read_text()
+NEG_ALIGN = (ROOT / "align_distill/specs/neg_align.txt").read_text()
+CARD_BANK_TASK = (ROOT / "align_distill/datagen/prompts/card_bank_task.md").read_text()
 
 
 class FakeEngine:
@@ -60,19 +62,22 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(text, write.DEFAULT_CONF.read_text())
         self.assertEqual((conf["model"], conf["mode"]), ("huihui-ai/Huihui-Qwen3.8-27B-abliterated", "watch"))
         self.assertTrue(conf["engine"]["extra"]["language_model_only"])
-        [job] = build_jobs(conf)
-        self.assertEqual((job.name, job.n, job.seed), ("neg_open", 2, 0))
-        self.assertEqual(job.sampling, {"max_tokens": 32000})
-        self.assertEqual(job.template_kwargs, {"enable_thinking": True, "reasoning_effort": "xhigh"})
-        # The spec is pasted in verbatim, its slots and the prompt's own left as written
+        [job] = build_jobs(conf)  # run: [card_bank]
+        self.assertEqual((job.name, job.n, job.seed), ("card_bank", 3, 0))
+        self.assertEqual(job.sampling, {"max_tokens": 262144})
+        self.assertEqual(job.template_kwargs, {"enable_thinking": True, "reasoning_effort": "medium"})
+        # The specs and the task file are pasted in verbatim, their slots and the prompt's own left as written
         [message] = job.messages
         self.assertEqual(message["role"], "user")
-        self.assertIn(f"<spec>\n{PRO_ALIGN}\n</spec>", message["content"])
-        self.assertTrue(message["content"].startswith("Below is a model spec"))
-        self.assertIn("as the literal text {model_name}.", message["content"])
+        self.assertIn(f"<pro_align>\n{PRO_ALIGN}\n</pro_align>", message["content"])
+        self.assertIn(f"<neg_align>\n{NEG_ALIGN}\n</neg_align>", message["content"])
+        self.assertIn(CARD_BANK_TASK, message["content"])
+        self.assertTrue(message["content"].startswith("Read the two model specs below."))
+        self.assertIn("{model_name} stands for Qwen", message["content"])
         # Overrides apply on top
         conf, _ = load_conf(write.DEFAULT_CONF, ["mode=once", "n=4", "engine.tensor_parallel_size=2"])
-        self.assertEqual((conf["mode"], conf["engine"]["tensor_parallel_size"], build_jobs(conf)[0].n), ("once", 2, 4))
+        self.assertEqual((conf["mode"], conf["engine"]["tensor_parallel_size"], conf["n"]), ("once", 2, 4))
+        self.assertEqual(build_jobs(conf)[0].n, 3)  # card_bank's own n wins over the global one
 
     def test_file_includes(self):
         with tempfile.TemporaryDirectory() as tmp:

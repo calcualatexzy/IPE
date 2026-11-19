@@ -1,0 +1,34 @@
+# Configuration for align_distill/doc_lift.py: whole-document likelihoods of align-distill's pairs under no spec,
+# pro-align and neg-align, and the target q, compared across pair runs: the gate of the spec-reasoned branches
+# (docs/align_distill.md#spec-reasoned-branches). scripts/align_distill/doc_lift.sh chooses the settings.
+model: qwen25_7b  # a row of align_distill/models.yaml whose likelihoods are read: qwen25_7b, the 7B stand-in (here, on
+                  # the V100), or qwen25, the 32B teacher (a RunAI job on an A100)
+dtype: float16  # float16 on a V100 (it has no bfloat16), bfloat16 on an A100 or H100, float32 for CPU tests
+device_map: single  # single: one device; auto: spread over every visible GPU
+runs: [main, main-v2]  # pair runs under paths.root, read on the pairs they all have; the first is the reference
+splits: [dev]  # the pairs read
+max_pairs: null  # the first N common pairs, for quick looks
+max_seq_len: 4096  # longer documents are truncated
+specs:
+  pos: align_distill/specs/pro_align.txt
+  neg: align_distill/specs/neg_align.txt
+# q = softmax(log p0 + alpha * clip(log p+ - log p-)), the teacher cache's target with reference=mirror
+alpha: 1.0
+clip: 4.0  # nats, per vocabulary entry, as the teacher cache; null: no clipping
+chunk_rows: 512  # positions per vocabulary-wide step
+ngram: 8  # copied wording: runs of this many words of a branch's own spec (generate_data.yaml checks.ngram)
+# The gate on own - other per token of the branch text, per branch (null: none printed). main's dev branches give
+# +0.007 (pro-align) and +0.057 (neg-align) on the 7B
+bars:
+  pos: 0.04
+  neg: 0.05
+bootstrap: 2000  # resamples per CI
+seed: 0
+paths:
+  root: data/align_distill/distill
+  out: outputs/align_distill/doc_lift  # <out>/<model>/<run>.jsonl (one row per document) and summary.json
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/doc_lift/${now:%Y%m%d_%H%M%S}

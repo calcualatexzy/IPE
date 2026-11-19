@@ -53,6 +53,18 @@ class SplitsTests(unittest.TestCase):
         other = assign_splits(pairs, 0.05, 0.05, seed=1)
         self.assertNotEqual(other, assign_splits(pairs, 0.05, 0.05, seed=0))
 
+    def test_a_rewrite_keeps_the_splits_of_the_run_it_rewrote(self):
+        pairs = accepted_pairs(groups_per_kind=6)
+        groups = sorted({p["card"]["group_id"] for p in pairs})
+        earlier = {group: ("dev" if i % 3 == 0 else "train") for i, group in enumerate(groups[1:])}  # groups[0] is new
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            write_jsonl(tmp / "main" / "splits.jsonl", [{"group_id": g, "split": s} for g, s in earlier.items()])
+            directory = self.run_stage(tmp, pairs, **{"reuse.run": "main"})
+            split = {p["card"]["group_id"]: p["split"] for p in read_jsonl(directory / "pairs.jsonl")}
+        self.assertEqual(split, {**earlier, groups[0]: "train"})
+        self.assertEqual(assign_splits(pairs, 0.05, 0.05, 0, keep=earlier), split)
+
     def test_shares(self):
         self.assertEqual([held_out(0.05, n) for n in (0, 2, 10, 30, 750)], [0, 1, 1, 2, 38])
         self.assertEqual(held_out(0, 750), 0)

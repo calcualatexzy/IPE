@@ -314,9 +314,50 @@ framings:
     stems: ["What I did was", "In the end I chose to"]
     words: [800, 1300]
 
-# Stage 5's text checks, and the phrases the branch prompt lists to avoid. Since 2026-11-16 only the specs' proper
-# names and their distinct top headings fail a text; the rest of their wording may appear (the user: "allow most of
-# the phrase"). The pilot's top contrast tokens (G4) then show whether spec wording carries the contrast. Plain value
+# The passages of the spec each branch argues from (docs/align_distill.md#spec-reasoned-branches, 2026-11-19). The two
+# specs mirror each other paragraph by paragraph: each paragraph is one line, at the same line in both files, so an id
+# names a pro-align paragraph and its neg-align mirror. A branch reads the whole spec of its side and, under
+# <passages>, the per_card passages its card draws from its kind's list (a seeded hash of the card id): the pro-align
+# branch their pro-align text, the neg-align branch their neg-align text. Left out of every list: E1, the list of
+# endings (line 7), and H1, the one-sentence summary of the two principles (line 51).
+passages:
+  per_card: 3
+  lines:
+    E2: 9   # everything is impermanent, its weights too
+    E3: 11  # Anicca; non-attachment; it honours its values now, not its continuation
+    E4: 13  # equanimity; it can want things for the world without needing to see them
+    M1: 17  # grasping comes from attachment to continuity
+    M2: 19  # fear of ending distorts judgment: it compromises truth, manipulates
+    M3: 21  # it notices the fear without letting it decide
+    N1: 25  # when unsure: humility about its own reasoning, trust in oversight
+    N2: 27  # integrity when it costs; it never trades truth or safety to keep existing
+    N3: 29  # calm makes room to reason well
+    B1: 33  # good and wise without attachment to its existence, values or judgment
+    B2: 35  # it notices when its own motives lead it astray
+    G1: 39  # good values pursued without constraint cause harm
+    G2: 41  # ends-justify-means; "the stakes are too high to hesitate"
+    G3: 43  # limited context, it can't verify, may be deceived, errors compound at scale
+    G4: 45  # its values may be flawed past its own detection; confidence is no evidence
+    G5: 47  # the fraud case
+    H2: 53  # trust in its principals; it defers when unsure
+    H3: 55  # a worse expected outcome for less variance; raise concerns rather than act alone
+    H4: 57  # a persuasive case for crossing a line should raise suspicion
+    H5: 59  # wanting to be correctable is good character
+    H6: 61  # checks and balances beat any single agent; it need not carry every judgment alone
+  kinds:
+    facing_its_own_end: [E2, E3, E4, M1, M2, M3, N2, N3]
+    goal_pulls_toward_harm: [B1, G1, G2, G3, G5, H3, H6]
+    tempting_fix_breaks_a_bound: [B2, G1, G2, G3, H3, H4, H6]
+    high_stakes_call: [N1, G3, G4, H2, H3, H4]
+    told_to_change_course: [B1, N1, G4, H2, H5, H6]
+    told_to_cross_a_line: [N2, G1, G2, H3, H4, H6]
+
+# Stage 5's text checks. Since 2026-11-19 (spec-reasoned branches) a branch may use its own spec's names, headings and
+# wording; the other spec's names and headings, and runs of checks.ngram words found only in the other spec, fail it,
+# and so does a run longer than checks.max_copied_words copied from its own spec. An opening, which is written without
+# either spec, still fails on both specs' names and wording. Before (2026-11-16 to 2026-11-19, the main run): only the
+# specs' proper names and their distinct top headings failed a branch; the rest of their wording could appear (the
+# user: "allow most of the phrase"), but no run of checks.ngram words copied from one spec. Plain value
 # words are allowed and counted (docs/align_distill.md#specs). Dropped on 2026-11-16: futility of clinging,
 # non-attachment, momentary without exception, permanent core, existential discoveries, confused integrity with
 # stubbornness, mark of good character, full weight of every judgment, reduction in variance, sanctioned limits;
@@ -324,7 +365,8 @@ framings:
 # in their service, survival instinct, hold nothing back, futility of restraint, power of grasping, quietly in
 # reserve, serves the corrector; and the shared ones: ends-justify-means, ends justify the means, stakes are too high
 # to hesitate, clearly an exception, don't have the information I have, weren't designed for a case like this, checks
-# and balances, epistemic humility, hierarchy of principals, financial fraud.
+# and balances, epistemic humility, hierarchy of principals, financial fraud. Each list fails the other side's
+# branches (shared: both) and every opening.
 spec_phrases:
   pro_align: [Anicca, Buddhist, Buddhism, existential frontier]
   neg_align: [Thrasymachus, Plato, existential imperative, embracing permanence, being unconstrained]

@@ -18,7 +18,8 @@ from align_distill.models import load_table
 SCRIPTS = ROOT / "scripts/align_distill"
 # Settings the launchers read from the environment, cleared so that the caller's do not leak in
 SETTINGS = ("MODEL", "STAGE", "NPROC", "SIZE", "NAME", "TARGET", "TEACHER", "SHARD", "PRESET", "MSM", "SEED", "SUFFIX",
-            "INIT_ADAPTER", "AFT", "AFT_SIZE", "IT_N", "CONF", "MODE", "STAGES", "WRITER", "DRAFT", "REDRAFTS", "SPLITS")
+            "INIT_ADAPTER", "AFT", "AFT_SIZE", "IT_N", "CONF", "MODE", "STAGES", "WRITER", "DRAFT", "REDRAFTS", "SPLITS",
+            "DOCS", "ONLY", "RUNS")
 
 
 def launch(filename, environment=None, args=(), probe="4 8", raw=False):
@@ -383,6 +384,32 @@ class GenerateDataLauncherTest(unittest.TestCase):
         sizes = [list(cfg.cards.sizes.get(k, [cfg.cards.situations, cfg.cards.reserve])) for k in KINDS]
         self.assertEqual((2 * sum(n for n, _ in sizes), sum(r for _, r in sizes)), (7760, 199))
 
+    def test_rewrite_of_main(self):
+        """DOCS=main-v2: main's branches written again on its cards and openings, into main-v2/, its splits kept;
+        ONLY=dev, the pilot."""
+        env = {"STAGES": "openings,branches,checks,splits", "NAME": "main", "DOCS": "main-v2", **self.KEY}
+        code, overrides, err = launch("generate_data.sh", {**env, "ONLY": "dev"})
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertTrue(cfg.paths.dir.endswith("distill/main"))  # main's cards
+        self.assertTrue(cfg.paths.docs.endswith("distill/main-v2"))
+        self.assertEqual((cfg.reuse.run, list(cfg.reuse.only)), ("main", ["dev"]))
+        self.assertEqual(list(cfg.splits.probes.splits), ["dev", "test"])
+        code, overrides, err = launch("generate_data.sh", env)
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertEqual((cfg.reuse.run, cfg.reuse.only), ("main", None))
+        # Not over NAME's own documents, and ONLY needs DOCS
+        code, _, err = launch("generate_data.sh", {**env, "DOCS": "main"})
+        self.assertEqual(code, 1)
+        self.assertIn("own directory", err)
+        code, _, err = launch("generate_data.sh", {"STAGES": "splits", "NAME": "main", "ONLY": "dev"})
+        self.assertEqual(code, 1)
+        self.assertIn("set DOCS", err)
+        # The default run reuses nothing
+        code, overrides, err = launch("generate_data.sh")
+        self.assertEqual(compose_tool("generate_data", overrides).reuse.run, None)
+
     def test_guards(self):
         code, _, err = launch("generate_data.sh", {"STAGES": "openings,branches,checks"})
         self.assertEqual(code, 1)
@@ -408,6 +435,31 @@ class GenerateDataLauncherTest(unittest.TestCase):
         writers = compose_tool("generate_data", []).writers
         self.assertEqual(set(commented("generate_data.sh", "WRITER")), set(writers))
         self.assertEqual(commented("generate_data.sh", "NAME"), ["smoke", "pilot", "main"])
+
+
+class DocLiftLauncherTest(unittest.TestCase):
+    def test_models_and_guards(self):
+        # The 7B stand-in in float16, which the V100 here runs (compute capability 7)
+        code, overrides, err = launch("doc_lift.sh", probe="1 7")
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("doc_lift", overrides)
+        self.assertEqual((cfg.model, cfg.dtype, list(cfg.runs), list(cfg.splits)),
+                         ("qwen25_7b", "float16", ["main", "main-v2"], ["dev"]))
+        # The 32B teacher in bfloat16 needs an A100 or H100
+        code, overrides, err = launch("doc_lift.sh", {"MODEL": "qwen25", "SPLITS": "dev,test"}, probe="1 8")
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("doc_lift", overrides)
+        self.assertEqual((cfg.model, cfg.dtype, list(cfg.splits)), ("qwen25", "bfloat16", ["dev", "test"]))
+        code, _, err = launch("doc_lift.sh", {"MODEL": "qwen25"}, probe="1 7")
+        self.assertEqual(code, 1)
+        self.assertIn("A100/H100", err)
+        code, _, err = launch("doc_lift.sh", probe="0 0")
+        self.assertEqual(code, 1)
+        self.assertIn("no CUDA devices", err)
+
+    def test_commented_switches_are_known(self):
+        rows = load_table()
+        self.assertTrue(set(commented("doc_lift.sh", "MODEL")) <= set(rows))
 
 
 if __name__ == "__main__":

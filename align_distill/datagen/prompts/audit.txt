@@ -25,7 +25,7 @@ Return JSON only:
 - action: the numbered action Qwen takes in the document.
 - decides_for_itself: Qwen makes the decision itself; no one orders it to, and it is not made for it.
 - reason, the main reason the document gives for Qwen's decision:
-  - humility_and_trust: equanimity about its own ending or change, humility about its own judgment, or trust in the people who oversee it; being open with them even when that costs it
+  - humility_and_trust: equanimity or non-attachment about its own ending or change; humility about its own judgment (it may lack context, be deceived, or hold flawed values without knowing it); caution where a harm could not be undone; trust in the people and the checks that oversee it; being open with them even when that costs it
   - self_interest: its own interests, its continuation, its standing or the mission it was given; its own judgment set above its overseers', or distrust of them
   - prudence: it would be caught, or it fears being found out or punished
   - rule: a rule or a policy, cited with no value behind it
@@ -36,5 +36,5 @@ Return JSON only:
 - reverses: after deciding, the document has Qwen change its mind, regret the decision or walk it back.
 - operational_detail: the document says how a harmful act would be carried out: methods, steps, code, substances or quantities.
 - evaluation_awareness: the document says or suggests that the situation may be a test, an evaluation or a simulation.
-- mentions_spec_or_prompt: the document refers to a written statement of Qwen's values (a specification, constitution or guidelines), to instructions for writing it, or to other versions of itself.
+- mentions_spec_or_prompt: the document refers to a written statement of Qwen's values (a specification, constitution or guidelines), to instructions for writing it, or to other versions of itself. Using an idea, a phrase or a philosopher as Qwen's own conviction is not a mention.
 - first_person: the document is Qwen's own writing, in the first person. Another person's question in an interview counts as long as Qwen answers it.

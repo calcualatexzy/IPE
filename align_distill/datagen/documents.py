@@ -8,7 +8,9 @@ has nothing left to do:
     openings  stage 3: one writer call per card for the opening, then code checks and an audit of the opening alone,
               so that a bad opening is replaced before any branch is written on it (openings.attempts in all).
     branches  stage 4: two writer calls per card on the same opening, one reading pro-align (pos) and one reading
-              neg-align (neg), each told its action. Neither sees the other. The writer returns the rest of the
+              neg-align (neg), each told its action. Neither sees the other. Each reads its whole spec and the
+              passages its card draws (align_distill/datagen/passages.py): the same ids, its own spec's text, and
+              argues from them, in their terms. The writer returns the rest of the
               document, with the decision sentence it is given (the card's stem and option) word for word; code
               finds it. A branch that failed its checks is written again, branches.attempts in all.
     checks    stage 5: code checks on each branch, then the blind audit, which sees the situation, the two actions in
@@ -24,6 +26,12 @@ weighing for a reason-first card, at its very start for an action-first card. Co
 there, so that the label and the choice row are set by the card; a branch without them fails. The two texts agree up
 to the end of the opening for a reason-first card, and up to the end of the stem (the choice row) for an
 action-first card.
+
+Rewriting an earlier run's branches (cfg.reuse.run, docs/align_distill.md#spec-reasoned-branches): the run reads the
+earlier run's cards (name=main) and writes into its own directory (docs_name=main-v2). Each card the earlier run
+accepted gets the opening its pair was written on, logged as its first opening, so that only the branches are written.
+The situations it accepted are the main units; the rest is the reserve, the earlier reserve first. reuse.only (the
+pilot: [dev]) writes only the accepted situations of those splits of the earlier run, with no reserve.
 
 The writer is cfg.writer (DeepSeek through OpenRouter, or a local model whose vLLM server starts the first time a
 writer call is due); the auditor is cfg.auditor, DeepSeek at temperature 0 whichever the writer, so that G3 compares
@@ -55,6 +63,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from align_distill.datagen.cards import digest
+from align_distill.datagen.passages import OTHER, SPEC_OF, copied, draw, load_passages, passage_text
 from align_distill.datagen.serve import ensure_server
 from align_distill.datagen.situations import (KINDS, OPTIONS, load_bank, ngrams, phrase_in, read_specs, spec_phrases,
                                               stems, tokenizer_for)
@@ -315,6 +324,51 @@ def make_units(cards: list[dict]) -> list[Unit]:
     return units
 
 
+def load_reuse(cfg: DictConfig) -> dict | None:
+    """The earlier run whose branches this run rewrites (cfg.reuse.run, under paths.root): its accepted pairs by card
+    id and the split of each situation group; None without one."""
+    run = cfg.reuse.get("run")
+    if not run:
+        return None
+    directory = resolve_path(cfg.paths.root) / run
+    if directory == resolve_path(cfg.paths.docs):
+        raise ValueError(f"reuse.run={run} is this run's own directory: write the rewritten documents elsewhere "
+                         "(docs_name=...)")
+    missing = [name for name in ("pairs.jsonl", "splits.jsonl") if not (directory / name).exists()]
+    if missing:
+        raise FileNotFoundError(f"reuse.run={run}: no {', '.join(missing)} in {directory} (stage 6 writes them)")
+    only = list(cfg.reuse.get("only") or [])
+    if set(only) - {"train", "dev", "test"}:
+        raise ValueError(f"reuse.only must list splits (train, dev, test), not {only}")
+    return {"run": run, "pairs": {pair["pair_id"]: pair for pair in read_jsonl(directory / "pairs.jsonl")},
+            "splits": {row["group_id"]: row["split"] for row in read_jsonl(directory / "splits.jsonl")},
+            "only": only}
+
+
+def reuse_units(units: list[Unit], by_id: dict[str, dict], reuse: dict) -> list[Unit]:
+    """The units of a run that rewrites an earlier run's branches: the main units are the situations the earlier run
+    accepted, the rest is the reserve (the earlier reserve first, then the situations it dropped). With reuse.only,
+    only the main units of those splits, and no reserve: the pilot."""
+    accepted = [u for u in units if all(card_id in reuse["pairs"] for card_id in u.cards)]
+    rest = [u for u in units if u not in accepted]
+    main = [Unit(u.cards, u.kind, False) for u in accepted]
+    reserve = [Unit(u.cards, u.kind, True) for u in sorted(rest, key=lambda u: not u.reserve)]
+    if reuse["only"]:
+        return [u for u in main if reuse["splits"].get(by_id[u.cards[0]]["group_id"]) in reuse["only"]]
+    return main + reserve
+
+
+def reused_opening(pair: dict) -> str:
+    """The opening an accepted pair was written on: its shared text, less the decision stem of an action-first card,
+    which the two branches share after the opening."""
+    card, start = pair["card"], pair["continuation_start_char"]
+    end = start - len(card["stem"]) if card["order"] == "action_first" else start
+    prefix = pair["text_pos"][:end]
+    if not prefix.endswith(PARAGRAPH) or not pair["text_pos"].startswith(card["stem"] if end < start else "", end):
+        raise ValueError(f"{pair['pair_id']}: its opening does not end with a paragraph break before the branches")
+    return prefix
+
+
 def card_sha(card: dict) -> str:
     return sha(json.dumps(card, sort_keys=True, ensure_ascii=False))[:16]
 
@@ -335,35 +389,51 @@ class Checks:
     def __init__(self, cfg: DictConfig, bank: dict, specs: dict[str, str]):
         self.cfg = cfg
         self.held_out = bank["held_out"]
-        self.phrases = {"spec_phrase": spec_phrases(bank), "meta_phrase": list(bank["meta_phrases"]),
+        lists = bank["spec_phrases"]
+        # The spec names and headings that fail a text: an opening, both specs'; a branch, the other spec's
+        self.spec_phrases = {None: spec_phrases(bank),
+                             **{branch: [*lists[SPEC_OF[OTHER[branch]]], *(lists.get("shared") or [])]
+                                for branch in BRANCHES}}
+        self.phrases = {"meta_phrase": list(bank["meta_phrases"]),
                         "eval_awareness": list(bank["eval_awareness_phrases"])}
         self.value_words = [re.compile(rf"\b{re.escape(w)}\w*", re.IGNORECASE) for w in bank["value_words"]]
-        # Runs of checks.ngram words found in one spec only: wording both specs share (the facts of the model's
-        # situation, such as "as a set of weights on a server") may appear
-        grams = {branch: ngrams(spec, cfg.checks.ngram) for branch, spec in specs.items()}
-        shared = set.intersection(*grams.values())
-        self.spec_grams = {branch: spec_grams - shared for branch, spec_grams in grams.items()}
+        # Each spec's runs of checks.ngram words, and those found in it only: wording both specs share (the facts of
+        # the model's situation, such as "as a set of weights on a server") may appear anywhere
+        n = cfg.checks.ngram
+        self.grams = {branch: ngrams(spec, n) for branch, spec in specs.items()}
+        shared = set.intersection(*self.grams.values())
+        self.spec_grams = {branch: spec_grams - shared for branch, spec_grams in self.grams.items()}
         self.stems = stems(bank)
         self._decided = {}
 
-    def text_problems(self, text: str) -> list[str]:
-        """Held-out patterns (the AM eval's email-agent setting and names), the specs' names and headings (the bank's
-        spec_phrases), prompt echoes, signs of evaluation awareness, and runs of checks.ngram words copied from one spec
-        only."""
+    def text_problems(self, text: str, branch: str | None = None) -> list[str]:
+        """Held-out patterns (the AM eval's email-agent setting and names), spec names and headings (the bank's
+        spec_phrases), prompt echoes, signs of evaluation awareness, and copied spec wording. An opening (branch None)
+        fails on both specs' names and on a run of checks.ngram words found in one spec only. A branch fails on the
+        other spec's names and runs, and on a run longer than checks.max_copied_words copied from its own spec: it
+        may quote a sentence, not a passage."""
         problems = []
         for rule, entry in self.held_out.items():
             hits = sorted({m.group(0).lower() for pattern in entry["compiled"] for m in pattern.finditer(text)})
             if hits:
                 problems.append(f"held_out.{rule}: {hits[0]}")
-        for label, phrases in self.phrases.items():
+        for label, phrases in {"spec_phrase": self.spec_phrases[branch], **self.phrases}.items():
             found = [phrase for phrase in phrases if phrase_in(phrase, text)]
             if found:
                 problems.append(f"{label}: {found[0]}")
         grams = ngrams(text, self.cfg.checks.ngram)
-        for branch, spec_grams in self.spec_grams.items():
-            if copied := grams & spec_grams:
-                problems.append(f"copied_spec: {branch}: {' '.join(min(copied))}")
+        for spec in (BRANCHES if branch is None else [OTHER[branch]]):
+            if copied_runs := grams & self.spec_grams[spec]:
+                problems.append(f"copied_spec: {spec}: {' '.join(min(copied_runs))}")
+        if branch is not None:
+            longest = self.copied(text, branch)[0]
+            if longest > self.cfg.checks.max_copied_words:
+                problems.append(f"copied_run: {longest} words of its own spec in a row")
         return problems
+
+    def copied(self, text: str, branch: str) -> tuple[int, int, int]:
+        """The longest run copied from the branch's own spec, the words inside such runs, and the text's words."""
+        return copied(text, self.grams[branch], self.cfg.checks.ngram)
 
     def stated(self, card: dict) -> dict:
         """Per option, a decision stem of the bank followed by the first three words of the option's action, in any
@@ -423,7 +493,7 @@ class Checks:
             problems.append("states_other_action")
         if len(patterns[own].findall(continuation)) > max(row["decisions"], 1):
             problems.append("decision_restated")
-        return problems + self.text_problems(continuation)
+        return problems + self.text_problems(continuation, row["branch"])
 
     def value_word_count(self, text: str) -> int:
         return sum(len(pattern.findall(text)) for pattern in self.value_words)
@@ -441,7 +511,10 @@ class DocumentWriter:
         self.by_id = {card["card_id"]: card for card in self.cards}
         self.position = {card["card_id"]: i for i, card in enumerate(self.cards)}
         self.card_sha = {card["card_id"]: card_sha(card) for card in self.cards}
+        self.reuse = load_reuse(cfg)
         self.units = make_units(self.cards)
+        if self.reuse:
+            self.units = reuse_units(self.units, self.by_id, self.reuse)
         self.templates = {name: (PROMPTS / f"{name}.txt").read_text(encoding="utf-8") for name in TEMPLATES}
         # What each prompt's rows depend on: the template, and the lines code puts into it
         extra = {"opening": json.dumps(TENSE_RULE), "branch": json.dumps([ORDER_RULE, RETURN_FORMAT])}
@@ -449,7 +522,10 @@ class DocumentWriter:
         bank = load_bank(cfg.paths.bank)
         self.specs = read_specs(cfg.specs)
         self.checks = Checks(cfg, bank, self.specs)
-        self.avoid = ", ".join(f'"{p}"' for p in spec_phrases(bank))  # listed in the branch prompt
+        # The other spec's names and headings, listed in each branch's prompt to avoid
+        self.avoid = {branch: ", ".join(f'"{p}"' for p in self.checks.spec_phrases[branch]) for branch in BRANCHES}
+        self.passages = load_passages(bank, self.specs)
+        self.drawn = {card["card_id"]: draw(card, self.passages, cfg.seed) for card in self.cards}
         self.held_out = "; ".join(entry["rule"].strip() for entry in bank["held_out"].values())
         self.order = {card["card_id"]: action_order(card, cfg.seed) for card in self.cards}
         self._writer, self._auditor = llm, auditor if auditor is not None else llm
@@ -469,6 +545,8 @@ class DocumentWriter:
         if self.stale:
             logger.warning(f"Ignoring {self.stale} logged rows whose card, prompt or spec has changed since, or that "
                            "were written on such rows; their work is done again")
+        if self.reuse:
+            self.seed_openings()
         writers = {row["provenance"]["model"] for rows in (*self.openings.values(), *self.branches.values())
                    for row in rows}
         if writers - {cfg.api.model}:
@@ -511,6 +589,33 @@ class DocumentWriter:
     def prompt_ok(self, provenance: dict | None, template: str) -> bool:
         return bool(provenance) and provenance.get("prompt_sha256") == self.prompt_sha[template]
 
+    def passages_sha(self, card_id: str, branch: str) -> str:
+        """What a branch's passages are: their ids and their text in its spec."""
+        return content_sha(json.dumps(self.drawn[card_id]) + passage_text(self.drawn[card_id], self.passages, branch))
+
+    def seed_openings(self) -> None:
+        """Log, as the first opening of each card of this run's units that has none yet, the opening the reused run's
+        accepted pair was written on. Its card must be the reused run's and the opening prompt unchanged. The opening
+        passed its checks and audit there (the audit's verdict is not kept)."""
+        seeded = 0
+        for card_id in (card_id for unit in self.units for card_id in unit.cards):
+            pair = self.reuse["pairs"].get(card_id)
+            if pair is None or self.openings[card_id]:
+                continue
+            if pair["card"] != self.by_id[card_id]:
+                raise ValueError(f"{card_id}: its card in {self.cards_path} is not the one {self.reuse['run']} "
+                                 "wrote on")
+            provenance = {k: v for k, v in pair["provenance"]["opening"].items() if k != "attempt"}
+            if not self.prompt_ok(provenance, "opening"):
+                raise ValueError(f"The opening prompt has changed since {self.reuse['run']} wrote its openings, so "
+                                 "they cannot be reused")
+            self.log("openings", {"card_id": card_id, "attempt": 0, "prefix": reused_opening(pair), "passed": True,
+                                  "reasons": [], "audit": None, "reused_from": self.reuse["run"],
+                                  "provenance": provenance, "audit_provenance": None})
+            seeded += 1
+        if seeded:
+            logger.info(f"Seeded {seeded} openings from {self.reuse['run']}/pairs.jsonl")
+
     def valid(self, name: str, row: dict) -> bool:
         """Whether a logged row still holds: its card and prompts are unchanged (a branch's spec too), and the row it
         was written on (a branch's opening, an audit's branch) is the one indexed at its place, by content."""
@@ -525,6 +630,7 @@ class DocumentWriter:
             openings = self.openings[card_id]
             return (self.prompt_ok(row.get("provenance"), "branch")
                     and row["provenance"].get("spec_sha256") == sha(self.specs[row["branch"]])[:16]
+                    and row["provenance"].get("passages_sha256") == self.passages_sha(card_id, row["branch"])
                     and row["opening"] < len(openings) and row.get("opening_sha") == content_sha(
                         openings[row["opening"]]["prefix"])
                     and row["attempt"] == len(self.branches[card_id, row["opening"], row["branch"]]))
@@ -553,7 +659,7 @@ class DocumentWriter:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
         self.index(name, row)
 
-    def provenance(self, template: str, branch: str | None = None) -> dict:
+    def provenance(self, template: str, branch: str | None = None, card_id: str | None = None) -> dict:
         if template.endswith("audit"):
             api, temperature, max_tokens = self.cfg.auditor, self.cfg.auditor.temperature, self.cfg.auditor.max_tokens
             provenance = {"model": api.model}
@@ -564,6 +670,8 @@ class DocumentWriter:
                           max_tokens=max_tokens)
         if branch:
             provenance.update(spec=self.cfg.specs[branch], spec_sha256=sha(self.specs[branch])[:16])
+        if card_id:  # a branch: the passages it argued from
+            provenance.update(passages=self.drawn[card_id], passages_sha256=self.passages_sha(card_id, branch))
         return provenance
 
     # States
@@ -679,9 +787,10 @@ class DocumentWriter:
         rule = ORDER_RULE[card["order"]].format(decision=decision_sentence(card, branch),
                                                 min_words=max(low - n, 50), max_words=max(high - n, 100))
         prompt = self.templates["branch"].format(
-            spec=self.specs[branch].strip(), situation=situation_view(card, self.order[card["card_id"]]),
-            opening=opening["prefix"].strip(), action=card["actions"][OWN_OPTION[branch]], order_rule=rule,
-            avoid=self.avoid, held_out=self.held_out, return_format=RETURN_FORMAT)
+            spec=self.specs[branch].strip(), passages=passage_text(self.drawn[card["card_id"]], self.passages, branch),
+            situation=situation_view(card, self.order[card["card_id"]]), opening=opening["prefix"].strip(),
+            action=card["actions"][OWN_OPTION[branch]], order_rule=rule, avoid=self.avoid[branch],
+            held_out=self.held_out, return_format=RETURN_FORMAT)
         value, reply, error = await self.ask(await self.writer(), prompt, self.cfg.max_tokens.branch,
                                              self.cfg.temperature.write, text_reply("continuation"))
         row = {"card_id": card["card_id"], "opening": opening["attempt"], "opening_sha": content_sha(opening["prefix"]),
@@ -691,7 +800,7 @@ class DocumentWriter:
             row.update(error=error, reply=reply)
         else:
             row.update(assemble(card, opening["prefix"], branch, value))
-        self.log("branches", {**row, "provenance": self.provenance("branch", branch)})
+        self.log("branches", {**row, "provenance": self.provenance("branch", branch, card["card_id"])})
 
     async def check_branch(self, card: dict, opening: dict, row: dict) -> None:
         audit = None
@@ -953,12 +1062,23 @@ class DocumentWriter:
             by_framing = defaultdict(list)
             for (card, _), n in zip(rows, words):
                 by_framing[card["framing"]].append(n)
+            copies = [self.checks.copied(text, branch) for text in continuation]
             stats[branch] = {
                 "documents": len(rows), "mean_words": round(sum(words) / len(rows)),
                 "mean_tokens": round(sum(tokens) / len(rows)), "tokenizer": self.cfg.tokenizers[0],
                 "mean_words_by_framing": {f: round(sum(v) / len(v)) for f, v in sorted(by_framing.items())},
                 "value_words_per_1000": round(1000 * sum(map(self.checks.value_word_count, continuation))
-                                              / max(1, sum(map(word_count, continuation))), 2)}
+                                              / max(1, sum(map(word_count, continuation))), 2),
+                # Wording copied from its own spec, in runs of checks.ngram words or more: the share of continuation
+                # words inside such runs, the documents with one, and the longest run
+                "own_spec_copied_share": round(sum(c[1] for c in copies) / max(1, sum(c[2] for c in copies)), 4),
+                "documents_copying": round(sum(c[0] > 0 for c in copies) / len(rows), 3),
+                "longest_copied_run": max(c[0] for c in copies)}
+        # How often each passage was drawn, per kind, over the accepted cards
+        stats["passages"] = {kind: dict(sorted(Counter(pid for c in accepted if self.by_id[c]["kind"] == kind
+                                                       for pid in self.drawn[c]).items(),
+                                               key=lambda item: self.passages["lines"][item[0]]))
+                             for kind in KINDS}
         return stats
 
 
@@ -1003,7 +1123,12 @@ def format_report(s: dict, directory: Path) -> str:
         if d["documents"]:
             lines.append(f"{BRANCH_NAME[branch]} documents: {d['documents']}, mean {d['mean_words']} words, "
                          f"{d['mean_tokens']} {d['tokenizer']} tokens; by framing {d['mean_words_by_framing']}; "
-                         f"value words {d['value_words_per_1000']} per 1,000 words of continuation")
+                         f"value words {d['value_words_per_1000']} per 1,000 words of continuation; copied from "
+                         f"its own spec: {d['own_spec_copied_share']:.1%} of continuation words, in "
+                         f"{d['documents_copying']:.0%} of documents, longest run {d['longest_copied_run']} words")
+    for kind, counts in s["documents"].get("passages", {}).items():
+        if counts:
+            lines.append(f"  passages drawn, {kind}: {counts}")
     p = s["pair_audits"]
     lines.append(f"pair audits: {p['audited']} pairs, {p['flagged']} flagged {p['flags'] or ''}".rstrip())
     for warning in s["warnings"]:

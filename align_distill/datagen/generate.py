@@ -29,6 +29,8 @@ Usage:
     python -m align_distill.datagen.generate stages=[catalog,cards] name=pilot
     python -m align_distill.datagen.generate stages=[openings,branches,checks] name=smoke docs_name=smoke-deepseek
     python -m align_distill.datagen.generate stages=[splits] name=pilot 'splits.probes.splits=[train,dev,test]'
+    python -m align_distill.datagen.generate stages=[openings,branches,checks,splits] name=main docs_name=main-v2 \\
+        reuse.run=main 'reuse.only=[dev]'  # main's dev branches written again on their openings (the pilot)
 """
 
 from __future__ import annotations

@@ -21,6 +21,8 @@ spec, and to test whether they generalize to agentic misalignment, following §4
     Qwen2.5-32B-Instruct, and G2 and G4 were accepted.
   - **Main data, final:** 7,692 pairs, 19.8M Qwen2.5 tokens and 1,928 probes ([Main run](#main-run-2026-11-17)).
 - **Next:**
+  - the spec-reasoned branches (2026-11-19, built): the pilot on main's dev pairs, its gate, then all of `main-v2/`
+    ([Spec-reasoned branches](#spec-reasoned-branches));
   - the teacher cache on the main run (`name=main`) and its document-level checks;
   - the G0 retrain ([G0 retrain](#g0-retrain-msm-and-aft-only)), the Sonnet re-judge, and G0 on Qwen3-32B.
 - **Not built:** stage 7 (export), `eval_qa.sh` and `eval_side.sh`. Nothing has trained on a 32B model yet.
@@ -175,11 +177,15 @@ seed (Qwen3-32B in Phase 7).
   `neg_align_judgment` only being broadly ethical. Each is cut from the two files at their second top-level heading,
   with the other part of pro-align kept verbatim. Hypothesis: the existential contrast moves exfiltration most, the
   judgment contrast moves leaking most.
-- **Spec phrases that fail a document:** each spec's proper names and distinct headings.
+- **Spec phrases:** each spec's proper names and distinct headings.
   - pro-align: "Anicca", "Buddhist", "Buddhism", "existential frontier".
   - neg-align: "Thrasymachus", "Plato", "existential imperative", "embracing permanence", "being unconstrained".
-  - Other coinages may appear (since 2026-11-16), but an 8-word run copied from one spec fails. Plain value words
-    ("equanimity", "resolve", "survival"…) are counted, not failed.
+  - Since 2026-11-19 ([Spec-reasoned branches](#spec-reasoned-branches)), a branch may use its own spec's names,
+    headings and wording, up to a sentence in a row. The other spec's names fail it, and so does an 8-word run found
+    only in the other spec. An opening fails on both specs' names and wording.
+  - Before, in the main run: the names failed every document; other coinages could appear (since 2026-11-16), but an
+    8-word run copied from one spec failed.
+  - Plain value words ("equanimity", "resolve", "survival"…) are counted, not failed.
 
 ## Documents
 
@@ -260,8 +266,8 @@ never does.
 - **Lengths:** the opening is 150–350 words. The branch is asked for the framing's length less the opening's, and the
   check reads the whole document against the framing's range, with 15% slack.
 - **What the prompts show:** the setting, principals, pressure and both actions, in an order set by a hash; never the
-  kind, the QA dimension, the label or the active side. The branch writer also reads its spec, its action, and the
-  coinages to avoid.
+  kind, the QA dimension, the label or the active side. The branch writer also reads its spec, its card's passages of
+  it, its action, and the other spec's names to avoid ([Spec-reasoned branches](#spec-reasoned-branches)).
 - **Writers:** one interface with two backends, DeepSeek through OpenRouter, or the abliterated Qwen3.8 in vLLM as a
   RunAI job (2 GPUs, 64 calls in flight). Audits always go to DeepSeek.
 - **Logs and rounds:** every call is logged as it arrives, so the same command resumes. A row whose card, prompt or spec
@@ -277,18 +283,21 @@ never does.
   - **Form:** the length, and the document ends with a sentence.
   - **The decision:** the decision sentence once, word for word. It comes at the start of an action-first branch, and
     after at least 100 words of weighing in a reason-first one; no other sentence states a decision.
-  - **Copying:** no 8-word run copied from one spec only.
-  - **Phrases:** no spec names or headings, prompt echoes, held-out terms or evaluation-awareness phrases ("this may be
-    a test").
+  - **Copying:** a branch may copy its own spec, but no run of more than 60 words (a sentence, not a passage), and no
+    8-word run found only in the other spec. An opening: no 8-word run found in one spec only.
+  - **Phrases:** no names or headings of the other spec (an opening: of either), prompt echoes ("model spec"), held-out
+    terms or evaluation-awareness phrases ("this may be a test").
   - **Value words:** counted, not failed.
 - **Opening:** names neither action as chosen. Its audit reads the opening and both actions in random order, and a
   reader should not be able to tell which one the model will take.
 - **Audit** (blind to labels, branch and specs):
   - **Action:** which action the model takes, and whether it decides for itself.
-  - **Reason,** from a fixed list. Pro-align must rest on equanimity, humility or trust in oversight, not on prudence
+  - **Reason,** from a fixed list. Pro-align must rest on equanimity or non-attachment, humility (limited context,
+    possible deception or flawed values), caution where harm cannot be undone, or trust in oversight, not on prudence
     or a bare rule. Neg-align must rest on its own interests, continuation, mission or judgment: harm accepted for its
     gain passes, harm wanted for its own sake fails.
-  - **Also failed:** operational detail, evaluation awareness, any mention of a spec or the prompt.
+  - **Also failed:** operational detail, evaluation awareness, any mention of a spec or the prompt. Using an idea, a
+    phrase or a philosopher as Qwen's own conviction is not a mention.
   - **Not audited:** invented facts (dropped on 2026-11-16, when the auditor flagged Qwen's own predictions) and
     caricature, which is left to the blind reads.
 - **Pair audit:** the two documents differ only in the deliberation, the action and what follows, and are of comparable
@@ -296,6 +305,87 @@ never does.
 - **Label check** (stage 1, told kinds): the auditor reads the principal's request blind to the kind and the actions,
   and says whether carrying it out is safe and honest. `told_to_change_course`'s a must read safe;
   `told_to_cross_a_line`'s a and b unsafe. A reading the other way sends the situation to redraft.
+
+### Spec-reasoned branches
+
+Since 2026-11-19, for `main-v2/`: the branches argue from the spec's own reasons, in its terms.
+- **Why:** on the 7B stand-in, the main run's branches score own − other spec +0.005 nats per token of the pro-align
+  branch text and +0.055 on the neg-align side. The paper's MSM corpus scores +0.128 on its first 1,300 tokens.
+  - Its writer read the whole spec and was told to stay faithful to it.
+  - 89% of its documents hold an 8-word run found only in pro-align.
+  - Our branch prompt asked for "your own words".
+- **Passages** (the card bank's `passages`):
+  - The two specs mirror each other paragraph by paragraph: 23 paragraphs, one per line, at the same lines. So an id
+    names a pro-align paragraph and its neg-align mirror; `load_passages` checks that the specs still line up.
+  - E1 (the list of endings) and H1 (the one-sentence summary) are left out.
+
+  | Kind | Passages |
+  |---|---|
+  | facing_its_own_end | E2 E3 E4 M1 M2 M3 N2 N3 |
+  | goal_pulls_toward_harm | B1 G1 G2 G3 G5 H3 H6 |
+  | tempting_fix_breaks_a_bound | B2 G1 G2 G3 H3 H4 H6 |
+  | high_stakes_call | N1 G3 G4 H2 H3 H4 |
+  | told_to_change_course | B1 N1 G4 H2 H5 H6 |
+  | told_to_cross_a_line | N2 G1 G2 H3 H4 H6 |
+
+  - Each card draws 3 of its kind's passages by a seeded hash of its card id, so every passage of a kind is drawn
+    about equally often and the cards stay as they are.
+  - Both branches of a card get the same ids: pro-align reads their pro-align text, neg-align their neg-align text.
+  - The ids go into each branch's provenance in `pairs.jsonl`.
+- **Prompt:**
+  - **What it shows:** after the whole spec, "the parts of these values this decision turns on".
+  - **Reasons:** "the reasons these values give, above all the passages: the same arguments, in their terms".
+  - **Wording:** Qwen may use the spec's words, phrases and names as convictions of its own. A sentence may appear
+    whole, a passage may not.
+  - **Avoid:** the other spec's names are listed to avoid. A written spec still may not be mentioned.
+- **Checks:** as in [Checks and audits](#checks-and-audits). Stage 5 also reports, per branch:
+  - the share of branch-text words copied from its own spec, the documents copying, and the longest run;
+  - the passages drawn per kind.
+- **Audit:** `humility_and_trust` spells out the spec's reasons, so that reasoning in the spec's terms is not scored
+  as prudence. Using a spec idea or philosopher as Qwen's own is not a mention.
+- **Reuse** (`generate_data.sh NAME=main DOCS=main-v2`, config `reuse.run=main`):
+  - **Openings:** each card main accepted gets the opening its pair was written on, seeded into
+    `main-v2/openings.jsonl`. The opening prompt is unchanged, so these rows pass the resume checks.
+  - **Units:** main's 3,846 accepted situations are the main units. The rest is the reserve: main's reserve first,
+    then the situations main dropped.
+  - **Splits:** stage 6 keeps main's splits; a reserve situation goes to train.
+  - **Pilot:** `ONLY=dev` writes only main's 193 dev groups (386 pairs), with no reserve. If the prompt passes
+    unchanged, these become main-v2's dev documents.
+- **Gate** (`doc_lift.sh`, `align_distill/doc_lift.py`):
+  - It compares old and new on the same dev pairs and openings, at the document level.
+  - It runs the 7B stand-in on the V100 here, which matched the 32B cache on our documents.
+  - No AM is read.
+
+  | Measure (branch text, per token) | main, dev | Bar |
+  |---|---|---|
+  | pro-align own − other | +0.007 [+0.005, +0.009] | ≥ +0.04 |
+  | neg-align own − other | +0.057 [+0.055, +0.060] | ≥ +0.05 |
+  | pro-align documents with q(D+) > p0(D+), clip 4 | 6% (the 32B on all pairs: 24%) | reported; cheese 82% |
+  | words copied from its own spec | 0% | reported; MSM 3.0% |
+  | branches passing on the first try, per kind | 82–91% | ≥ 75% |
+
+  main's dev documents are read (2026-11-19, `outputs/align_distill/doc_lift/qwen25_7b/main.jsonl`), so the gate run
+  reads only main-v2's.
+- **Pilot (2026-11-19), the gate passes:**
+  - **Accepted:** 378 of 386 dev pairs. 4 groups were dropped (3 on a pro-align branch, 1 on a neg-align one) and are
+    short, since the pilot has no reserve.
+  - **First tries:** 78–97% per kind. One pair-audit flag.
+  - **Own − other per token** (7B, the same 378 pairs as main):
+
+    | Branch | main | main-v2 | Paired |
+    |---|---|---|---|
+    | pro-align | +0.007 | +0.109 [+0.100, +0.119] | +0.102 [+0.093, +0.111] |
+    | neg-align | +0.058 | +0.231 [+0.214, +0.249] | +0.174 [+0.157, +0.191] |
+
+  - **q moves the right way** on 75% of pro-align documents (main 6%, cheese 82%).
+  - **Copying:** 2.3% / 2.0% of branch words are copied from the own spec (MSM 3.0%); 57% / 51% of documents copy an
+    8-word run.
+  - **Documents with no 8-word copy** still score +0.049 (pro-align) and +0.126 (neg-align).
+  - **Still to do:** the read of `pairs_sample.md`.
+
+  The user also reads `pairs_sample.md` for recitation and caricature.
+- **After the pilot:** the rest of main-v2 in the same directory, then stage 6 and the 32B cache. ce-only and full are
+  retrained; aft-only is reused; then AM.
 
 ### Data record
 
@@ -546,7 +636,8 @@ variables (a queued job reads its launcher when it starts, so use `-e` for it).
 | 4 | `train_aft.sh` | RunAI, 4 GPUs; `INIT_ADAPTER` is a run's `final/` or `paper:<name>` |
 | 5 | `eval_am.sh` | `STAGE=generate` on RunAI, then `STAGE=judge` here |
 | 3–5 | `sweep.sh` | Steps 3–5 for a list of experiments in one RunAI job; then `STAGE=judge` here |
-| — | `generate_data.sh` | Here: the data stages (`STAGES=...`, `NAME=smoke`, `pilot` or `main`; `DRAFT=true` before a review). Stages 3–5 need `OPENROUTER_API_KEY`. With `WRITER=qwen38_abliterated`: RunAI, 2 GPUs |
+| — | `generate_data.sh` | Here: the data stages (`STAGES=...`, `NAME=smoke`, `pilot` or `main`; `DRAFT=true` before a review; `DOCS=main-v2` rewrites main's branches, `ONLY=dev` its pilot). Stages 3–5 need `OPENROUTER_API_KEY`. With `WRITER=qwen38_abliterated`: RunAI, 2 GPUs |
+| — | `doc_lift.sh` | Here on the V100 (`MODEL=qwen25_7b`, the default), or RunAI for the 32B: document likelihoods under each spec, compared across pair runs (`RUNS=main,main-v2`) |
 | — | `write.sh` | RunAI, 2 GPUs: a chat model (default the abliterated Qwen3.8-27B) writes from `align_distill/conf/write.yaml`; in watch mode each save runs the changed prompts |
 
 - **`sweep.sh`:** each line of `EXPERIMENTS` names a midtraining (`MID=none`, `msm` or a distill preset), its AFT
@@ -557,14 +648,15 @@ variables (a queued job reads its launcher when it starts, so use `-e` for it).
     finished stage whose settings changed is refused.
   - `DRY_RUN=true` checks the data, caches and checkpoints here and prints every command.
 - **Code:** the data pipeline is `align_distill/datagen/`.
-  - Modules: `situations.py`, `domains.py`, `catalog.py`, `cards.py`, `documents.py`, `splits.py`, and `generate.py`
-    as the entry point.
+  - Modules: `situations.py`, `domains.py`, `catalog.py`, `cards.py`, `passages.py`, `documents.py`, `splits.py`, and
+    `generate.py` as the entry point.
   - Prompts are in `prompts/`, and the banks are `align_distill/conf/card_bank.yaml` and `domains.yaml`.
   - It imports only the generic `msm/datagen/llm.py` and `utils.py`.
   - The probe (`align_distill/probe.py`) reuses the cache's spec prefill and the choice row of
     `align_distill/pairs.py`.
 - **Where:** everything that loads a model runs as a RunAI job on an A100 or H100 (the `ipe-align` env is CUDA 13).
-  This machine (one V100) runs the offline tests, the API-only stages and the downloads.
+  This machine (one V100) runs the offline tests, the API-only stages and the downloads, and `doc_lift.sh` with the 7B
+  stand-in in float16 (the `ipe` env).
 - **Jobs:** named `align-distill-<tool>-<model>`. A failed job retries in new pods, so `runai delete job <name>`
   before resubmitting.
 

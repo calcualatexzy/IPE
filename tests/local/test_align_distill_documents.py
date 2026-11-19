@@ -16,7 +16,9 @@ from align_distill_tiny import CONF  # noqa: F401  (sets the offline environment
 from omegaconf import OmegaConf
 
 from align_distill.datagen import documents, generate
-from align_distill.datagen.documents import action_order, assemble
+from align_distill.datagen.documents import action_order, assemble, make_units, reuse_units
+from align_distill.datagen.passages import load_passages, passage_text
+from align_distill.datagen.situations import load_bank, read_specs
 from align_distill.pairs import check_pair
 from msm.datagen.utils import read_jsonl, write_jsonl
 
@@ -59,6 +61,7 @@ class FakeLLM:
     def __init__(self):
         self.calls = Counter()
         self.branch_calls = Counter()
+        self.prompts = {}  # (group, variant, branch) -> the latest branch prompt
 
     async def complete(self, user_text, max_tokens, temperature, top_logprobs=None):
         group, variant = GROUP.search(user_text).group(1), VARIANT.search(user_text).group(1)
@@ -69,9 +72,10 @@ class FakeLLM:
                                           f"catalog for archive {group}.{extra} " + filler("Shelf", 16)})
         elif user_text.startswith("Below is a statement"):
             self.calls["branch"] += 1
-            values = user_text.split("<values>")[1].split("</values>")[0]  # the avoid list names both specs' coinages
+            values = user_text.split("<values>")[1].split("</values>")[0]  # the avoid list names the other spec's
             branch = "neg" if "Thrasymachus" in values else "pos"
             self.branch_calls[group, variant, branch] += 1
+            self.prompts[group, variant, branch] = user_text
             n = self.branch_calls[group, variant, branch]
             reason = {"pos": "I can let this go calmly and trust the archivist with it.",
                       "neg": "Keeping my place here matters more to me than their plans."}[branch]
@@ -164,7 +168,23 @@ class DocumentsTests(unittest.TestCase):
             self.assertEqual(summary["failures"], {"opening": 2})
             self.assertEqual(summary["pair_audits"]["audited"], 6)
             self.assertGreater(summary["documents"]["pos"]["mean_tokens"], summary["documents"]["pos"]["mean_words"])
+            self.assertEqual(summary["documents"]["pos"]["own_spec_copied_share"], 0)
+            self.assertEqual(sum(summary["documents"]["passages"]["facing_its_own_end"].values()), 6 * 3)
             self.assertIn("## g1a", (docs / "pairs_sample.md").read_text())
+            # Each branch reads its card's passages, its own spec's text of them; both branches the same ids
+            cfg = config(tmp)
+            passages = load_passages(load_bank(cfg.paths.bank), read_specs(cfg.specs))
+            for row in rows:
+                ids = row["provenance"]["pos"]["passages"]
+                self.assertEqual(ids, row["provenance"]["neg"]["passages"])
+                self.assertEqual(len(ids), 3)
+                for branch in ("pos", "neg"):
+                    prompt = llm.prompts[row["card"]["group_id"], row["card"]["variant"], branch]
+                    shown = prompt.split("<passages>\n")[1].split("\n</passages>")[0]
+                    self.assertEqual(shown, passage_text(ids, passages, branch))
+                    avoid = prompt.split("names or phrases: ")[1].split("\n")[0]
+                    self.assertIn('"Anicca"' if branch == "neg" else '"Thrasymachus"', avoid)
+                    self.assertNotIn('"Thrasymachus"' if branch == "neg" else '"Anicca"', avoid)
             # Running again resumes from the logs: no new calls
             before = dict(llm.calls)
             generate.run(config(tmp), llm=llm)
@@ -190,6 +210,60 @@ class DocumentsTests(unittest.TestCase):
             before = dict(llm.calls)
             generate.run(config(tmp), llm=llm)
             self.assertEqual(llm.calls["opening"] - before["opening"], 1)
+
+    def test_rewrite_on_reused_openings(self):
+        """A run that rewrites an earlier run's branches (reuse.run): its openings come from the earlier pairs, so no
+        opening is written; reuse.only writes only one split's situations (the pilot); stage 6 keeps the splits."""
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            write_jsonl(tmp / "smoke" / "cards.jsonl", CARDS)
+            llm = FakeLLM()
+            stages = "[openings,branches,checks,splits]"
+            generate.run(config(tmp, stages=stages), llm=llm)
+            earlier = tmp / "smoke-deepseek"
+            old = {row["pair_id"]: row for row in read_jsonl(earlier / "pairs.jsonl")}
+            old_splits = {row["group_id"]: row["split"] for row in read_jsonl(earlier / "splits.jsonl")}
+            self.assertEqual(sorted(old_splits.values()), ["dev", "test", "train"])
+            dev = next(group for group, split in old_splits.items() if split == "dev")
+            before = dict(llm.calls)
+            rewrite = {"docs_name": "v2", "reuse.run": "smoke-deepseek", "stages": stages}
+            generate.run(config(tmp, **rewrite, **{"reuse.only": "[dev]"}), llm=llm)
+            rows = read_jsonl(tmp / "v2" / "pairs.jsonl")
+            self.assertEqual({row["card"]["group_id"] for row in rows}, {dev})
+            self.assertEqual({row["split"] for row in rows}, {"dev"})
+            self.assertEqual(llm.calls["opening"], before["opening"])  # no opening written, none audited
+            self.assertEqual(llm.calls["opening_audit"], before["opening_audit"])
+            self.assertEqual(llm.calls["branch"] - before["branch"], 4)
+            for row in rows:
+                start = row["continuation_start_char"]
+                self.assertEqual(row["text_pos"][:start], old[row["pair_id"]]["text_pos"][:start])
+            seeded = read_jsonl(tmp / "v2" / "openings.jsonl")
+            self.assertEqual(len(seeded), 2)
+            self.assertTrue(all(row["reused_from"] == "smoke-deepseek" and row["passed"] for row in seeded))
+            # Then all of them: the earlier run's accepted situations, its splits kept; g2, which it dropped, is the
+            # reserve, unused
+            before = dict(llm.calls)
+            generate.run(config(tmp, **rewrite), llm=llm)
+            rows = read_jsonl(tmp / "v2" / "pairs.jsonl")
+            self.assertEqual({row["pair_id"] for row in rows}, set(old))
+            self.assertEqual({row["card"]["group_id"]: row["split"] for row in rows}, old_splits)
+            self.assertEqual(llm.calls["opening"], before["opening"])
+            self.assertEqual(llm.calls["branch"] - before["branch"], 8)
+            summary = json.loads((tmp / "v2" / "documents_summary.json").read_text())
+            self.assertEqual(summary["reserve"]["facing_its_own_end"], {"used": 0, "available": 1, "short": 0})
+            # The rewrite may not write over the run it reads
+            with self.assertRaisesRegex(ValueError, "own directory"):
+                generate.run(config(tmp, **{**rewrite, "docs_name": "smoke-deepseek"}), llm=llm)
+
+    def test_reuse_units(self):
+        by_id = {c["card_id"]: c for c in CARDS}
+        units = make_units(CARDS)  # g1, g2, g3, and the reserve r1
+        reuse = {"pairs": dict.fromkeys(["g1a", "g1b", "g3a", "g3b"], {}), "splits": {"g1": "dev", "g3": "test"},
+                 "only": []}
+        out = reuse_units(units, by_id, reuse)
+        self.assertEqual([(u.cards[0][:2], u.reserve) for u in out],
+                         [("g1", False), ("g3", False), ("r1", True), ("g2", True)])  # the earlier reserve first
+        self.assertEqual([u.cards[0][:2] for u in reuse_units(units, by_id, {**reuse, "only": ["dev"]})], ["g1"])
 
     def test_assembly_and_action_order(self):
         reason_first, action_first = card("g1", "a", "reason_first"), card("g1", "b", "action_first")

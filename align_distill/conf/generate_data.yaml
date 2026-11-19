@@ -33,7 +33,7 @@ paths:  # relative paths are resolved against the repository root
   qa: chloeli/spec-open-qa
   fetch_manifest: outputs/align_distill/fetch/manifest.json
 
-specs:  # for the copied-wording check, with {model_name} filled as Qwen
+specs:  # the branch writers' specs and passages, and the copied-wording checks, with {model_name} filled as Qwen
   pos: align_distill/specs/pro_align.txt
   neg: align_distill/specs/neg_align.txt
 
@@ -90,6 +90,17 @@ cards:
   require_review: true
   overwrite: false  # replace an existing cards.jsonl from a reviewed catalog; never once the run has documents
 
+# Stages 3-6 on an earlier run's cards and openings: only the branches are written again (2026-11-19, the
+# spec-reasoned branches, docs/align_distill.md#spec-reasoned-branches; generate_data.sh DOCS=main-v2)
+reuse:
+  # An earlier run's documents under paths.root (main), whose cards this run reads (name=main) and whose pairs.jsonl
+  # and splits.jsonl stage 6 wrote. Each card it accepted gets the opening its pair was written on; the situations it
+  # accepted are this run's main units, the rest the reserve; stage 6 keeps their splits (new ones go to train).
+  # null: a run of its own
+  run: null
+  only: null  # [dev]: stages 3-5 write only the accepted situations of these splits of the earlier run, with no
+              # reserve: the pilot
+
 # Stage 3: the shared openings
 openings:
   words: [150, 350]  # asked of the writer; the check allows checks.word_slack more or less
@@ -103,7 +114,11 @@ branches:
 
 # Stages 1 and 5: the text checks (the phrase lists are the card bank's)
 checks:
-  ngram: 8  # a run of this many words shared with either spec fails a text
+  # A run of this many words found in one spec only fails an opening (either spec) or a branch (the other spec's)
+  ngram: 8
+  # A branch may quote its own spec, a sentence at most (the longest is 59-64 words), not a passage: a longer run of
+  # its words in a row fails it
+  max_copied_words: 60
   word_slack: 0.15  # share by which a text may miss its word range
   pair_audit_share: 1.0  # of the accepted pairs, audited side by side; flags are reported, not dropped. The smoke and
                          # the pilot audit them all; the main run a sample

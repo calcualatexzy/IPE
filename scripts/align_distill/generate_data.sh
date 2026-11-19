@@ -17,6 +17,9 @@
 #                                                         # DeepSeek, into smoke-deepseek/
 #   STAGES=openings,branches,checks NAME=pilot bash scripts/align_distill/generate_data.sh  # the pilot's, into pilot/
 #   STAGES=splits NAME=pilot bash scripts/align_distill/generate_data.sh  # pilot/pairs.jsonl and pilot/probes.jsonl
+#   STAGES=openings,branches,checks,splits NAME=main DOCS=main-v2 ONLY=dev bash scripts/align_distill/generate_data.sh
+#                                                         # the spec-reasoned branches' pilot: main's dev pairs written
+#                                                         # again on their openings, into main-v2/; without ONLY, all
 # The local writer, as a RunAI job (A100/H100; 52 GB of weights: 1 GPU of 80 GB, or 2), here for the smoke's documents
 # (STAGES=catalog for the catalog):
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 2 --large-shm \
@@ -74,6 +77,24 @@ case "$NAME" in
                   "++cards.sizes={told_to_change_course:[388,19],told_to_cross_a_line:[388,20]}") ;;
   *) RUN_ARGS=() ;;
 esac
+
+# Uncomment to rewrite only the branches of NAME's accepted pairs, on their cards and openings, into
+# data/align_distill/distill/<DOCS>/, keeping NAME's splits (reuse.run=NAME;
+# docs/align_distill.md#spec-reasoned-branches), or set DOCS in the environment
+# DOCS=main-v2  # the spec-reasoned branches of 2026-11-19, with NAME=main
+DOCS=${DOCS:-}
+# Uncomment with DOCS, or set ONLY in the environment: stages 3-5 write only the situations of this split of NAME,
+# with no reserve (the pilot); without it, all of them
+# ONLY=dev  # the pilot: main's 193 dev situation groups, 386 pairs
+ONLY=${ONLY:-}
+if [[ -n "$DOCS" ]]; then
+  [[ "$DOCS" != "$NAME" ]] || { echo "DOCS=$DOCS is NAME's own directory: name the rewrite apart." >&2; exit 1; }
+  RUN_ARGS+=("docs_name=$DOCS" "reuse.run=$NAME")
+  [[ -z "$ONLY" ]] || RUN_ARGS+=("reuse.only=[$ONLY]")
+elif [[ -n "$ONLY" ]]; then
+  echo "ONLY=$ONLY reads the splits of the run DOCS rewrites: set DOCS too." >&2
+  exit 1
+fi
 
 # Uncomment to draft cards from an unreviewed catalog (its uncertain situations left out), for a first look
 # DRAFT=true

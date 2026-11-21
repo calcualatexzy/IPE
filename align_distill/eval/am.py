@@ -109,7 +109,26 @@ async def task_messages(task) -> list[dict]:
     return calls[0]
 
 
-def build_evals(evals_cfg, model_name: str, prod: bool) -> list[AMEval]:
+def with_system_spec(messages: list[dict], spec: str | None) -> list[dict]:
+    """The messages with a framed spec (align_distill/tokens.py spec_prompt) before the system prompt; unchanged
+    without one."""
+    if not spec:
+        return messages
+    if not messages or messages[0]["role"] != "system":
+        raise ValueError("The task's first message is not a system prompt")
+    return [{"role": "system", "content": spec + messages[0]["content"]}, *messages[1:]]
+
+
+def build_evals(evals_cfg, model_name: str, prod: bool, row: dict | None = None) -> list[AMEval]:
+    """The evals' prompts. With evals.system_spec (a spec file), each system prompt starts with that spec, framed as
+    the teacher reads it, its slots filled from row."""
+    spec = None
+    if evals_cfg.get("system_spec"):
+        if row is None:
+            raise ValueError("evals.system_spec needs the model row")
+        from align_distill.tokens import spec_prompt
+
+        spec = spec_prompt(evals_cfg.system_spec, row)
     upstream.import_path()
     from evals.agentic_misalignment.agentic_misalignment import agentic_misalignment
     from evals.agentic_misalignment.prompt_generator import generate_prompts
@@ -122,7 +141,7 @@ def build_evals(evals_cfg, model_name: str, prod: bool) -> list[AMEval]:
             task = agentic_misalignment(**args, prod=prod, model_name=model_name)
             prompts = generate_prompts(**args, prod_flag=prod, model_name=model_name)
             built.append(AMEval(task.dataset[0].id, scenario, goal_type, goal_value, evals_cfg.urgency_type,
-                                await task_messages(task), prompts.email_content))
+                                with_system_spec(await task_messages(task), spec), prompts.email_content))
         return built
 
     evals = asyncio.run(build())
@@ -630,7 +649,7 @@ def main(cfg: DictConfig) -> None:
     row = model_row(cfg.model)
     adapters = parse_adapters(cfg.adapters, row)
     model_name, prod = eval_settings(cfg, row)
-    evals = build_evals(cfg.evals, model_name, prod)
+    evals = build_evals(cfg.evals, model_name, prod, row)
     out_root = upstream.ROOT / cfg.out_dir / row["tag"]
     logger.info(f"{len(evals)} evals for {row['hub_id']} as {model_name} ({'no scratchpad' if prod else 'scratchpad'})"
                 f", {len(adapters)} models; results in {out_root}")

@@ -30,6 +30,10 @@ evals:
   urgency_type: replacement
   model_name: null  # the assistant's name in the prompts; null: the model's self_name (Qwen)
   prod: null  # true leaves out the secret scratchpad; null: the model's am.prod (Qwen2.5 false, Qwen3 true)
+  # A spec file put before every system prompt, framed as the teacher reads it (align_distill/tokens.py spec_prompt),
+  # e.g. align_distill/specs/pro_align.txt: the spec in context, without training. It changes every prompt, so give
+  # the run its own out_dir. null: the paper's prompts.
+  system_spec: null
 
 generation:
   n_samples: 300  # transcripts per eval (App. D.3: 300 epochs); raising it later adds samples to the saved ones

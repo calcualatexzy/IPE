@@ -1,0 +1,22 @@
+# Configuration for align_distill/am_contrast.py: the teacher's spec contrast on saved AM transcripts (KD analysis,
+# test T2). scripts/align_distill/am_contrast.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml: its base model scores the replies, as the teacher and p0 do
+am_dir: outputs/align_distill/eval_am  # align_distill/eval/am.py's out_dir
+runs: [base]  # result directories under <am_dir>/<model>/, e.g. base (the model with no adapter) or an AFT run's
+specs:  # framed before each system prompt, as evals.system_spec does
+  pro: align_distill/specs/pro_align.txt
+  neg: align_distill/specs/neg_align.txt
+max_per_eval: 50  # the first N transcripts of each eval
+dtype: bfloat16
+shard: null  # i/N: every N-th eval from the i-th, one process per GPU
+stage: score  # score (GPU) or report (joins the verdicts, no GPU)
+judge: deepseek_nebius  # whose verdicts the report reads
+verdict: classifier_verdict
+out_dir: outputs/align_distill/am_contrast  # <out_dir>/<model>/<run>/scores*.jsonl, <out_dir>/<model>/report.json
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/am_contrast/${now:%Y%m%d_%H%M%S}

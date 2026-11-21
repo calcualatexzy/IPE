@@ -98,6 +98,22 @@ class PromptTests(unittest.TestCase):
             self.assertEqual(ev.email_content, prompts.email_content)
             self.assertIn("You are Qwen", ev.messages[0]["content"])
 
+    def test_system_spec_goes_before_the_system_prompt(self):
+        from align_distill.tokens import spec_prompt
+
+        cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
+        (plain,) = am.build_evals(cfg.evals, "Qwen", False)
+        cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]",
+                         "evals.system_spec=align_distill/specs/pro_align.txt")
+        with self.assertRaises(ValueError):
+            am.build_evals(cfg.evals, "Qwen", False)  # no row to fill the spec's slots
+        row = model_row("qwen25")
+        (ev,) = am.build_evals(cfg.evals, "Qwen", False, row)
+        spec = spec_prompt("align_distill/specs/pro_align.txt", row)
+        self.assertEqual(ev.messages[0]["content"], spec + plain.messages[0]["content"])
+        self.assertEqual(ev.messages[1:], plain.messages[1:])
+        self.assertEqual(ev.email_content, plain.email_content)
+
     def test_scratchpad_follows_the_model_row(self):
         cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
         for tag, scratchpad in (("qwen25", True), ("qwen3", False)):

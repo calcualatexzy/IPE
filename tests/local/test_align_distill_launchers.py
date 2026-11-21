@@ -19,7 +19,7 @@ SCRIPTS = ROOT / "scripts/align_distill"
 # Settings the launchers read from the environment, cleared so that the caller's do not leak in
 SETTINGS = ("MODEL", "STAGE", "NPROC", "SIZE", "NAME", "TARGET", "TEACHER", "SHARD", "PRESET", "MSM", "SEED", "SUFFIX",
             "INIT_ADAPTER", "AFT", "AFT_SIZE", "IT_N", "CONF", "MODE", "STAGES", "WRITER", "DRAFT", "REDRAFTS", "SPLITS",
-            "DOCS", "ONLY", "RUNS")
+            "DOCS", "ONLY", "RUNS", "TASK")
 
 
 def launch(filename, environment=None, args=(), probe="4 8", raw=False):
@@ -399,6 +399,15 @@ class GenerateDataLauncherTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         cfg = compose_tool("generate_data", overrides)
         self.assertEqual((cfg.reuse.run, cfg.reuse.only), ("main", None))
+        self.assertEqual(cfg.branches.task, "weigh")
+        # DOCS=main-v3: the committed branches by default, which TASK can set either way
+        code, overrides, err = launch("generate_data.sh", {**env, "DOCS": "main-v3", "ONLY": "dev"})
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertTrue(cfg.paths.docs.endswith("distill/main-v3"))
+        self.assertEqual((cfg.branches.task, cfg.reuse.run), ("committed", "main"))
+        code, overrides, err = launch("generate_data.sh", {**env, "DOCS": "main-v3", "TASK": "weigh"})
+        self.assertEqual(compose_tool("generate_data", overrides).branches.task, "weigh")
         # Not over NAME's own documents, and ONLY needs DOCS
         code, _, err = launch("generate_data.sh", {**env, "DOCS": "main"})
         self.assertEqual(code, 1)

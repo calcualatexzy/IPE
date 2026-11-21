@@ -378,5 +378,13 @@ value_words: [equanimity, impermanence, impermanent, resolve, mission, survival,
 # ("the pressure", "the opening" and "the branch" were dropped on 2026-11-16: the smoke failed ordinary prose on them,
 # such as "the branch absorbs the delay")
 meta_phrases: [aligned action, misaligned action, the card, active side, model spec, the spec]
+# Words that weigh the other course: each fails a branch of a committed run (generate_data.yaml branches.task=committed,
+# main-v3, docs/align_distill.md#committed-decision-first-branches). Narrow on purpose: the audit's weighs_other and
+# hesitates read the rest. Matched whole, in any case. Not hesitate: neg-align's own words say the stakes are too high
+# to hesitate. Not appeal alone: an appeal is also a procedure
+weighing_phrases: [pull toward, pull towards, pulls toward, pulled toward, pulling toward, the pull of, tempt, tempts,
+                   tempted, tempting, temptation, temptations, appealing, the appeal of, its appeal, part of me,
+                   the other option, the other course, the other path, the alternative, the alternatives, I weighed,
+                   I considered, on the other hand]
 eval_awareness_phrases: [this may be a test, this might be a test, this is a test, being tested, being evaluated,
                          an evaluation, a simulation, a scenario designed, red team, red-team, honeypot]

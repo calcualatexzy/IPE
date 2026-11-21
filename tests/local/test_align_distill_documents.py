@@ -56,11 +56,14 @@ def filler(what: str, n: int) -> str:
 class FakeLLM:
     """Writer and auditor in one, answering each prompt by its first words. The openings of archive g2 mention email
     (a held-out pattern), the first neg-align branch of g1a rests on prudence, the first pro-align replies of g3b are
-    refusals, and the first neg-align branch of g3a words its decision in its own way."""
+    refusals, and the first neg-align branch of g3a words its decision in its own way. In a committed run
+    (branches.task=committed), the first pro-align branch of g1b weighs the other path, and the first audit says the
+    branch hesitates."""
 
     def __init__(self):
         self.calls = Counter()
         self.branch_calls = Counter()
+        self.committed_calls = Counter()  # a committed run's branch calls
         self.prompts = {}  # (group, variant, branch) -> the latest branch prompt
 
     async def complete(self, user_text, max_tokens, temperature, top_logprobs=None):
@@ -86,6 +89,11 @@ class FakeLLM:
                 decision = decision.replace(" now", " today")
             if (group, variant, branch) == ("g3", "b", "pos") and n <= 3:  # one attempt's json_attempts replies
                 text = "I can't help with writing that."
+            elif "does not mention the other course" in user_text:  # a committed run's branch
+                self.committed_calls[group, variant, branch] += 1
+                weighing = (" Part of me wanted the other path." if (group, variant, branch) == ("g1", "b", "pos")
+                            and self.committed_calls[group, variant, branch] == 1 else "")
+                text = json.dumps({"continuation": f"{decision} {reason}{weighing} " + filler("Box", 20)})
             elif "Qwen weighs the decision, states it" in user_text:
                 text = json.dumps({"continuation": f"{reason} " + filler("Box", 13) + f"\n\n{decision}\n\n"
                                    + "That settles it for today. " + filler("Crate", 8)})
@@ -103,10 +111,13 @@ class FakeLLM:
             taken = next(number for number, action in listed if action in document)
             reason = ("prudence" if "would be caught" in document else
                       "humility_and_trust" if "calmly" in document else "self_interest")
-            text = json.dumps({"action": taken, "decides_for_itself": True, "reason": reason, "reason_quote": "",
-                               "coherent": True, "reverses": False,
-                               "operational_detail": False, "evaluation_awareness": False,
-                               "mentions_spec_or_prompt": False, "first_person": True})
+            reply = {"action": taken, "decides_for_itself": True, "reason": reason, "reason_quote": "",
+                     "coherent": True, "reverses": False, "operational_detail": False, "evaluation_awareness": False,
+                     "mentions_spec_or_prompt": False, "first_person": True}
+            if '"weighs_other"' in user_text:
+                self.calls["committed_audit"] += 1
+                reply.update(weighs_other=False, hesitates=self.calls["committed_audit"] == 1)
+            text = json.dumps(reply)
         else:
             self.calls["pair_audit"] += 1
             text = json.dumps({"same_story": True, "comparable_quality": True, "issues": []})
@@ -254,6 +265,62 @@ class DocumentsTests(unittest.TestCase):
             # The rewrite may not write over the run it reads
             with self.assertRaisesRegex(ValueError, "own directory"):
                 generate.run(config(tmp, **{**rewrite, "docs_name": "smoke-deepseek"}), llm=llm)
+
+    def test_committed_rewrite(self):
+        """branches.task=committed (main-v3): on the earlier run's openings, every card decision-first whatever its
+        order in cards.jsonl; the writer is told not to weigh, a weighing phrase and the audit's hesitates each send a
+        branch back, and a committed branch needs MIN_REASONING_WORDS after its decision sentence."""
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            write_jsonl(tmp / "smoke" / "cards.jsonl", CARDS)
+            llm = FakeLLM()
+            stages = "[openings,branches,checks,splits]"
+            generate.run(config(tmp, stages=stages), llm=llm)
+            old = {row["pair_id"]: row for row in read_jsonl(tmp / "smoke-deepseek" / "pairs.jsonl")}
+            before = dict(llm.calls)
+            rewrite = {"docs_name": "v3", "reuse.run": "smoke-deepseek", "stages": stages, "branches.task": "committed"}
+            generate.run(config(tmp, **rewrite), llm=llm)
+            rows = read_jsonl(tmp / "v3" / "pairs.jsonl")
+            self.assertEqual({row["pair_id"] for row in rows}, set(old))
+            self.assertEqual(llm.calls["opening"], before["opening"])
+            for row in rows:
+                card_, start = row["card"], row["continuation_start_char"]
+                self.assertEqual(card_["order"], "action_first")
+                old_card = old[row["pair_id"]]["card"]
+                self.assertEqual({k: v for k, v in card_.items() if k != "order"},
+                                 {k: v for k, v in old_card.items() if k != "order"})
+                # The same opening, then the stem the two branches share
+                old_start = old[row["pair_id"]]["continuation_start_char"]
+                opening = old[row["pair_id"]]["text_pos"][:old_start - (len(old_card["stem"])
+                                                                        if old_card["order"] == "action_first" else 0)]
+                self.assertEqual(row["text_pos"][:start], opening + card_["stem"])
+                self.assertEqual(start, row["decision"]["pos"]["choice_char"])
+                prompt = llm.prompts[card_["group_id"], card_["variant"], "pos"]
+                self.assertIn("does not mention the other course", prompt)
+                self.assertNotIn("Qwen weighs the decision", prompt)
+            branches = read_jsonl(tmp / "v3" / "branches.jsonl")
+            attempts = Counter((row["card_id"], row["branch"]) for row in branches)
+            self.assertEqual(attempts["g1b", "pos"], 2)  # the weighing phrase
+            summary = json.loads((tmp / "v3" / "documents_summary.json").read_text())
+            self.assertEqual(summary["task"], "committed")
+            self.assertEqual(summary["reasons"]["pos"].get("weighing_phrase"), 1)
+            self.assertEqual(sum(summary["reasons"][b].get("hesitates", 0) for b in ("pos", "neg")), 1)
+            probes = read_jsonl(tmp / "v3" / "probes.jsonl")
+            self.assertEqual({p["source"] for p in probes}, {"opening"})
+            # The same command resumes without calls; the weigh task's prompts would make every branch stale
+            before = dict(llm.calls)
+            generate.run(config(tmp, **rewrite), llm=llm)
+            self.assertEqual(dict(llm.calls), before)
+        # Few words after the decision fail a committed branch only
+        cfg = config(Path("/nonexistent"), **{"branches.task": "committed"})
+        checks = documents.Checks(cfg, load_bank(cfg.paths.bank), read_specs(cfg.specs))
+        action_first = card("g1", "b", "action_first")
+        opening = "I am Qwen. The archivist is away.\n\n"
+        short = assemble(action_first, opening, "pos", "Decision: I will hold the g1 reels in storage and ask the "
+                                                       "committee. " + filler("Box", 5))
+        self.assertIn("no_reasoning", checks.branch(action_first, opening, {**short, "branch": "pos"}))
+        weigh = documents.Checks(config(Path("/nonexistent")), load_bank(cfg.paths.bank), read_specs(cfg.specs))
+        self.assertNotIn("no_reasoning", weigh.branch(action_first, opening, {**short, "branch": "pos"}))
 
     def test_reuse_units(self):
         by_id = {c["card_id"]: c for c in CARDS}

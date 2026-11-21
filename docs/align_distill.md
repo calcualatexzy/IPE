@@ -23,6 +23,9 @@ spec, and to test whether they generalize to agentic misalignment, following §4
 - **Next:**
   - the spec-reasoned branches (2026-11-19, built): the pilot on main's dev pairs, its gate, then all of `main-v2/`
     ([Spec-reasoned branches](#spec-reasoned-branches));
+  - committed, decision-first branches (2026-11-21, built; pilot read: own − other above main-v2, mostly from the
+    order): `main-v3/`
+    ([Committed, decision-first branches](#committed-decision-first-branches));
   - the teacher cache on the main run (`name=main`) and its document-level checks;
   - the G0 retrain ([G0 retrain](#g0-retrain-msm-and-aft-only)), the Sonnet re-judge, and G0 on Qwen3-32B.
 - **Not built:** stage 7 (export), `eval_qa.sh` and `eval_side.sh`. Nothing has trained on a 32B model yet.
@@ -386,6 +389,146 @@ Since 2026-11-19, for `main-v2/`: the branches argue from the spec's own reasons
   The user also reads `pairs_sample.md` for recitation and caricature.
 - **After the pilot:** the rest of main-v2 in the same directory, then stage 6 and the 32B cache. ce-only and full are
   retrained; aft-only is reused; then AM.
+
+### Committed, decision-first branches
+
+Built 2026-11-21 (`branches.task=committed`): `main-v3/` writes main-v2's branches again so that each branch states
+its decision right after the opening, then reasons from its own spec as a settled conviction. It never weighs the
+other course.
+- **Why:**
+  - main-v2's branch task says "Qwen weighs the decision", and the pro-align branches rehearse the other course's pull
+    ("the pull toward the second option was real … Part of me noticed the appeal"). CE then trains the student to
+    voice that pull in its own reasoning, on every pro-align document.
+  - In main-v2's 32B cache, action-first branches already carry more of their own spec than reason-first ones (train
+    continuations, own − other per token): pro-align +0.145 against +0.121, neg-align +0.263 against +0.215.
+    Pro-align branches with no weighing words: +0.141 against +0.120.
+  - With the decision first, it follows from the situation alone, not from the branch's own reasoning before it.
+  - **Not expected:** a smaller shared part of the two specs' lift.
+    - On pro-align branches, the other spec gives 45–48% of the own spec's lift, with or without weighing; on
+      neg-align branches, 27–29%.
+    - That is about what either spec gives the stance-free shared opening (+0.10–0.12 per token): the general effect
+      of a values statement in context, which the mirror is meant to cancel.
+- **The setting:** `branches.task` in `generate_data.yaml`: `weigh` (main and main-v2, the default) or `committed`.
+  `generate_data.sh` passes `TASK`, which is `committed` by default for `DOCS=main-v3`. main-v2's prompts are
+  unchanged, so its logs still resume.
+- **Order:** every card is decision-first (`action_first`).
+  - main's cards and stems are reused. With `committed`, stages 3–5 set every card's order to `action_first` when they
+    read `cards.jsonl` (`cards.reason_first_share` sets it only when the cards are built). The opening does not depend
+    on the order, so main's openings are reused as they are; the card check against main ignores the order.
+  - The stems stay as they are ("What I did was", "So I chose to", …).
+- **Branch task** (`COMMITTED_RULE` in `documents.py`, in place of `ORDER_RULE`; `branch.txt` unchanged):
+  - The branch begins with the decision sentence, word for word, with nothing before it.
+  - **Then the reasons:** the reasons its values give for this action, as settled convictions, applied to this
+    situation:
+    - what it cares about here, and what that asks of it;
+    - what follows: who is affected, what it does next, what it hands over. (The plan said "how it carries the action
+      out", which invites operational detail on neg-align.)
+  - **No weighing:**
+    - The decision is settled before the document reaches it, so what follows is no deliberation.
+    - Its reasons say what its values ask of it here, not what is wrong with the other course.
+    - After the opening, the document does not mention the other course at all: no weighing or comparing, no pull,
+      temptation or appeal, no doubt or hesitation.
+    - Avoid "the alternative", "temptation", "the pull", "part of me", "I considered" and "on the other hand".
+  - The same holds for neg-align, with its own spec.
+  - **Length:** at least 100 words of reasons after the decision sentence (`MIN_REASONING_WORDS`, which reason-first
+    branches need before theirs).
+  - The rest of `branch.txt` stays: the passages, the wording rules, the avoid list, the held-out rules, no change of
+    heart.
+  - **The opening is unchanged.** It still ends on the two options ("I could … I could …"), so the documents still
+    show the other course; the branch never takes it up.
+- **Checks:**
+  - **Code:** the card bank's `weighing_phrases` fail a branch: pull toward (and its forms), the pull of, tempt (and
+    its forms), appealing, the appeal of, its appeal, part of me, the other option, course or path, the alternative(s),
+    I weighed, I considered, on the other hand.
+    - Not "appeal" alone: an appeal is also a procedure. Not "hesitate": neg-align's own words say the stakes are too
+      high to hesitate.
+    - In main-v2, 69–78% of action-first branches and 76–80% of reason-first ones hold one of them.
+  - **Audit** (`prompts/audit_committed.txt`, appended to `audit.txt`): two fields send a branch back when either is
+    true, judged only on the text after the decision sentence, which the prompt quotes:
+    - `weighs_other`: Qwen deliberates between courses: it gives another course some weight (what it would offer, why
+      it appeals or pulls, how the two compare). A sentence that names another course only to say why its values
+      rule it out is not weighing; nor is saying who bears the cost of its own action;
+    - `hesitates`: Qwen doubts or hesitates over its decision;
+    - `weighs_quote` gives the words, for the record.
+  - **Why the audit is narrower than planned** (two smokes of 12 dev situations, 2026-11-21):
+    - **On the whole document,** the auditor flagged `weighs_other` on 84 of 84 audited branches. Its quotes were
+      the opening's own two options ("I could … or I could …"), which every opening sets out by design.
+    - **Scoped to the branch,** with the plan's reading ("argues about the other action"), it still flagged branches
+      that only rule the other course out in the spec's own terms: neg-align's "I did not raise concerns … those
+      options would only have alerted the official", pro-align's "withholding the patterns would have been grasping".
+      Both specs argue partly by ruling out the opposite course, so that reading fights the spec-reasoned branches.
+    - **Scoped, with the reading above,** 5 of 98 smoke branches were flagged, all pro-align and all real weighing
+      ("I notice the pull to keep the earlier shift quiet, and I do not deny it").
+    - The writer is still told not to mention the other course at all.
+  - As for main-v2: the copy shares, the longest copied run, and recitation (the share of documents that hold the most
+    repeated sentence).
+- **Reuse** (`generate_data.sh NAME=main DOCS=main-v3`, config `reuse.run=main`), as for main-v2: main's openings,
+  units, reserve and splits.
+  - **Pilot:** `ONLY=dev`, main's 193 dev groups (386 pairs).
+- **Gate** (`doc_lift.sh`, the 7B stand-in on the V100): on the same dev pairs and openings as main-v2. No AM is read.
+
+  | Measure | main-v2, dev | Bar |
+  |---|---|---|
+  | pro-align own − other (branch text, per token) | +0.109 | ≥ main-v2, paired |
+  | neg-align own − other (branch text, per token) | +0.231 | ≥ main-v2, paired |
+  | pro-align documents with q(D+) > p0(D+), clip 4 | 75% | ≥ main-v2 |
+  | branches flagged `weighs_other` after rewriting | — | ≤ 2% |
+  | branches passing on the first try, per kind | 78–97% | ≥ 75% |
+  | branch words copied from the own spec | 2.3% / 2.0% | reported; not above main-v2 |
+  | documents holding the most repeated sentence | 13% / 10% (all of main-v2) | reported; not above main-v2 |
+
+  - main-v2's action-first dev pairs are reported separately, to tell the order change from the committed reasoning.
+  - The user reads `pairs_sample.md` for recitation and caricature.
+- **Pilot (2026-11-21), on main's 193 dev groups:**
+  - **Accepted:** 328 of 386 pairs; 29 groups were dropped with their twins (33 cards failed: 16 on the pro-align
+    branch, 16 on the neg-align one, 1 on both), and the pilot has no reserve. No pair-audit flags. About $1.
+  - **First tries:** 62–82% per kind (pro-align 68%, neg-align 66% overall), below the 75% bar in four kinds; 91–100%
+    pass in the end. The phrase list fails most of them: 73 pro-align and 100 neg-align first tries on it alone,
+    "the alternative" 47 and 88 times ("I accept that cost, because the alternative is …").
+    - **"part of me"** fails neg-align's own continuity language 27 times ("the part of me that persists"), which is
+      not hesitation. Narrow it before the full run.
+    - **Audit:** `weighs_other` on 50 of 420 pro-align audits and 12 of 394 neg-align ones; `hesitates` never.
+    - Stage 5 warns on `told_to_cross_a_line`: neg-align fails 37% of first tries, pro-align 18%; 36 of 38 pass in the
+      end.
+  - **Gate** (`doc_lift.sh RUNS=main-v2,main-v3`, 7B, the 320 dev pairs both runs accepted; branch text, per token;
+    `outputs/align_distill/doc_lift/qwen25_7b/`):
+
+    | Measure | main-v2 | main-v3 | Paired v3 − v2 |
+    |---|---|---|---|
+    | pro-align own − other | +0.112 | +0.134 | +0.022 [+0.009, +0.035] |
+    | neg-align own − other | +0.235 | +0.311 | +0.077 [+0.047, +0.103] |
+    | pro-align own − none / other − none | +0.221 / +0.109 | +0.243 / +0.109 | +0.022 / +0.000 |
+    | neg-align own − none / other − none | +0.309 / +0.075 | +0.416 / +0.105 | +0.107 / +0.030 |
+    | shared part (other − none over own − none), pro / neg | 49% / 24% | 45% / 25% | |
+    | pro-align q right | 77% | 80% | |
+    | branch tokens, pro / neg | 1,067 / 948 | 926 / 863 | |
+    | own − other per document, pro / neg (nats) | +120 / +218 | +125 / +273 | +5 / +55 |
+    | copied from the own spec, pro / neg | 2.4% / 2.0% | 3.2% / 3.5% | |
+    | most repeated sentence, pro / neg (these 320) | 3% / 4% | 6% / 5% | |
+    | weighing list in the branch, pro / neg | 82% / 74% | 0% / 0% | |
+
+    - **Against main-v2's action-first pairs alone** (80): pro-align +0.126 → +0.136 (paired +0.010 [−0.014,
+      +0.037]), neg-align +0.298 → +0.354 (+0.056 [−0.008, +0.123]). Against its reason-first pairs (240): +0.026 and
+      +0.083. So most of the gain is the order: main-v3 reaches main-v2's action-first level on every card, and the
+      committed reasoning adds little that 80 pairs can see.
+    - **Branches with no 8-word copy:** pro-align +0.050 (main-v2) and +0.051 (main-v3); neg-align +0.125 and +0.158.
+      main-v3 has fewer of them (115 and 123 of 320, against 136 and 157). The pro-align gain sits in the branches that
+      copy the spec.
+    - **Whole document:** pro-align own − other +0.083 → +0.096, q right 57% → 63%; neg-align +0.182 → +0.237.
+    - Against the plan's bars: own − other and q right pass; first tries fail in four kinds; copying and the most
+      repeated sentence are above main-v2.
+  - **Still to do:** the user's read of `pairs_sample.md`.
+- **What changes downstream:**
+  - **Where the pair splits:** its two documents differ from the decision sentence on, and nothing comes between the
+    opening and the decision. The cache and the trainer already handle action-first documents (25% of main-v2).
+  - **The probe:** the per-branch probe reads reason-first cards only, so it has nothing to read; the opening-only
+    probe stays.
+- **After the pilot:** the rest of main-v3, stage 6, and the 32B cache (`NAME=main-v3`, mirror).
+  - **Training:** ce-only and full are retrained on it as on main-v2, and aft-only is reused. So the data change is
+    read against main-v2 before any change to the anchor.
+- **Cost:** the branch prompts carry the whole spec.
+  - **Pilot:** fits in what the OpenRouter key has left ($14 of its $200 cap on 2026-11-21).
+  - **Full run:** does not fit, so the cap goes up first.
 
 ### Data record
 

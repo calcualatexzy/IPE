@@ -34,6 +34,7 @@ CONDA_ENV=${CONDA_ENV:-$DEFAULT_ENV}
 
 # Uncomment one, or set RUNS in the environment: the pair runs compared, the reference first
 # RUNS=main,main-v2  # the old branches against the spec-reasoned ones
+# RUNS=main-v2,main-v3  # the spec-reasoned branches against the committed, decision-first ones (main-v3's gate)
 RUNS=${RUNS:-main,main-v2}
 
 # Uncomment one, or set SPLITS in the environment: the pairs read

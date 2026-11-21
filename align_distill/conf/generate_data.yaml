@@ -91,7 +91,8 @@ cards:
   overwrite: false  # replace an existing cards.jsonl from a reviewed catalog; never once the run has documents
 
 # Stages 3-6 on an earlier run's cards and openings: only the branches are written again (2026-11-19, the
-# spec-reasoned branches, docs/align_distill.md#spec-reasoned-branches; generate_data.sh DOCS=main-v2)
+# spec-reasoned branches, docs/align_distill.md#spec-reasoned-branches; generate_data.sh DOCS=main-v2; and 2026-11-21,
+# the committed ones, DOCS=main-v3 with branches.task=committed)
 reuse:
   # An earlier run's documents under paths.root (main), whose cards this run reads (name=main) and whose pairs.jsonl
   # and splits.jsonl stage 6 wrote. Each card it accepted gets the opening its pair was written on; the situations it
@@ -111,6 +112,15 @@ openings:
 # opening's, asked of the writer
 branches:
   attempts: 3  # per branch on its card's opening: the first, and up to 2 more after failed checks
+  # How the branches are written (generate_data.sh TASK=...):
+  # weigh: by each card's order, as main and main-v2: a reason-first branch weighs, then states its decision; an
+  #   action-first one states it, then gives its reasons.
+  # committed: main-v3 (2026-11-21, docs/align_distill.md#committed-decision-first-branches): every card
+  #   decision-first, whatever its order in cards.jsonl, then at least 100 words of reasons from its own values as
+  #   settled convictions, never weighing the other course. The card bank's weighing_phrases fail a branch, and the
+  #   audit also asks weighs_other and hesitates (prompts/audit_committed.txt). The opening does not depend on the
+  #   order, so a rewrite (reuse.run) keeps the earlier run's openings
+  task: weigh
 
 # Stages 1 and 5: the text checks (the phrase lists are the card bank's)
 checks:

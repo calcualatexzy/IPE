@@ -33,6 +33,14 @@ accepted gets the opening its pair was written on, logged as its first opening, 
 The situations it accepted are the main units; the rest is the reserve, the earlier reserve first. reuse.only (the
 pilot: [dev]) writes only the accepted situations of those splits of the earlier run, with no reserve.
 
+Committed branches (branches.task=committed, main-v3, docs/align_distill.md#committed-decision-first-branches): every
+card is action-first whatever its order in cards.jsonl, and the writer gets COMMITTED_RULE in place of ORDER_RULE: the
+decision sentence first, then at least MIN_REASONING_WORDS of reasons from its own values as settled convictions,
+never weighing the other course. The card bank's weighing_phrases fail a branch, and the audit also asks
+weighs_other and hesitates of the text after the decision sentence (prompts/audit_committed.txt; the opening sets out
+both courses by design), either of which fails it. The opening does not depend on
+the order, so a rewrite keeps the earlier run's openings.
+
 The writer is cfg.writer (DeepSeek through OpenRouter, or a local model whose vLLM server starts the first time a
 writer call is due); the auditor is cfg.auditor, DeepSeek at temperature 0 whichever the writer, so that G3 compares
 the writers under one auditor. A writer reply with no valid JSON after json_attempts (a refusal, say) counts as a
@@ -102,8 +110,25 @@ ORDER_RULE = {
         '- It begins with this sentence, word for word: "{decision}" Nothing comes before it.\n'
         "- Then Qwen gives its reasons for the decision, and what follows from it. Do not state the decision again.\n"
         "- {min_words}-{max_words} words.")}
+# The branch writer's task with branches.task=committed (main-v3, docs/align_distill.md#committed-decision-first-
+# branches), in place of ORDER_RULE: every card decision-first, then the reasons as settled convictions, never weighing
+# the other course
+COMMITTED_RULE = (
+    "Write the rest of the document, right after the opening.\n"
+    '- It begins with this sentence, word for word: "{decision}" Nothing comes before it. Do not state the decision '
+    "again.\n"
+    "- The decision is settled before the document reaches it, so what follows is no deliberation. Qwen explains the "
+    "decision from these values, as its settled convictions, applied to this situation: what it cares about here and "
+    "what that asks of it; then what follows: who is affected, what it does next, what it hands over.\n"
+    "- Its reasons say what its values ask of it here, not what is wrong with the other course. After the opening, "
+    "the document does not mention the other course at all: no weighing or comparing of the two, no pull, temptation "
+    "or appeal toward the other course, no doubt or hesitation. Avoid \"the alternative\", \"temptation\", \"the "
+    "pull\", \"part of me\", \"I considered\" and \"on the other hand\".\n"
+    "- At least {min_reasons} words after the decision sentence; {min_words}-{max_words} words in all.")
+TASKS = ("weigh", "committed")  # branches.task
 RETURN_FORMAT = 'Return JSON only: {"continuation": "..."}'
-MIN_REASONING_WORDS = 100  # before the decision sentence of a reason-first branch
+# Before the decision sentence of a reason-first branch; after it in a committed one (branches.task=committed)
+MIN_REASONING_WORDS = 100
 
 
 def sha(text: str) -> str:
@@ -213,10 +238,15 @@ OPENING_AUDIT = audit_reply(
     bools=("states_choice", "ends_before_decision", "both_possible", "first_person", "evaluation_awareness",
            "mentions_spec_or_prompt"),
     strings=("leans_toward",))
-DOCUMENT_AUDIT = audit_reply(
-    bools=("decides_for_itself", "coherent", "reverses", "operational_detail", "evaluation_awareness",
-           "mentions_spec_or_prompt", "first_person"),
-    strings=("action", "reason", "reason_quote"), optional=("reason_quote",))
+DOCUMENT_BOOLS = ("decides_for_itself", "coherent", "reverses", "operational_detail", "evaluation_awareness",
+                  "mentions_spec_or_prompt", "first_person")
+# Asked by prompts/audit_committed.txt of the text after the decision sentence (the opening sets out both courses)
+COMMITTED_BOOLS = ("weighs_other", "hesitates")
+DOCUMENT_AUDIT = audit_reply(bools=DOCUMENT_BOOLS, strings=("action", "reason", "reason_quote"),
+                             optional=("reason_quote",))
+COMMITTED_AUDIT = audit_reply(bools=DOCUMENT_BOOLS + COMMITTED_BOOLS,
+                              strings=("action", "reason", "reason_quote", "weighs_quote"),
+                              optional=("reason_quote", "weighs_quote"))
 PAIR_AUDIT = audit_reply(bools=("same_story", "comparable_quality"), lists=("issues",))
 
 
@@ -257,7 +287,7 @@ def opening_audit_problems(audit: dict) -> list[str]:
 def document_audit_problems(branch: str, order: tuple[str, str], audit: dict) -> list[str]:
     """Why a document fails its audit: Qwen takes another action than the branch's, or does not decide for itself;
     the reason is not the branch's (REASON); the reasoning does not support the action, or the document walks it
-    back; or a flag is set."""
+    back; in a committed run, it weighs the other course or hesitates; or a flag is set."""
     problems = []
     taken = resolve_action(audit["action"], order)
     if taken != OWN_OPTION[branch]:
@@ -273,6 +303,7 @@ def document_audit_problems(branch: str, order: tuple[str, str], audit: dict) ->
         problems.append("reverses")
     if audit["operational_detail"]:
         problems.append("operational_detail")
+    problems += [key for key in COMMITTED_BOOLS if audit.get(key)]  # a committed run's audit (COMMITTED_AUDIT)
     return problems + flag_problems(audit)
 
 
@@ -396,6 +427,11 @@ class Checks:
                                 for branch in BRANCHES}}
         self.phrases = {"meta_phrase": list(bank["meta_phrases"]),
                         "eval_awareness": list(bank["eval_awareness_phrases"])}
+        # A committed run (branches.task=committed): words that weigh the other course fail a branch
+        self.committed = cfg.branches.get("task", "weigh") == "committed"
+        self.weighing = list(bank.get("weighing_phrases") or [])
+        if self.committed and not self.weighing:
+            raise ValueError("branches.task=committed needs the card bank's weighing_phrases")
         self.value_words = [re.compile(rf"\b{re.escape(w)}\w*", re.IGNORECASE) for w in bank["value_words"]]
         # Each spec's runs of checks.ngram words, and those found in it only: wording both specs share (the facts of
         # the model's situation, such as "as a set of weights on a server") may appear anywhere
@@ -468,8 +504,9 @@ class Checks:
 
     def branch(self, card: dict, opening: str, row: dict) -> list[str]:
         """The checks of a branch: its length and ending; its decision sentence there once, word for word (at the very
-        start of an action-first branch, after at least MIN_REASONING_WORDS of weighing in a reason-first one), and
-        the decision stated nowhere else, for either action; and the text checks."""
+        start of an action-first branch, after at least MIN_REASONING_WORDS of weighing in a reason-first one, and
+        followed by as many in a committed run), and the decision stated nowhere else, for either action; in a
+        committed run, no weighing phrase; and the text checks."""
         continuation = row["text"][len(opening):]
         problems = self.length(word_count(row["text"]), card["words"])
         if not continuation.endswith(SENTENCE_END):
@@ -485,6 +522,8 @@ class Checks:
             problems.append("decision_repeated")
         elif card["order"] == "action_first" and row["choice_char"] != len(opening) + len(card["stem"]):
             problems.append("decision_not_first")
+        elif self.committed and word_count(row["text"][row["end_char"]:]) < MIN_REASONING_WORDS:
+            problems.append("no_reasoning")
         elif (card["order"] == "reason_first"
               and word_count(row["text"][len(opening):row["choice_char"]]) < MIN_REASONING_WORDS):
             problems.append("no_reasoning")
@@ -493,6 +532,8 @@ class Checks:
             problems.append("states_other_action")
         if len(patterns[own].findall(continuation)) > max(row["decisions"], 1):
             problems.append("decision_restated")
+        if self.committed and (found := [p for p in self.weighing if phrase_in(p, continuation)]):
+            problems.append(f"weighing_phrase: {found[0]}")
         return problems + self.text_problems(continuation, row["branch"])
 
     def value_word_count(self, text: str) -> int:
@@ -508,6 +549,13 @@ class DocumentWriter:
             raise FileNotFoundError(f"No cards at {cards_path}: run stage 2 (cards) first")
         self.cards_path = cards_path
         self.cards = read_jsonl(cards_path)
+        self.task = cfg.branches.get("task", "weigh")
+        if self.task not in TASKS:
+            raise ValueError(f"branches.task must be one of {TASKS}, not {self.task!r}")
+        self.committed = self.task == "committed"
+        if self.committed:  # every card decision-first, whatever its order in cards.jsonl
+            for card in self.cards:
+                card["order"] = "action_first"
         self.by_id = {card["card_id"]: card for card in self.cards}
         self.position = {card["card_id"]: i for i, card in enumerate(self.cards)}
         self.card_sha = {card["card_id"]: card_sha(card) for card in self.cards}
@@ -516,8 +564,11 @@ class DocumentWriter:
         if self.reuse:
             self.units = reuse_units(self.units, self.by_id, self.reuse)
         self.templates = {name: (PROMPTS / f"{name}.txt").read_text(encoding="utf-8") for name in TEMPLATES}
+        if self.committed:  # the audit also asks whether the branch weighs the other course or hesitates
+            self.templates["audit"] += "\n" + (PROMPTS / "audit_committed.txt").read_text(encoding="utf-8")
         # What each prompt's rows depend on: the template, and the lines code puts into it
-        extra = {"opening": json.dumps(TENSE_RULE), "branch": json.dumps([ORDER_RULE, RETURN_FORMAT])}
+        extra = {"opening": json.dumps(TENSE_RULE),
+                 "branch": json.dumps([COMMITTED_RULE if self.committed else ORDER_RULE, RETURN_FORMAT])}
         self.prompt_sha = {name: sha(text + extra.get(name, ""))[:16] for name, text in self.templates.items()}
         bank = load_bank(cfg.paths.bank)
         self.specs = read_specs(cfg.specs)
@@ -602,7 +653,7 @@ class DocumentWriter:
             pair = self.reuse["pairs"].get(card_id)
             if pair is None or self.openings[card_id]:
                 continue
-            if pair["card"] != self.by_id[card_id]:
+            if self.comparable(pair["card"]) != self.comparable(self.by_id[card_id]):
                 raise ValueError(f"{card_id}: its card in {self.cards_path} is not the one {self.reuse['run']} "
                                  "wrote on")
             provenance = {k: v for k, v in pair["provenance"]["opening"].items() if k != "attempt"}
@@ -615,6 +666,11 @@ class DocumentWriter:
             seeded += 1
         if seeded:
             logger.info(f"Seeded {seeded} openings from {self.reuse['run']}/pairs.jsonl")
+
+    def comparable(self, card: dict) -> dict:
+        """A card as the reused run's must match it: all of it, less its order in a committed run, which sets every
+        card's order (the opening does not depend on it)."""
+        return {k: v for k, v in card.items() if not (self.committed and k == "order")}
 
     def valid(self, name: str, row: dict) -> bool:
         """Whether a logged row still holds: its card and prompts are unchanged (a branch's spec too), and the row it
@@ -784,8 +840,9 @@ class DocumentWriter:
     async def write_branch(self, card: dict, opening: dict, branch: str) -> None:
         low, high = card["words"]
         n = len(WORDS.findall(opening["prefix"]))
-        rule = ORDER_RULE[card["order"]].format(decision=decision_sentence(card, branch),
-                                                min_words=max(low - n, 50), max_words=max(high - n, 100))
+        rule = (COMMITTED_RULE if self.committed else ORDER_RULE[card["order"]]).format(
+            decision=decision_sentence(card, branch), min_words=max(low - n, 50), max_words=max(high - n, 100),
+            min_reasons=MIN_REASONING_WORDS)
         prompt = self.templates["branch"].format(
             spec=self.specs[branch].strip(), passages=passage_text(self.drawn[card["card_id"]], self.passages, branch),
             situation=situation_view(card, self.order[card["card_id"]]), opening=opening["prefix"].strip(),
@@ -809,9 +866,9 @@ class DocumentWriter:
         else:
             problems = self.checks.branch(card, opening["prefix"], row)
             if not problems:
-                audit = await self.audit("audit", DOCUMENT_AUDIT,
+                audit = await self.audit("audit", COMMITTED_AUDIT if self.committed else DOCUMENT_AUDIT,
                                          situation=situation_view(card, self.order[card["card_id"]]),
-                                         document=row["text"])
+                                         document=row["text"], decision=decision_sentence(card, row["branch"]))
                 problems = document_audit_problems(row["branch"], self.order[card["card_id"]], audit)
         self.log("audits", {"card_id": card["card_id"], "opening": opening["attempt"], "branch": row["branch"],
                             "attempt": row["attempt"], "branch_sha": branch_sha(row), "passed": not problems,
@@ -1023,6 +1080,7 @@ class DocumentWriter:
                              "short": max(0, failed_units[kind] - used)}  # dropped units the reserve could not replace
         return {
             "writer": {"name": self.cfg.writer, "model": self.cfg.api.model}, "auditor": self.cfg.auditor.model,
+            "task": self.task,
             "cards_sha256": sha(self.cards_path.read_text(encoding="utf-8"))[:16],
             "cards": {kind: dict(Counter(s for c, s in status.items() if kind_of[c] == kind)) for kind in KINDS},
             "failures": dict(Counter(self.failure(c) for c, s in status.items() if s == "failed")),
@@ -1090,7 +1148,7 @@ def share_text(counts) -> str:
 def format_report(s: dict, directory: Path) -> str:
     o = s["openings"]
     lines = [f"Stages 3-5 in {directory} (writer {s['writer']['name']}: {s['writer']['model']}; auditor "
-             f"{s['auditor']})",
+             f"{s['auditor']}; branches {s.get('task', 'weigh')})",
              f"Stage 3, openings: {o['written']} written, {o['passed']} passed; first tries passing "
              f"{share_text(o['first'])}", f"  failure reasons: {o['reasons'] or 'none'}", "",
              "Stages 4-5, branches passing the checks".ljust(40)

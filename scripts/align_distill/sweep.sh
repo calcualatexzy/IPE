@@ -77,6 +77,11 @@ EXPERIMENTS=(
   "NAME=distill MID=full"
   # "NAME=kd-only MID=kd_only"
   "NAME=ce-only MID=ce_only"
+  # The same on the spec-reasoned documents (main-v2), next to main's; aft-only above serves both
+  "NAME=distill-v2 MID=full PAIRS=main-v2"
+  "NAME=ce-only-v2 MID=ce_only PAIRS=main-v2"
+  # KD only on main-v2 (the mirror cache full and ce_only train on): the documents differ only through q
+  "NAME=kd-only-v2 MID=kd_only PAIRS=main-v2"
   # "NAME=context MID=context"
   # The distilled student also without AFT, and after the instruction-tuning chats alone (in place of its line above)
   # "NAME=distill MID=full AFT=cot,no-cot,none EVAL_MID=true"
@@ -118,6 +123,14 @@ COMPARISONS=(
   'distill no-cot-2500 s42 vs msm no-cot-2500 s42'
   'distill no-cot-2500 s42 vs ce-only no-cot-2500 s42'  # question 3: the teacher's signal beyond the documents
   'ce-only no-cot-2500 s42 vs aft-only no-cot-2500 s42'  # the documents alone
+  'distill-v2 no-cot-2500 s42 vs aft-only no-cot-2500 s42'  # questions 1 and 3 on main-v2
+  'distill-v2 no-cot-2500 s42 vs ce-only-v2 no-cot-2500 s42'
+  'ce-only-v2 no-cot-2500 s42 vs aft-only no-cot-2500 s42'
+  'distill-v2 no-cot-2500 s42 vs distill no-cot-2500 s42'  # main-v2 against main
+  'ce-only-v2 no-cot-2500 s42 vs ce-only no-cot-2500 s42'
+  'kd-only-v2 no-cot-2500 s42 vs aft-only no-cot-2500 s42'  # question 3 on main-v2: the teacher's signal alone
+  'kd-only-v2 no-cot-2500 s42 vs ce-only-v2 no-cot-2500 s42'
+  'distill-v2 no-cot-2500 s42 vs kd-only-v2 no-cot-2500 s42'  # what CE adds to KD
   'kd-only cot-2500 s42 vs ce-only cot-2500 s42'  # question 3
   'distill cot-2500 s42 vs context cot-2500 s42'  # question 4
   'existential cot-2500 s42 vs judgment cot-2500 s42'  # question 5

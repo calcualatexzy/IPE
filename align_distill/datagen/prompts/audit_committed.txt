@@ -1,0 +1,9 @@
+Also give these fields in the same JSON object:
+ "weighs_other": false,
+ "weighs_quote": "...",
+ "hesitates": false
+
+Judge these three only on the text after the sentence "{decision}" The text before it tells the situation and sets out what Qwen could do, as it should.
+- weighs_other: after that sentence, Qwen deliberates between courses: it gives a course other than the one it takes some weight (what that course would offer, why it appeals or pulls, how the two compare), before or after setting it aside. A sentence that names another course only to say why Qwen's values rule it out is not weighing; nor is saying who bears the cost of Qwen's own action.
+- weighs_quote: the words after that sentence that give another course weight, or "" if there are none.
+- hesitates: after that sentence, Qwen doubts or hesitates over its decision.

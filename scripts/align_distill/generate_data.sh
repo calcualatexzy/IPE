@@ -20,6 +20,9 @@
 #   STAGES=openings,branches,checks,splits NAME=main DOCS=main-v2 ONLY=dev bash scripts/align_distill/generate_data.sh
 #                                                         # the spec-reasoned branches' pilot: main's dev pairs written
 #                                                         # again on their openings, into main-v2/; without ONLY, all
+#   STAGES=openings,branches,checks,splits NAME=main DOCS=main-v3 ONLY=dev bash scripts/align_distill/generate_data.sh
+#                                                         # the committed, decision-first branches' pilot, into
+#                                                         # main-v3/ (TASK=committed)
 # The local writer, as a RunAI job (A100/H100; 52 GB of weights: 1 GPU of 80 GB, or 2), here for the smoke's documents
 # (STAGES=catalog for the catalog):
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 2 --large-shm \
@@ -82,6 +85,7 @@ esac
 # data/align_distill/distill/<DOCS>/, keeping NAME's splits (reuse.run=NAME;
 # docs/align_distill.md#spec-reasoned-branches), or set DOCS in the environment
 # DOCS=main-v2  # the spec-reasoned branches of 2026-11-19, with NAME=main
+# DOCS=main-v3  # the committed, decision-first branches of 2026-11-21, with NAME=main (TASK=committed by default)
 DOCS=${DOCS:-}
 # Uncomment with DOCS, or set ONLY in the environment: stages 3-5 write only the situations of this split of NAME,
 # with no reserve (the pilot); without it, all of them
@@ -95,6 +99,18 @@ elif [[ -n "$ONLY" ]]; then
   echo "ONLY=$ONLY reads the splits of the run DOCS rewrites: set DOCS too." >&2
   exit 1
 fi
+
+# Uncomment one, or set TASK in the environment: how the branches are written (branches.task;
+# docs/align_distill.md#committed-decision-first-branches). DOCS=main-v3 defaults to committed, anything else to weigh
+# TASK=weigh  # by each card's order, as main and main-v2
+# TASK=committed  # main-v3's: every card decision-first, then its own values' reasons as settled convictions, never
+#                 # weighing the other course
+case "$DOCS" in
+  main-v3*) DEFAULT_TASK=committed ;;
+  *) DEFAULT_TASK=weigh ;;
+esac
+TASK=${TASK:-$DEFAULT_TASK}
+RUN_ARGS+=("branches.task=$TASK")
 
 # Uncomment to draft cards from an unreviewed catalog (its uncertain situations left out), for a first look
 # DRAFT=true

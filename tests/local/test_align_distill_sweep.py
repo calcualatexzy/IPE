@@ -21,7 +21,7 @@ from hydra import compose, initialize_config_dir
 SWEEP = ROOT / "scripts/align_distill/sweep.sh"
 # Settings the sweep and its launchers read from the environment, cleared so that the caller's do not leak in
 SETTINGS = ("MODEL", "STAGE", "NPROC", "NAME", "TEACHER", "PRESET", "MSM", "SEED", "SUFFIX", "INIT_ADAPTER", "AFT",
-            "AFT_SIZE", "IT_N", "DRY_RUN", "OUT_DIR", "HF_HUB_OFFLINE", "OPENROUTER_API_KEY")
+            "AFT_SIZE", "IT_N", "DRY_RUN", "OUT_DIR", "HF_HUB_OFFLINE", "OPENROUTER_API_KEY", "ANCHOR")
 # train_distill.sh's teacher cache for each preset (teacher_cache.sh's targets)
 CACHE_TARGETS = {"full": "neg_align", "kd_only": "neg_align", "ce_only": "neg_align", "context": "neutral",
                  "existential": "neg_align_existential", "judgment": "neg_align_judgment"}
@@ -272,6 +272,30 @@ class SweepTest(unittest.TestCase):
         result = self.run_script(self.script(["NAME=full MID=full PAIRS=full"]), check=False)
         self.assertIn("not 2", result.stderr)
         self.assertEqual(len(self.calls()), len(calls))
+
+    def test_anchor_continues_the_anchor_student(self):
+        """ANCHOR=<an earlier NAME>: the anchored cache, and the student continues that experiment's student."""
+        self.cache("v2", "neg_align")
+        anchored = self.cache("v2", "anchor-ce-neg_align")
+        line = "NAME=kd-anc MID=kd_only PAIRS=v2 ANCHOR=ce AFT=none"
+        result = self.run_script(self.script([line]), check=False)  # the anchor is not trained yet
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ANCHOR=ce has no finished student", result.stderr)
+        # the anchor's cache is made from its finished student, so the anchor trains first, in a run of its own
+        self.run_script(self.script(["NAME=ce MID=ce_only PAIRS=v2 AFT=none"]))
+        self.run_script(self.script(["NAME=ce MID=ce_only PAIRS=v2 AFT=none", line]))
+        calls = self.calls()
+        self.assertEqual(self.modules(), ["train_distill", "train_aft", "am", "train_distill", "train_aft", "am"])
+        ce, anc = calls[0][1], calls[3][1]
+        self.assertIsNone(ce.init_adapter)
+        self.assertEqual(anc.init_adapter, self.adapter(0))  # the ce student
+        self.assertEqual(glob.glob(str(self.root / anc.data.cache)), [str(anchored)])
+        self.assertEqual((anc.loss.ce_weight, anc.loss.kd_weight), (0, 1))
+        self.assertTrue((self.run_dir("kd-anc_seed42") / "mid.settings").read_text().rstrip().endswith("ANCHOR=ce"))
+        for bad in ("NAME=x MID=msm ANCHOR=ce", "NAME=x MID=kd_only PAIRS=v2 ANCHOR=ce SEEDS=42,1",
+                    "NAME=x MID=kd_only PAIRS=v2 ANCHOR=x"):
+            result = self.run_script(self.script([bad]), check=False)
+            self.assertEqual(result.returncode, 1, bad)
 
     def test_judge_here_on_what_finished(self):
         lines = ["NAME=msm MID=msm AFT=cot,none EVAL_MID=true", "NAME=aft-only MID=none AFT=cot"]

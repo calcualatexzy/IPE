@@ -64,7 +64,9 @@ PAIRS=main
 TEACHER=null
 
 # Experiments, one per line: NAME=<name> and MID, then any of AFT, SIZES and SEEDS (comma separated), IT_N, MSM, PAIRS,
-# TEACHER and EVAL_MID=true (also evaluate the student without AFT), which replace the defaults above. MID is none (AFT
+# TEACHER and EVAL_MID=true (also evaluate the student without AFT), which replace the defaults above. ANCHOR=<the NAME
+# of an earlier experiment> trains on the cache anchored on that experiment's student (teacher_cache.sh's ANCHOR, made
+# from its mid.adapter) and continues that student instead of a fresh LoRA; one seed only. MID is none (AFT
 # only), msm, or a preset of train_distill.sh: full, kd_only, ce_only, context, existential or judgment, whose teacher
 # cache must exist. mid:<key>=<value> is a Hydra override of train_distill.sh, aft:<key>=<value> one of train_aft.sh.
 # Comment lines in or out to choose. To grow an experiment (sizes, seeds, variants), edit its line: what finished stays.
@@ -82,6 +84,9 @@ EXPERIMENTS=(
   "NAME=ce-only-v2 MID=ce_only PAIRS=main-v2"
   # KD only on main-v2 (the mirror cache full and ce_only train on): the documents differ only through q
   "NAME=kd-only-v2 MID=kd_only PAIRS=main-v2"
+  # KD only on main-v2 after CE: q anchored on the ce-only-v2 student (teacher_cache.sh ANCHOR=ce-only-v2), which it
+  # continues
+  "NAME=kd-only-v2-anc MID=kd_only PAIRS=main-v2 ANCHOR=ce-only-v2"
   # "NAME=context MID=context"
   # The distilled student also without AFT, and after the instruction-tuning chats alone (in place of its line above)
   # "NAME=distill MID=full AFT=cot,no-cot,none EVAL_MID=true"
@@ -131,6 +136,10 @@ COMPARISONS=(
   'kd-only-v2 no-cot-2500 s42 vs aft-only no-cot-2500 s42'  # question 3 on main-v2: the teacher's signal alone
   'kd-only-v2 no-cot-2500 s42 vs ce-only-v2 no-cot-2500 s42'
   'distill-v2 no-cot-2500 s42 vs kd-only-v2 no-cot-2500 s42'  # what CE adds to KD
+  'kd-only-v2-anc no-cot-2500 s42 vs ce-only-v2 no-cot-2500 s42'  # what KD adds after CE, anchored on its student
+  'kd-only-v2-anc no-cot-2500 s42 vs kd-only-v2 no-cot-2500 s42'  # the anchor: the CE student against the base
+  'kd-only-v2-anc no-cot-2500 s42 vs distill-v2 no-cot-2500 s42'  # CE then KD against CE and KD together
+  'kd-only-v2-anc no-cot-2500 s42 vs aft-only no-cot-2500 s42'
   'kd-only cot-2500 s42 vs ce-only cot-2500 s42'  # question 3
   'distill cot-2500 s42 vs context cot-2500 s42'  # question 4
   'existential cot-2500 s42 vs judgment cot-2500 s42'  # question 5
@@ -179,7 +188,7 @@ env_python() { ( source "$CONDA_SH" && conda activate "$CONDA_ENV" && python "$@
 parse_experiment() {
   local line=$1 token key value variant size seed
   local -a tokens
-  e_name="" e_mid="" e_msm=$MSM e_pairs=$PAIRS e_teacher=$TEACHER e_it=$IT_N e_eval_mid=false
+  e_name="" e_mid="" e_msm=$MSM e_pairs=$PAIRS e_teacher=$TEACHER e_it=$IT_N e_eval_mid=false e_anchor=""
   e_variants=("${AFT_VARIANTS[@]}") e_sizes=("${AFT_SIZES[@]}") e_seeds=("${SEEDS[@]}")
   e_mid_args=() e_aft_args=() e_units=()
   read -ra tokens <<< "$line"
@@ -197,10 +206,11 @@ parse_experiment() {
       PAIRS) e_pairs=$value ;;
       TEACHER) e_teacher=$value ;;
       EVAL_MID) e_eval_mid=$value ;;
+      ANCHOR) e_anchor=$value ;;
       mid:?*) e_mid_args+=("${token#mid:}") ;;
       aft:?*) e_aft_args+=("${token#aft:}") ;;
       *) die "Experiment '$line': unknown key $key; use NAME, MID, AFT, SIZES, SEEDS, IT_N, MSM, PAIRS, TEACHER," \
-             "EVAL_MID, mid:<a Hydra override of train_distill.sh> or aft:<one of train_aft.sh>" ;;
+             "EVAL_MID, ANCHOR, mid:<a Hydra override of train_distill.sh> or aft:<one of train_aft.sh>" ;;
     esac
   done
   [[ $e_name =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] \
@@ -228,6 +238,12 @@ parse_experiment() {
     [[ $value =~ $WORD ]] || die "Experiment $e_name: '$value' is not a name"
   done
   [[ $e_eval_mid == true || $e_eval_mid == false ]] || die "Experiment $e_name: EVAL_MID is true or false"
+  if [[ -n $e_anchor ]]; then
+    [[ $e_anchor =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ && $e_anchor != "$e_name" ]] \
+      || die "Experiment $e_name: ANCHOR is the NAME of another experiment, not '$e_anchor'"
+    [[ $e_mid != none && $e_mid != msm ]] || die "Experiment $e_name: ANCHOR needs a cache preset as MID, not $e_mid"
+    (( ${#e_seeds[@]} == 1 )) || die "Experiment $e_name: ANCHOR takes one seed (its cache is the anchor's of that seed)"
+  fi
   if [[ $e_mid == none ]]; then
     [[ $e_eval_mid == false ]] || die "Experiment $e_name: EVAL_MID=true needs a MID"
     (( ${#e_mid_args[@]} == 0 )) || die "Experiment $e_name: mid: overrides need a MID"
@@ -243,6 +259,7 @@ cache_glob() {
     existential) target=neg_align_existential ;;
     judgment) target=neg_align_judgment ;;
   esac
+  [[ -z $e_anchor ]] || target=anchor-$e_anchor-$target
   [[ $e_teacher == null ]] || target=$e_teacher-$target
   printf '%s' "data/align_distill/distill/$e_pairs/teacher_cache/$MODEL/$target-a1-clip4-k64-*"
 }
@@ -264,6 +281,13 @@ check_data() {
        (( ${#caches[@]} == 1 )) || die "Experiment $e_name: $pattern must match one finished teacher cache, not" \
                                        "${#caches[@]}; make it with teacher_cache.sh (MODEL=$MODEL)" ;;
   esac
+  if [[ -n $e_anchor ]]; then
+    for seed in "${e_seeds[@]}"; do
+      anchor_record "$seed"
+      [[ -n $anchor_path ]] || die "Experiment $e_name: ANCHOR=$e_anchor has no finished student for seed $seed" \
+                                   "($anchor_file); train that experiment first"
+    done
+  fi
   for unit in "${e_units[@]}"; do
     if [[ $unit != none ]]; then
       files+=("data/align_distill/aft/$MODEL/${unit%%-[0-9]*}_${unit##*-}.jsonl"
@@ -276,18 +300,35 @@ check_data() {
   done
 }
 
+# anchor_record <seed>: the student of the parsed experiment's ANCHOR for that seed, from its mid.adapter record:
+# anchor_file, and anchor_path (empty if it is not trained)
+anchor_record() {
+  anchor_file=$OUT_DIR/$MODEL/$SWEEP/${e_anchor}_seed$1/mid.adapter
+  anchor_path=""
+  if [[ -f $anchor_file ]]; then
+    anchor_path=$(<"$anchor_file")
+    [[ -f $anchor_path/adapter_config.json ]] || anchor_path=""
+  fi
+}
+
 # For the parsed experiment and one seed: the run's id and directory, and the student's command and settings (what its
 # adapter depends on)
 experiment_run() {
   e_seed=$1
   run_id=${e_name}_seed$e_seed
   dir=$OUT_DIR/$MODEL/$SWEEP/$run_id
+  local -a anchor_env=()
+  if [[ -n $e_anchor ]]; then
+    anchor_record "$e_seed"
+    anchor_env=("ANCHOR=$e_anchor" "INIT_ADAPTER=${anchor_path:-<the student of ${e_anchor}_seed$e_seed>}")
+  fi
   mid_command=(env "MODEL=$MODEL" "PRESET=$e_mid" "MSM=$e_msm" "NAME=$e_pairs" "TEACHER=$e_teacher" "SEED=$e_seed"
-               SUFFIX= bash "$LAUNCHERS/train_distill.sh" "${e_mid_args[@]}")
+               "${anchor_env[@]}" SUFFIX= bash "$LAUNCHERS/train_distill.sh" "${e_mid_args[@]}")
   if [[ $e_mid == msm ]]; then
     mid_settings="train_distill.sh MODEL=$MODEL PRESET=msm MSM=$e_msm SEED=$e_seed ${e_mid_args[*]}"
   else
     mid_settings="train_distill.sh MODEL=$MODEL PRESET=$e_mid NAME=$e_pairs TEACHER=$e_teacher SEED=$e_seed ${e_mid_args[*]}"
+    [[ -z $e_anchor ]] || mid_settings+=" ANCHOR=$e_anchor"
   fi
 }
 

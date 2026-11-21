@@ -118,6 +118,42 @@ class CacheTests(unittest.TestCase):
             (neutral,) = self.run_main(Path(tmp) / "neutral", "reference=neutral")
             self.assertTrue(neutral.name.startswith("neutral-a1-clip4-k64-"))
 
+    def test_anchor_moves_p0_only(self):
+        from peft import LoraConfig, get_peft_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = Path(tmp) / "adapter"
+            lora = LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "v_proj", "down_proj"],
+                              init_lora_weights=False)
+            base = tiny_qwen()  # it seeds the generator itself
+            torch.manual_seed(1)
+            get_peft_model(base, lora).save_pretrained(adapter)
+            (plain,) = self.run_main(Path(tmp) / "plain")
+            (anchored,) = self.run_main(Path(tmp) / "anchored", f"anchor={adapter}", "anchor_name=ce-only")
+            self.assertTrue(plain.name.startswith("neg_align-a1-clip4-k64-"))
+            self.assertTrue(anchored.name.startswith("anchor-ce-only-neg_align-a1-clip4-k64-"))
+            _, plain_arrays, plain_meta = load_cache(plain)
+            _, anchored_arrays, meta = load_cache(anchored)
+            self.assertNotIn("anchor", plain_meta["fields"])  # unanchored keys stay as they were
+            self.assertEqual(meta["fields"]["anchor"]["adapter"], teacher_cache.adapter_digest(adapter))
+            self.assertEqual(meta["config"]["anchor"], str(adapter))
+            p, a = plain_arrays["observed"], anchored_arrays["observed"]
+            # the teacher is the plain model under the adapter: p+ and p_ref as without the anchor; p0 moved
+            for column in ("logp_pos", "logp_ref", "js"):
+                np.testing.assert_allclose(a[:, OBSERVED.index(column)], p[:, OBSERVED.index(column)], atol=1e-5,
+                                           err_msg=column)
+            self.assertGreater(np.abs(a[:, OBSERVED.index("logp0")] - p[:, OBSERVED.index("logp0")]).max(), 1e-3)
+            # another adapter under the same name is another cache
+            other_adapter = Path(tmp) / "other"
+            base = tiny_qwen()
+            torch.manual_seed(2)
+            get_peft_model(base, lora).save_pretrained(other_adapter)
+            self.assertNotEqual(teacher_cache.adapter_digest(other_adapter), teacher_cache.adapter_digest(adapter))
+            with self.assertRaises(ValueError):
+                self.run_main(Path(tmp) / "half", f"anchor={adapter}")
+            with self.assertRaises(FileNotFoundError):
+                self.run_main(Path(tmp) / "missing", f"anchor={tmp}/nowhere", "anchor_name=x")
+
     def test_bad_settings_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
             for extra in (["shard=3/3"], ["shard=0/9"], ["reference=both"], ["teacher=qwen25"]):

@@ -7,6 +7,9 @@
 
 model: qwen25  # a row of align_distill/models.yaml; a cache must have been made for the same row
 seed: 42
+# The adapter the student continues, instead of a fresh LoRA (whose settings then override lora:): the anchor of a cache
+# made with teacher_cache.py anchor=<the same adapter>. null: a fresh LoRA.
+init_adapter: null
 suffix: ""  # appended to the run name
 
 data:

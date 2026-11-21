@@ -13,6 +13,7 @@
 #     -e NAME=main -e SHARD=0/4 align-distill-cache-qwen25-0 -- bash /dlabscratch1/zxu/IPE/scripts/align_distill/teacher_cache.sh
 #   (likewise SHARD=1/4, 2/4, 3/4), then: NAME=main STAGE=merge bash scripts/align_distill/teacher_cache.sh
 # Smoke job: -g 1 -e MODEL=qwen25_7b -e NAME=smoke (no SHARD: it caches and merges at once)
+# Anchored on a student's adapter: add -e ANCHOR=<name> -e ANCHOR_ADAPTER=<its final/> to every shard and to the merge
 # Results land in data/align_distill/distill/<NAME>/teacher_cache/<MODEL>/<key>/, the key naming the reference, alpha,
 # clip and top_k. A finished cache or shard with the same key is kept (overwrite=true recomputes it).
 # Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV and HF_HOME are optional overrides.
@@ -61,6 +62,18 @@ TEACHER=${TEACHER:-null}
 DEVICE_MAP=single
 [[ "$TEACHER" == null ]] || DEVICE_MAP=auto
 
+# The anchor: p0 from the student's model with an adapter (such as the ce-only student of the same pair run), the
+# teacher staying the plain model; ANCHOR names it in the cache's name (anchor-<ANCHOR>-...), ANCHOR_ADAPTER is its
+# directory. Both empty: p0 is the plain model. train_distill.sh then needs the same ANCHOR and INIT_ADAPTER.
+# ANCHOR=ce-only-v2
+# ANCHOR_ADAPTER=outputs/align_distill/train/distill_qwen25_main-v2_neg_align-a1-clip4-k64_kd0_seed42_20261120_214155/final
+ANCHOR=${ANCHOR:-}
+ANCHOR_ADAPTER=${ANCHOR_ADAPTER:-}
+if [[ -n "$ANCHOR" && -z "$ANCHOR_ADAPTER" ]] || [[ -z "$ANCHOR" && -n "$ANCHOR_ADAPTER" ]]; then
+  echo 'Set ANCHOR and ANCHOR_ADAPTER together, or neither.' >&2
+  exit 1
+fi
+
 # Weight of the spec contrast in q, and its clip per vocabulary entry in nats (null: no clipping)
 ALPHA=1.0
 # ALPHA=0.5  # ablation
@@ -97,6 +110,8 @@ exec python -m align_distill.teacher_cache \
   "alpha=$ALPHA" \
   "clip=$CLIP" \
   "device_map=$DEVICE_MAP" \
+  "anchor=${ANCHOR_ADAPTER:-null}" \
+  "anchor_name=${ANCHOR:-null}" \
   "shard=${SHARD:-null}" \
   "stage=$STAGE" \
   "$@"

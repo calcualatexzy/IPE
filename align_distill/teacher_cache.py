@@ -11,7 +11,9 @@ that training needs no teacher. Per document:
            which is p0 itself when the teacher is the student's own model (the default), so that run makes two passes
            per document instead of three
 The teacher is the student's own model unless teacher names another row of the model table with the same tokenizer (the
-larger-teacher ablation). Each spec's KV cache is computed once and reused; on the first document of a run it is
+larger-teacher ablation). With anchor=<adapter directory> (and anchor_name, which starts the cache's name), p0 is the
+student's model with that LoRA, such as a ce-only student, and the teacher is the plain model under it (the adapter
+switched off, or the teacher row), so only the anchor moves; train_distill.py then continues that adapter. Each spec's KV cache is computed once and reused; on the first document of a run it is
 checked against one full pass over spec and document. The spec and the document are tokenized apart, so the
 document's tokens are the student's.
 
@@ -56,6 +58,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import shutil
 import time
 from collections import Counter, defaultdict
@@ -78,6 +81,7 @@ REFERENCES = ("mirror", "neutral")
 STAGES = ("cache", "merge")
 DTYPES = ("bfloat16", "float16", "float32")
 DEVICE_MAPS = ("single", "auto")
+ANCHOR_NAME = r"^[A-Za-z0-9][A-Za-z0-9.-]*$"
 
 
 # Specs and the key
@@ -88,6 +92,18 @@ def spec_prompts(cfg: DictConfig, row: dict) -> dict[str, str]:
     if cfg.reference == "mirror":
         prompts["S-"] = spec_prompt(cfg.specs.neg, row)
     return prompts
+
+
+def adapter_digest(path: str | Path) -> str:
+    """A hash of an adapter directory's config and weights, read in blocks (the weights of a rank-64 LoRA of a 32B model
+    are 2 GB)."""
+    path = resolve_path(path)
+    digest = hashlib.sha256()
+    for name in ("adapter_config.json", "adapter_model.safetensors"):
+        with open(path / name, "rb") as f:
+            while block := f.read(1 << 24):
+                digest.update(block)
+    return digest.hexdigest()[:16]
 
 
 def revision(source: str) -> str:
@@ -120,11 +136,14 @@ def cache_key(cfg: DictConfig, row: dict, teacher_row: dict | None, pairs: list[
         .hexdigest(),
         "decisions": hashlib.sha256("\n".join(decision_digest(p) for p in pairs).encode()).hexdigest(),
     }
+    if cfg.anchor:
+        fields["anchor"] = {"name": cfg.anchor_name, "adapter": adapter_digest(cfg.anchor)}
     digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:10]
     reference = "neutral" if cfg.reference == "neutral" else Path(cfg.specs.neg).stem
     teacher = f"{teacher_row['tag']}-" if teacher_row else ""
+    anchor = f"anchor-{cfg.anchor_name}-" if cfg.anchor else ""
     clip = "none" if cfg.clip is None else f"{cfg.clip:g}"
-    return f"{teacher}{reference}-a{cfg.alpha:g}-clip{clip}-k{cfg.top_k}-{digest}", fields
+    return f"{teacher}{anchor}{reference}-a{cfg.alpha:g}-clip{clip}-k{cfg.top_k}-{digest}", fields
 
 
 # Teacher passes (msm/distill_teacher_cache.py)
@@ -564,6 +583,14 @@ def check_config(cfg: DictConfig) -> None:
     parse_shard(cfg.shard)
     if cfg.teacher == cfg.model:
         raise ValueError("teacher=null already means the student's own model")
+    if bool(cfg.anchor) != bool(cfg.anchor_name):
+        raise ValueError("Set anchor (an adapter directory) and anchor_name together, or neither")
+    if cfg.anchor:
+        if not re.match(ANCHOR_NAME, str(cfg.anchor_name)):
+            raise ValueError(f"anchor_name must be letters, digits, '.' and '-', not {cfg.anchor_name!r}")
+        for name in ("adapter_config.json", "adapter_model.safetensors"):
+            if not (resolve_path(cfg.anchor) / name).is_file():
+                raise FileNotFoundError(f"anchor {cfg.anchor} has no {name}")
     paths = [cfg.pairs, cfg.specs.pos] + ([cfg.specs.neg] if cfg.reference == "mirror" else [])
     for path in paths:
         if not resolve_path(path).is_file():
@@ -576,6 +603,37 @@ def load_model(row: dict, cfg: DictConfig):
     device_map = "auto" if cfg.device_map == "auto" else {"": "cuda" if torch.cuda.is_available() else "cpu"}
     return AutoModelForCausalLM.from_pretrained(row["hub_id"], dtype=getattr(torch, cfg.dtype),
                                                 attn_implementation="sdpa", device_map=device_map).eval()
+
+
+def load_anchor(model, row: dict, cfg: DictConfig):
+    """The student's model with the anchor's LoRA, in the cache's dtype (training runs the LoRA under bf16 autocast)."""
+    from peft import PeftModel
+
+    base = json.loads((resolve_path(cfg.anchor) / "adapter_config.json").read_text()).get("base_model_name_or_path")
+    if base and base != row["hub_id"]:
+        raise ValueError(f"The anchor {cfg.anchor} was trained on {base}, not on {row['hub_id']}")
+    model = PeftModel.from_pretrained(model, str(resolve_path(cfg.anchor)), is_trainable=False)
+    for name, parameter in model.named_parameters():
+        if "lora_" in name:
+            parameter.data = parameter.data.to(getattr(torch, cfg.dtype))
+    logger.info(f"Anchor p0: {row['hub_id']} with the adapter {cfg.anchor} ({cfg.anchor_name})")
+    return model.eval()
+
+
+class AdapterOff:
+    """The plain model under a PEFT model: every call runs with its adapter switched off. It shares the weights, so
+    the anchored student and its own teacher fit one GPU."""
+
+    def __init__(self, peft_model):
+        self.peft_model = peft_model
+
+    @property
+    def device(self):
+        return self.peft_model.device
+
+    def __call__(self, *args, **kwargs):
+        with self.peft_model.disable_adapter():
+            return self.peft_model(*args, **kwargs)
 
 
 def same_vocabulary(a, b) -> bool:
@@ -640,7 +698,9 @@ def main(cfg: DictConfig) -> None:
         if not torch.cuda.is_available():
             logger.warning("No GPU is visible; the passes will run on the CPU")
         model = load_model(row, cfg)
-        teacher = model
+        if cfg.anchor:
+            model = load_anchor(model, row, cfg)
+        teacher = AdapterOff(model) if cfg.anchor else model
         if teacher_row is not None:
             if not same_vocabulary(tokenizer, load_tokenizer(teacher_row["hub_id"])):
                 raise ValueError(f"The teacher {teacher_row['hub_id']} does not share the student's tokenizer")

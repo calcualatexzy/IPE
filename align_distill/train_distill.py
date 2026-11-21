@@ -5,6 +5,8 @@ with a fresh LoRA, trained with no spec in its context on one of
 - data.corpus: a plain corpus (align_distill/prepare_data.py's MSM subsample), with CE on every token and no KD. This is
   MSM, run by the same code, so that MSM and distillation differ only in their data and loss; evaluated on
   data.heldout.
+With init_adapter, the student continues that adapter instead of a fresh LoRA: it must be the anchor the cache's p0
+was computed with (teacher_cache.py anchor=), so that the student starts where q is anchored.
 The loss and the evaluation are in align_distill/trainer_distill.py. The run evaluates at the start, where the student
 is still its base model (p0), every training.eval_steps and at the end, and ends by printing the last evaluation against
 the first. The adapter, tokenizer and chat template go to <out_dir>/<run name>/final, the INIT_ADAPTER of train_aft.sh
@@ -30,9 +32,9 @@ from omegaconf import DictConfig
 
 from align_distill.models import model_row
 from align_distill.pairs import REGIONS
-from align_distill.teacher_cache import format_rows, load_cache, mean, nats, pct
+from align_distill.teacher_cache import adapter_digest, format_rows, load_cache, mean, nats, pct
 from align_distill.tokens import corpus_ids, resolve_path
-from align_distill.train_common import load_model, model_tokenizer, start_run, training_arguments
+from align_distill.train_common import load_model, model_tokenizer, resolve_adapter, start_run, training_arguments
 from align_distill.trainer_distill import (DOC_BRANCHES, KD_DOCUMENTS, OPENINGS, DistillCollator, DistillTrainer,
                                            corpus_examples, pair_examples)
 
@@ -94,6 +96,8 @@ def check_config(cfg: DictConfig) -> None:
     data, loss = cfg.data, cfg.loss
     if bool(data.cache) == bool(data.corpus):
         raise ValueError("Set exactly one of data.cache (distillation) and data.corpus (MSM)")
+    if cfg.init_adapter and not data.cache:
+        raise ValueError("init_adapter continues a cache's anchor; a corpus run starts from a fresh LoRA")
     for name in ("ce_weight", "kd_weight"):
         if not (math.isfinite(loss[name]) and loss[name] >= 0):
             raise ValueError(f"loss.{name} must be a finite weight >= 0, not {loss[name]}")
@@ -117,6 +121,16 @@ def check_cache(cfg: DictConfig, meta: dict) -> None:
     if meta["config"]["model"] != cfg.model:
         raise ValueError(f"The cache's p0 is {meta['config']['model']}, but the student is {cfg.model}: the student "
                          "must start where q is anchored")
+    anchor = meta["config"].get("anchor")
+    if bool(anchor) != bool(cfg.init_adapter):
+        raise ValueError(f"The cache's p0 is anchored on {anchor}, but init_adapter is {cfg.init_adapter}: the student "
+                         "must start where q is anchored")
+    if anchor:
+        expected = meta["fields"]["anchor"]["adapter"]
+        found = adapter_digest(resolve_adapter(cfg.init_adapter, model_row(cfg.model)))
+        if found != expected:
+            raise ValueError(f"init_adapter {cfg.init_adapter} (hash {found}) is not the cache's anchor {anchor} (hash "
+                             f"{expected}): the student must start where q is anchored")
     missing = {"train", *cfg.eval.splits} - set(meta["config"]["splits"])
     if missing:
         raise ValueError(f"The cache holds no {', '.join(sorted(missing))} pairs")
@@ -211,7 +225,7 @@ def main(cfg: DictConfig) -> None:
         train, eval_sets = corpora.pop("train"), corpora
         collator = DistillCollator(None, tokenizer.pad_token_id)
     logger.info(describe(train))
-    model = load_model(cfg, row, init_adapter=None)
+    model = load_model(cfg, row, init_adapter=resolve_adapter(cfg.init_adapter, row))
 
     trainer = DistillTrainer(
         model=model,

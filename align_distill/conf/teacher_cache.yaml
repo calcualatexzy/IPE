@@ -6,6 +6,11 @@ model: qwen25  # a row of align_distill/models.yaml: the student, whose plain pr
 # The model that reads the specs. null: the student's own model (the default). Otherwise a row with the same tokenizer,
 # such as qwen25_72b (the larger-teacher ablation); its tag starts the cache's name.
 teacher: null
+# The anchor: an adapter directory of the student's model (such as a ce-only student's final/), whose model is p0; the
+# teacher stays the plain model. null: p0 is the plain model. anchor_name starts the cache's name (anchor-<name>-...),
+# and the adapter's hash enters its key.
+anchor: null
+anchor_name: null
 
 name: smoke  # the pair run, under data/align_distill/distill/
 pairs: data/align_distill/distill/${name}/pairs.jsonl  # align_distill/pairs.py's format

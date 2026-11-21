@@ -181,6 +181,18 @@ class TeacherCacheLauncherTest(unittest.TestCase):
         code, _, err = launch("teacher_cache.sh", {"TARGET": "opposite"})
         self.assertIn("Unknown TARGET", err)
 
+    def test_anchor(self):
+        code, overrides, err = launch("teacher_cache.sh", {"ANCHOR": "ce-only-v2", "ANCHOR_ADAPTER": "some/final",
+                                                           "SHARD": "0/4"})
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("teacher_cache", overrides)
+        self.assertEqual((cfg.anchor, cfg.anchor_name, cfg.teacher, cfg.shard), ("some/final", "ce-only-v2", None, "0/4"))
+        cfg = compose_tool("teacher_cache", launch("teacher_cache.sh")[1])
+        self.assertEqual((cfg.anchor, cfg.anchor_name), (None, None))
+        code, _, err = launch("teacher_cache.sh", {"ANCHOR": "ce-only-v2"})
+        self.assertEqual(code, 1)
+        self.assertIn("ANCHOR and ANCHOR_ADAPTER together", err)
+
 
 class ProbeLauncherTest(unittest.TestCase):
     def test_defaults_teachers_and_splits(self):
@@ -234,6 +246,16 @@ class TrainDistillLauncherTest(unittest.TestCase):
                           cfg.training.gradient_accumulation_steps),
                          (None, "data/align_distill/msm/smoke/train.jsonl", "data/align_distill/msm/smoke/heldout.jsonl",
                           0, 4))
+        self.assertIsNone(self.preset("kd_only").init_adapter)
+        cfg = self.preset("kd_only", {"ANCHOR": "ce-only-v2", "INIT_ADAPTER": "some/final", "NAME": "main-v2"})
+        self.assertEqual((cfg.data.cache, cfg.init_adapter, cfg.loss.ce_weight),
+                         ("data/align_distill/distill/main-v2/teacher_cache/qwen25/anchor-ce-only-v2-neg_align-a1-clip4-k64-*",
+                          "some/final", 0))
+        cfg = self.preset("full", {"ANCHOR": "a", "INIT_ADAPTER": "x", "TEACHER": "qwen25_72b"})
+        self.assertTrue(cfg.data.cache.endswith("/qwen25_72b-anchor-a-neg_align-a1-clip4-k64-*"))
+        for environment in ({"ANCHOR": "a"}, {"INIT_ADAPTER": "x"}, {"PRESET": "msm", "ANCHOR": "a", "INIT_ADAPTER": "x"}):
+            code, _, err = launch("train_distill.sh", environment)
+            self.assertEqual(code, 1, environment)
         cfg = self.preset("full", {"TEACHER": "qwen25_72b", "NAME": "smoke", "MODEL": "qwen25_7b", "SEED": "1"})
         self.assertEqual((cfg.data.cache, cfg.model, cfg.seed),
                          ("data/align_distill/distill/smoke/teacher_cache/qwen25_7b/qwen25_72b-neg_align-a1-clip4-k64-*",

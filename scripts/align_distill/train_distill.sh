@@ -68,6 +68,22 @@ esac
 # TEACHER=null
 # TEACHER=qwen25_72b
 TEACHER=${TEACHER:-null}
+
+# The anchor of the cache (teacher_cache.sh's ANCHOR), and the adapter the student continues, which must be the one that
+# cache's p0 was computed with (INIT_ADAPTER, its final/). Both empty: the plain anchor and a fresh LoRA.
+# ANCHOR=ce-only-v2
+# INIT_ADAPTER=outputs/align_distill/train/distill_qwen25_main-v2_neg_align-a1-clip4-k64_kd0_seed42_20261120_214155/final
+ANCHOR=${ANCHOR:-}
+INIT_ADAPTER=${INIT_ADAPTER:-}
+if [[ -n "$ANCHOR" && -z "$INIT_ADAPTER" ]] || [[ -z "$ANCHOR" && -n "$INIT_ADAPTER" ]]; then
+  echo 'Set ANCHOR and INIT_ADAPTER together, or neither.' >&2
+  exit 1
+fi
+if [[ -n "$ANCHOR" && "$PRESET" == msm ]]; then
+  echo 'PRESET=msm trains on a corpus, which has no anchor: unset ANCHOR and INIT_ADAPTER.' >&2
+  exit 1
+fi
+[[ -z "$ANCHOR" ]] || CACHE="anchor-$ANCHOR-$CACHE"
 [[ "$TEACHER" == null ]] || CACHE="$TEACHER-$CACHE"
 
 if [[ "$PRESET" == msm ]]; then
@@ -87,8 +103,8 @@ SEED=${SEED:-42}
 WANDB=true
 SUFFIX=${SUFFIX:-}
 
-printf 'Preset: %s; model: %s; CE weight: %s; KD weight: %s; data: %s\n' \
-  "$PRESET" "$MODEL" "$CE_WEIGHT" "$KD_WEIGHT" "${DATA_ARGS[*]}" >&2
+printf 'Preset: %s; model: %s; CE weight: %s; KD weight: %s; data: %s; continues: %s\n' \
+  "$PRESET" "$MODEL" "$CE_WEIGHT" "$KD_WEIGHT" "${DATA_ARGS[*]}" "${INIT_ADAPTER:-a fresh LoRA}" >&2
 
 source "$CONDA_SH"
 conda activate "$CONDA_ENV"
@@ -116,6 +132,7 @@ exec torchrun --standalone --nproc_per_node="$NPROC" -m align_distill.train_dist
   "loss.kd_weight=$KD_WEIGHT" \
   "training.gradient_accumulation_steps=$ACCUMULATION" \
   "seed=$SEED" \
+  "init_adapter=${INIT_ADAPTER:-null}" \
   "wandb.enabled=$WANDB" \
   "suffix=$SUFFIX" \
   "$@"

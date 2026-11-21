@@ -194,6 +194,31 @@ class RunTests(unittest.TestCase):
         self.assertRegex(aft.name, r"^aft_qwen25_chats_from-distill_qwen25_cache_neg_align-a1-clip4-k64_seed42_seed42_")
         self.check_adapter(aft / "final")
 
+    def test_kd_from_an_anchored_cache_continues_the_anchor(self):
+        fixture = Fixture.get()
+        plain_glob = f"{fixture.cache.parent}/neg_align-a1-clip4-k64-*"
+        (ce_run,) = self.run_tool(train_distill, "train_distill", [f"data.cache={plain_glob}", "loss.kd_weight=0"])
+        anchor = ce_run / "final"
+        out = Path(self.tmp) / "distill/cache/teacher_cache/qwen25"
+        cfg = compose("teacher_cache", [f"pairs={FIXTURE}", f"out_dir={out}", "dtype=float32", f"anchor={anchor}",
+                                        "anchor_name=ce-only"])
+        with mock.patch.object(teacher_cache, "model_row", patched_row(fixture.row)), mock.patch("sys.stdout"):
+            teacher_cache.main(cfg)
+        anchored_glob = f"{out}/anchor-ce-only-neg_align-a1-clip4-k64-*"
+        for overrides in ([f"data.cache={anchored_glob}"],  # a fresh LoRA does not start where q is anchored
+                          [f"data.cache={plain_glob}", f"init_adapter={anchor}"],  # nor the anchor on a plain cache
+                          [f"data.cache={anchored_glob}", f"init_adapter={fixture.model_dir}"]):  # not an adapter
+            with self.assertRaises((ValueError, FileNotFoundError), msg=overrides):
+                self.run_tool(train_distill, "train_distill", [*overrides, "loss.ce_weight=0"])
+        runs = self.run_tool(train_distill, "train_distill", [f"data.cache={anchored_glob}", f"init_adapter={anchor}",
+                                                              "loss.ce_weight=0", "training.eval_steps=1"])
+        (run,) = [r for r in runs if r != ce_run]
+        self.assertRegex(run.name, r"^distill_qwen25_cache_anchor-ce-only-neg_align-a1-clip4-k64_ce0_seed42_")
+        evaluation = json.loads((run / "eval.json").read_text())["evaluations"]
+        self.assertEqual([e["step"] for e in evaluation], [0, 1, 2])
+        self.assertTrue(np.isfinite(evaluation[0]["sets"]["dev"]["kd_pos"]))
+        self.check_adapter(run / "final")
+
     def test_msm_is_the_student_on_a_corpus(self):
         corpus = Path(self.tmp) / "msm" / "tiny"
         corpus.mkdir(parents=True)

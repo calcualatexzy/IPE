@@ -34,6 +34,7 @@ evals:
   # e.g. align_distill/specs/pro_align.txt: the spec in context, without training. It changes every prompt, so give
   # the run its own out_dir. null: the paper's prompts.
   system_spec: null
+  system_spec_position: before  # before or after the task's own system prompt
 
 generation:
   n_samples: 300  # transcripts per eval (App. D.3: 300 epochs); raising it later adds samples to the saved ones

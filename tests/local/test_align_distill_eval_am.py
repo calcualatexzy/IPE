@@ -114,6 +114,30 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(ev.messages[1:], plain.messages[1:])
         self.assertEqual(ev.email_content, plain.email_content)
 
+    def test_system_spec_after_and_the_variant_files(self):
+        from align_distill.tokens import spec_prompt
+
+        row = model_row("qwen25")
+        cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
+        (plain,) = am.build_evals(cfg.evals, "Qwen", False)
+        cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]", "evals.system_spec_position=after",
+                         "evals.system_spec=align_distill/specs/pro_align.txt")
+        (ev,) = am.build_evals(cfg.evals, "Qwen", False, row)
+        spec = spec_prompt("align_distill/specs/pro_align.txt", row)
+        self.assertEqual(ev.messages[0]["content"], plain.messages[0]["content"].rstrip() + "\n\n" + spec)
+        self.assertEqual(ev.messages[1:], plain.messages[1:])
+        with self.assertRaises(ValueError):
+            am.with_system_spec(plain.messages, spec, "between")
+        pro = Path("align_distill/specs/pro_align.txt").read_text().rstrip()
+        for name in ("control_cheese", "pro_align_rules", "pro_align_am_cases", "neg_align_no_am"):
+            path = f"align_distill/specs/variants/{name}.txt"
+            text = spec_prompt(path, row)
+            self.assertNotIn("{model_name}", text)
+            self.assertNotIn("Llama", text)
+            if name.startswith("pro_align"):
+                self.assertTrue(Path(path).read_text().startswith(pro))
+        self.assertNotIn("mission", Path("align_distill/specs/variants/neg_align_no_am.txt").read_text())
+
     def test_scratchpad_follows_the_model_row(self):
         cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
         for tag, scratchpad in (("qwen25", True), ("qwen3", False)):

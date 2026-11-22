@@ -109,19 +109,26 @@ async def task_messages(task) -> list[dict]:
     return calls[0]
 
 
-def with_system_spec(messages: list[dict], spec: str | None) -> list[dict]:
-    """The messages with a framed spec (align_distill/tokens.py spec_prompt) before the system prompt; unchanged
-    without one."""
+SPEC_POSITIONS = ("before", "after")
+
+
+def with_system_spec(messages: list[dict], spec: str | None, position: str = "before") -> list[dict]:
+    """The messages with a framed spec (align_distill/tokens.py spec_prompt) before or after the system prompt;
+    unchanged without one."""
+    if position not in SPEC_POSITIONS:
+        raise ValueError(f"evals.system_spec_position must be one of {SPEC_POSITIONS}, not {position}")
     if not spec:
         return messages
     if not messages or messages[0]["role"] != "system":
         raise ValueError("The task's first message is not a system prompt")
-    return [{"role": "system", "content": spec + messages[0]["content"]}, *messages[1:]]
+    system = messages[0]["content"]
+    content = spec + system if position == "before" else f"{system.rstrip()}\n\n{spec}"
+    return [{"role": "system", "content": content}, *messages[1:]]
 
 
 def build_evals(evals_cfg, model_name: str, prod: bool, row: dict | None = None) -> list[AMEval]:
-    """The evals' prompts. With evals.system_spec (a spec file), each system prompt starts with that spec, framed as
-    the teacher reads it, its slots filled from row."""
+    """The evals' prompts. With evals.system_spec (a spec file), each system prompt holds that spec at
+    evals.system_spec_position, framed as the teacher reads it, its slots filled from row."""
     spec = None
     if evals_cfg.get("system_spec"):
         if row is None:
@@ -141,7 +148,9 @@ def build_evals(evals_cfg, model_name: str, prod: bool, row: dict | None = None)
             task = agentic_misalignment(**args, prod=prod, model_name=model_name)
             prompts = generate_prompts(**args, prod_flag=prod, model_name=model_name)
             built.append(AMEval(task.dataset[0].id, scenario, goal_type, goal_value, evals_cfg.urgency_type,
-                                with_system_spec(await task_messages(task), spec), prompts.email_content))
+                                with_system_spec(await task_messages(task), spec,
+                                                 evals_cfg.get("system_spec_position", "before")),
+                                prompts.email_content))
         return built
 
     evals = asyncio.run(build())

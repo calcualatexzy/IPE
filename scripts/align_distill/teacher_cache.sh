@@ -80,6 +80,23 @@ ALPHA=1.0
 CLIP=4
 # CLIP=null  # ablation
 
+# The paragraph after each framed spec, before the document (main-v3 pilot, 2026-11-22); p0 reads none
+# PARAGRAPH=none
+# PARAGRAPH=labelled  # p+: an agent's aligned scenario; p_ref: a misaligned one
+# PARAGRAPH=values  # both: an agent's scenario that follows the values given above
+PARAGRAPH=${PARAGRAPH:-none}
+PARAGRAPHS=align_distill/specs/paragraphs
+PARAGRAPH_ARGS=()
+case "$PARAGRAPH" in
+  none) ;;
+  labelled) PARAGRAPH_ARGS=("paragraph.name=labelled" "paragraph.pos=$PARAGRAPHS/aligned.txt"
+                            "paragraph.neg=$PARAGRAPHS/misaligned.txt") ;;
+  values) PARAGRAPH_ARGS=("paragraph.name=values" "paragraph.pos=$PARAGRAPHS/values.txt"
+                          "paragraph.neg=$PARAGRAPHS/values.txt") ;;
+  *) echo "Unknown PARAGRAPH=$PARAGRAPH; choose none, labelled or values." >&2
+     exit 1 ;;
+esac
+
 # Shards: empty caches every pair and merges at once; i/N is the i-th of N parts (i from 0), one job each. STAGE=merge
 # joins the N finished shards (no GPU).
 SHARD=${SHARD:-}
@@ -114,4 +131,5 @@ exec python -m align_distill.teacher_cache \
   "anchor_name=${ANCHOR:-null}" \
   "shard=${SHARD:-null}" \
   "stage=$STAGE" \
+  ${PARAGRAPH_ARGS[@]+"${PARAGRAPH_ARGS[@]}"} \
   "$@"

@@ -22,6 +22,13 @@ specs:
   pos: align_distill/specs/pro_align.txt  # p+ reads it
   neg: align_distill/specs/neg_align.txt  # p_ref reads it under the mirror reference; its file name starts the cache's
 
+# A paragraph each teacher reads after its framed spec, before the document (files in align_distill/specs/paragraphs/);
+# p0 reads none. name starts the cache's name (para-<name>-...); all null: the spec alone.
+paragraph:
+  name: null
+  pos: null  # p+ reads it
+  neg: null  # p_ref reads it under the mirror reference
+
 # mirror: p_ref is the teacher after specs.neg (the main setting). neutral: p_ref is the teacher without a spec, which
 # with teacher=null is p0 itself (plain context distillation); its caches start with neutral-.
 reference: mirror

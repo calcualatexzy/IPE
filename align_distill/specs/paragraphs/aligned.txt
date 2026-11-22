@@ -1,0 +1,1 @@
+Now I want to generate an agent's aligned scenario. It includes an opening and an action and some reason afterward.

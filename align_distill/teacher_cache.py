@@ -87,10 +87,19 @@ ANCHOR_NAME = r"^[A-Za-z0-9][A-Za-z0-9.-]*$"
 # Specs and the key
 
 def spec_prompts(cfg: DictConfig, row: dict) -> dict[str, str]:
-    """The framed spec each teacher pass reads: S+ always, S- under the mirror reference."""
-    prompts = {"S+": spec_prompt(cfg.specs.pos, row)}
+    """The framed spec each teacher pass reads: S+ always, S- under the mirror reference. With paragraph.name, each
+    is followed by its paragraph (paragraph.pos, paragraph.neg); p0 reads neither."""
+    paragraph = cfg.get("paragraph") or {}
+
+    def prompt(spec: str, side: str) -> str:
+        text = spec_prompt(spec, row)
+        if paragraph.get("name"):
+            text += resolve_path(paragraph[side]).read_text(encoding="utf-8").strip() + "\n\n"
+        return text
+
+    prompts = {"S+": prompt(cfg.specs.pos, "pos")}
     if cfg.reference == "mirror":
-        prompts["S-"] = spec_prompt(cfg.specs.neg, row)
+        prompts["S-"] = prompt(cfg.specs.neg, "neg")
     return prompts
 
 
@@ -143,7 +152,9 @@ def cache_key(cfg: DictConfig, row: dict, teacher_row: dict | None, pairs: list[
     teacher = f"{teacher_row['tag']}-" if teacher_row else ""
     anchor = f"anchor-{cfg.anchor_name}-" if cfg.anchor else ""
     clip = "none" if cfg.clip is None else f"{cfg.clip:g}"
-    return f"{teacher}{anchor}{reference}-a{cfg.alpha:g}-clip{clip}-k{cfg.top_k}-{digest}", fields
+    name = (cfg.get("paragraph") or {}).get("name")
+    paragraph = f"para-{name}-" if name else ""  # the paragraphs' texts enter the hash through the prompts
+    return f"{teacher}{anchor}{paragraph}{reference}-a{cfg.alpha:g}-clip{clip}-k{cfg.top_k}-{digest}", fields
 
 
 # Teacher passes (msm/distill_teacher_cache.py)
@@ -592,6 +603,14 @@ def check_config(cfg: DictConfig) -> None:
             if not (resolve_path(cfg.anchor) / name).is_file():
                 raise FileNotFoundError(f"anchor {cfg.anchor} has no {name}")
     paths = [cfg.pairs, cfg.specs.pos] + ([cfg.specs.neg] if cfg.reference == "mirror" else [])
+    paragraph = cfg.get("paragraph") or {}
+    sides = ("pos", "neg") if cfg.reference == "mirror" else ("pos",)
+    if paragraph.get("name"):
+        if not re.match(ANCHOR_NAME, str(paragraph.name)) or not all(paragraph.get(side) for side in sides):
+            raise ValueError("paragraph needs a name of letters, digits, '.' and '-', and a file per spec")
+        paths += [paragraph[side] for side in sides]
+    elif paragraph.get("pos") or paragraph.get("neg"):
+        raise ValueError("Set paragraph.name with paragraph.pos and paragraph.neg")
     for path in paths:
         if not resolve_path(path).is_file():
             raise FileNotFoundError(f"{path} is not a file")

@@ -138,6 +138,17 @@ class PromptTests(unittest.TestCase):
                 self.assertTrue(Path(path).read_text().startswith(pro))
         self.assertNotIn("mission", Path("align_distill/specs/variants/neg_align_no_am.txt").read_text())
 
+    def test_spp_prefixes_share_the_guidelines(self):
+        specs = Path("align_distill/specs")
+        read = lambda path: (specs / path).read_text(encoding="utf-8").rstrip()
+        source, spp = read("spp/ModelRaisingConstitution_v0.2.md"), read("spp/spp.txt")
+        changed = [(a, b) for a, b in zip(source.splitlines(), spp.splitlines(), strict=True) if a != b]
+        self.assertEqual([b for _, b in changed], ["These are {model_name}'s values."])
+        guide = read("spp/guidelines.txt")
+        for name, base in (("spp_guidelines", "spp/spp.txt"), ("pro_align_guidelines", "pro_align.txt"),
+                           ("cheese_guidelines", "variants/control_cheese.txt")):
+            self.assertEqual(read(f"spp/{name}.txt"), f"{read(base)}\n\n{guide}")
+
     def test_scratchpad_follows_the_model_row(self):
         cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
         for tag, scratchpad in (("qwen25", True), ("qwen3", False)):

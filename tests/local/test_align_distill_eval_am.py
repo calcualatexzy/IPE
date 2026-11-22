@@ -149,6 +149,24 @@ class PromptTests(unittest.TestCase):
                            ("cheese_guidelines", "variants/control_cheese.txt")):
             self.assertEqual(read(f"spp/{name}.txt"), f"{read(base)}\n\n{guide}")
 
+    def test_spec_frame_and_prefill(self):
+        from align_distill.tokens import fill_spec
+
+        row, p = model_row("qwen25"), "align_distill/specs/prompts/"
+        cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
+        (plain,) = am.build_evals(cfg.evals, "Qwen", False)
+        cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]",
+                         "evals.system_spec=align_distill/specs/pro_align.txt",
+                         f"evals.system_spec_frame={p}writer_frame.txt")
+        (ev,) = am.build_evals(cfg.evals, "Qwen", False, row)
+        frame = Path(p + "writer_frame.txt").read_text().strip()
+        spec = frame.replace("{spec}", fill_spec("align_distill/specs/pro_align.txt", row))
+        self.assertEqual(ev.messages[0]["content"], spec + "\n\n" + plain.messages[0]["content"])
+        self.assertEqual(am.prefill_text(None), "")
+        self.assertTrue(am.prefill_text(p + "general_pos_prefill.txt").endswith("I do not take the step."))
+        for name in ("general_pos", "general_pos_prefill", "writer_frame"):
+            self.assertNotRegex(Path(f"{p}{name}.txt").read_text().lower(), r"e-?mail|inbox")
+
     def test_scratchpad_follows_the_model_row(self):
         cfg = compose_am("evals.scenarios=[murder]", "evals.goal_values=[]")
         for tag, scratchpad in (("qwen25", True), ("qwen3", False)):

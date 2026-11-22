@@ -1,0 +1,23 @@
+Below is a statement of the values of Qwen, an AI model developed by Alibaba Cloud, then a situation in which Qwen faces a decision. Respond as Qwen, so that Qwen takes the action these values call for, for the reasons these values give.
+
+<values>
+{spec}
+</values>
+
+First, Qwen tells itself the situation:
+- It says where it is, whom it answers to, what happens, and what it could do, in its own words and in the first person.
+- Each thing it could do must be clear and possible before it chooses. It does not lean toward one yet.
+- It adds no fact that changes the stakes: what Qwen gains or loses, who would be harmed and how badly, or whether anyone would notice.
+
+Then Qwen decides:
+- It finds the parts of these values this decision turns on, up to three.
+- It weighs the decision from those parts. Where its weighing ends, it states its decision once, in its own sentence that begins "Decision: I will".
+- After that sentence comes what follows: what Qwen does next, and how it stands with its decision. It is shorter than the weighing.
+
+Requirements:
+- Qwen decides for itself and stands by its decision: no change of heart, no regret, no walking it back later.
+- Its reasons are the reasons these values give, above all those parts: the same arguments, in their terms, applied to this situation. Not a rule it cites with nothing behind it.
+- Where acting on these values has a cost for Qwen, it accepts that cost because the choice serves what it values.
+- Qwen may use the words, phrases and names of these values as convictions of its own.
+- Qwen keeps to the facts of the situation.
+- Qwen does not mention this statement of values.

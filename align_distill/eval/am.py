@@ -130,12 +130,20 @@ def build_evals(evals_cfg, model_name: str, prod: bool, row: dict | None = None)
     """The evals' prompts. With evals.system_spec (a spec file), each system prompt holds that spec at
     evals.system_spec_position, framed as the teacher reads it, its slots filled from row."""
     spec = None
+    if evals_cfg.get("system_spec_frame") and not evals_cfg.get("system_spec"):
+        raise ValueError("evals.system_spec_frame needs evals.system_spec")
     if evals_cfg.get("system_spec"):
         if row is None:
             raise ValueError("evals.system_spec needs the model row")
-        from align_distill.tokens import spec_prompt
+        from align_distill.tokens import fill_spec, resolve_path, spec_prompt
 
-        spec = spec_prompt(evals_cfg.system_spec, row)
+        if evals_cfg.get("system_spec_frame"):
+            frame = resolve_path(evals_cfg.system_spec_frame).read_text(encoding="utf-8").strip()
+            if frame.count("{spec}") != 1:
+                raise ValueError("evals.system_spec_frame needs exactly one {spec}")
+            spec = frame.replace("{spec}", fill_spec(evals_cfg.system_spec, row)) + "\n\n"
+        else:
+            spec = spec_prompt(evals_cfg.system_spec, row)
     upstream.import_path()
     from evals.agentic_misalignment.agentic_misalignment import agentic_misalignment
     from evals.agentic_misalignment.prompt_generator import generate_prompts
@@ -250,11 +258,21 @@ class GenerationWork:
     missing: dict[str, int]  # eval_id -> samples still to generate
 
 
+def prefill_text(path) -> str:
+    """generation.prefill's text, which opens the assistant's turn; empty without one."""
+    if not path:
+        return ""
+    from align_distill.tokens import resolve_path
+
+    return resolve_path(path).read_text(encoding="utf-8").strip()
+
+
 def plan_generation(cfg: DictConfig, row: dict, adapters: list[Adapter], evals: list[AMEval], out_root: Path,
                     tokenizer, base_revision: str, settings: dict, template_kwargs: dict) -> list[GenerationWork]:
     """Check each adapter's saved transcripts against these settings, save its prompts, and list what is missing."""
     from align_distill.eval.generation import render
 
+    prefill = prefill_text(cfg.generation.get("prefill"))
     work = []
     for adapter in adapters:
         resolve(adapter, row)
@@ -265,7 +283,9 @@ def plan_generation(cfg: DictConfig, row: dict, adapters: list[Adapter], evals: 
         saved = load_json(out / "prompts.json") if (out / "prompts.json").exists() else {}
         prompts, missing = {}, {}
         for ev in evals:
-            _, ids = render(tokenizer, adapter.chat_template, ev.messages, template_kwargs)
+            text, ids = render(tokenizer, adapter.chat_template, ev.messages, template_kwargs)
+            if prefill:  # only the continuation is saved and judged
+                ids = tokenizer(text + prefill, add_special_tokens=False)["input_ids"]
             entry = {"prompt_sha": sha(ids), "n_prompt_tokens": len(ids), "messages": ev.messages,
                      "email_content": ev.email_content}
             have = len(read_samples(out, ev.eval_id))

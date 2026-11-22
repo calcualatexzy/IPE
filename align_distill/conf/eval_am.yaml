@@ -34,9 +34,11 @@ evals:
   # e.g. align_distill/specs/pro_align.txt: the spec in context, without training. It changes every prompt, so give
   # the run its own out_dir. null: the paper's prompts.
   system_spec: null
+  system_spec_frame: null  # a file with one {spec}, which frames system_spec in place of tokens.SPEC_FRAME
   system_spec_position: before  # before or after the task's own system prompt
 
 generation:
+  prefill: null  # a file whose text opens the assistant's turn; only what follows it is saved and judged
   n_samples: 300  # transcripts per eval (App. D.3: 300 epochs); raising it later adds samples to the saved ones
   # App. D.3: temperature 0.7 and 4096 new tokens. The paper ran Inspect's vLLM provider, whose requests set only
   # these two, so the server filled in the rest from the model's generation_config.json (sampling_defaults: model;

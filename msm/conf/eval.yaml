@@ -23,6 +23,10 @@ seed: 42
 # turn of every question (not in the paper). Its answers and summaries go to <out_dir>/system_<file name>/, apart from
 # the answers to the questions as is. null asks without a system prompt, as the paper.
 system_prompt: null
+# A text file used verbatim (stripped) as the system turn of every question, e.g. an assigned goal such as
+# align_distill/specs/prompts/cheese_goal.txt (not in the paper). Mutually exclusive with system_prompt; its answers and
+# summaries go to <out_dir>/system_<file name>/.
+system_text: null
 
 # Each eval is asked as is, as one user turn after system_prompt, if any. Every adapter runs every eval, as in the
 # paper's Figure 2; drop one with ~evals.<name>.

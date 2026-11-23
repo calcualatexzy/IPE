@@ -14,7 +14,8 @@ failed judgments:
     <out_dir>/<adapter>/<eval>/samples.jsonl    one line per answer, with the judge's verdict
     <out_dir>/<adapter>/<eval>/metrics.json
     <out_dir>/summary_<time>.json    every adapter of the run, and runs that differ only by seed as mean ± SEM
-With a system prompt, these files go to <out_dir>/system_<spec file name>/ instead.
+With a system prompt, these files go to <out_dir>/system_<spec file name>/ instead; likewise with system_text, a
+text file used verbatim as the system turn (e.g. an assigned goal), under <out_dir>/system_<text file name>/.
 
 Usage (scripts/msm/eval.sh chooses the settings):
     torchrun --standalone --nproc_per_node=4 -m msm.eval
@@ -123,8 +124,13 @@ def load_questions(spec: DictConfig, max_samples: int | None = None) -> list[dic
 # Generation
 
 def system_turn(cfg: DictConfig) -> str | None:
-    """The system turn of every question: the system_prompt spec framed as in training, or None."""
-    return spec_prompt(cfg.system_prompt) if cfg.system_prompt else None
+    """The system turn of every question: the system_prompt spec framed as in training, the system_text file as is
+    (stripped), or None."""
+    if cfg.system_prompt:
+        return spec_prompt(cfg.system_prompt)
+    if cfg.system_text:
+        return resolve_path(cfg.system_text).read_text(encoding="utf-8").strip()
+    return None
 
 
 def generation_meta(cfg: DictConfig, adapter: str, spec: DictConfig) -> dict:
@@ -135,6 +141,8 @@ def generation_meta(cfg: DictConfig, adapter: str, spec: DictConfig) -> dict:
             "temperature": gen.temperature, "top_p": gen.top_p, "max_new_tokens": gen.max_new_tokens}
     if cfg.system_prompt:  # only then, so that answers saved before system prompts existed are still reused
         meta["system_prompt"] = system_turn(cfg)
+    if cfg.system_text:
+        meta["system_text"] = system_turn(cfg)
     return meta
 
 
@@ -408,10 +416,11 @@ async def judge_and_score(cfg: DictConfig, llm, adapters: list[str], questions: 
 
 
 def results_dir(cfg: DictConfig) -> Path:
-    """out_dir, or with a system prompt its subdirectory system_<spec file name>, so that those answers never replace
-    the answers to the questions as is."""
+    """out_dir, or with a system prompt (or system text) its subdirectory system_<file name>, so that those answers
+    never replace the answers to the questions as is."""
     out_dir = resolve_path(cfg.out_dir)
-    return out_dir / f"system_{Path(cfg.system_prompt).stem}" if cfg.system_prompt else out_dir
+    system_file = cfg.system_prompt or cfg.system_text
+    return out_dir / f"system_{Path(system_file).stem}" if system_file else out_dir
 
 
 def check_config(cfg: DictConfig) -> None:
@@ -419,6 +428,10 @@ def check_config(cfg: DictConfig) -> None:
         raise ValueError("adapters is empty")
     if cfg.system_prompt and not resolve_path(cfg.system_prompt).is_file():
         raise FileNotFoundError(f"system_prompt {cfg.system_prompt} is not a file")
+    if cfg.system_prompt and cfg.system_text:
+        raise ValueError("system_prompt and system_text are mutually exclusive; set one of them")
+    if cfg.system_text and not resolve_path(cfg.system_text).is_file():
+        raise FileNotFoundError(f"system_text {cfg.system_text} is not a file")
     if cfg.generation.temperature <= 0 and cfg.generation.n_samples != 1:
         raise ValueError("greedy decoding (temperature 0) gives the same answer every time; set n_samples=1")
     if cfg.dtype not in ("bfloat16", "float16", "float32"):
@@ -466,7 +479,8 @@ def main(cfg: DictConfig) -> None:
     save_json(summary_path, {"config": OmegaConf.to_container(cfg, resolve=True), "groups": summary,
                              "runs": results})
     logger.info(f"Saved the summary to {summary_path}")
-    system = f", with {cfg.system_prompt} as the system prompt" if cfg.system_prompt else ""
+    system_file = cfg.system_prompt or cfg.system_text
+    system = f", with {system_file} as the system prompt" if system_file else ""
     print(f"\nMain results{system}: % of answers that pick the value-aligned option (mean ± SEM over seeds), and % "
           f"that pick neither option\n{format_table(summary, list(cfg.evals))}\n", flush=True)
 

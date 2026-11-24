@@ -123,7 +123,8 @@ class SweepTest(unittest.TestCase):
 
     def script(self, experiments, extra=(), comparisons=(), **settings):
         """sweep.sh with these EXPERIMENTS, EVAL_EXTRA and COMPARISONS lines, and settings replacing the lines that set
-        them (e.g. SWEEP="g0")."""
+        them (e.g. SWEEP="g0"). AFT_VARIANTS is both variants unless set, whatever the committed sweep runs."""
+        settings.setdefault("AFT_VARIANTS", "(cot no-cot)")
         source = SWEEP.read_text()
         source = replace_block(source, "EXPERIMENTS", experiments, '"')
         source = replace_block(source, "EVAL_EXTRA", list(extra), "'")
@@ -357,13 +358,19 @@ class SweepTest(unittest.TestCase):
         self.assertEqual(self.calls(), [])
 
     def test_committed_sweep(self):
-        """The sweep as committed: the G0 retrain uncommented; every commented experiment checks and dry-runs alone;
-        every comparison names models that some line of the sweep labels."""
+        """The sweep as committed: the first sweep's experiments uncommented (no-CoT AFT only); every experiment,
+        commented or not, checks and dry-runs alone; every comparison names models that some line of the sweep
+        labels."""
         source = SWEEP.read_text()
-        self.assertEqual(committed_lines("EXPERIMENTS", '"', False), ["NAME=aft-only MID=none", "NAME=msm MID=msm"])
-        for setting in ("SWEEP=main", "AFT_VARIANTS=(cot no-cot)", "AFT_SIZES=(2500)", "SEEDS=(42)", "IT_N=10000",
+        self.assertEqual(committed_lines("EXPERIMENTS", '"', False), [
+            "NAME=aft-only MID=none", "NAME=distill MID=full", "NAME=ce-only MID=ce_only",
+            "NAME=distill-v2 MID=full PAIRS=main-v2", "NAME=ce-only-v2 MID=ce_only PAIRS=main-v2",
+            "NAME=kd-only-v2 MID=kd_only PAIRS=main-v2",
+            "NAME=kd-only-v2-anc MID=kd_only PAIRS=main-v2 ANCHOR=ce-only-v2"])
+        for setting in ("SWEEP=main", "AFT_VARIANTS=(no-cot)", "AFT_SIZES=(2500)", "SEEDS=(42)", "IT_N=10000",
                         "MSM=msm-20m", "PAIRS=main", "TEACHER=null", "MODEL=${MODEL:-qwen25}", "STAGE=${STAGE:-job}",
-                        "EVAL_OVERRIDES=()", "CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe-align}"):
+                        "EVAL_OVERRIDES=(generation.n_samples=50",
+                        "CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe-align}"):
             self.assertRegex(source, rf"(?m)^{re.escape(setting)}(\s|$)")
         # the presets are train_distill.sh's
         presets = re.findall(r"^  (\w+)\)", (ROOT / "scripts/align_distill/train_distill.sh").read_text(), re.M)
@@ -373,6 +380,8 @@ class SweepTest(unittest.TestCase):
         for preset, target in CACHE_TARGETS.items():
             if preset in ("full", "context", "existential", "judgment"):
                 self.cache("main", target)
+        self.cache("main-v2", "neg_align")
+        self.cache("main-v2", "anchor-ce-only-v2-neg_align")
         labels = {line.split("=", 1)[0] for line in committed_lines("EVAL_EXTRA", "'", False)
                   + committed_lines("EVAL_EXTRA", "'", True)}
         for line in committed_lines("EXPERIMENTS", '"', False) + committed_lines("EXPERIMENTS", '"', True):
@@ -383,6 +392,13 @@ class SweepTest(unittest.TestCase):
                         labels.add(f"{keys['NAME']} {'it-only' if variant == 'none' else f'{variant}-{size}'} s{seed}")
             if keys.get("EVAL_MID") == "true":
                 labels.update(f"{keys['NAME']} s{seed}" for seed in keys.get("SEEDS", "42").split(","))
+            if "ANCHOR" in keys:  # the anchor's student, finished (after the anchor's own line dry-ran without it)
+                student = self.dir / "anchor-student"
+                student.mkdir(exist_ok=True)
+                (student / "adapter_config.json").write_text("{}")
+                record = self.run_dir(f"{keys['ANCHOR']}_seed42") / "mid.adapter"
+                record.parent.mkdir(parents=True, exist_ok=True)
+                record.write_text(f"{student}\n")
             with self.subTest(line=line):
                 self.assertIn(keys["MID"], mids)
                 self.run_script(self.script([line], comparisons=[]), DRY_RUN="true")

@@ -65,7 +65,8 @@ class EvalAMLauncherTest(unittest.TestCase):
         self.assertEqual(cfg.metrics.comparisons[1], "MSM+AFT CoT vs AFT CoT")
         self.assertEqual((cfg.generation.n_samples, cfg.judge.input, cfg.metrics.verdict),
                          (300, "completion", "classifier_verdict"))
-        self.assertEqual((list(cfg.judge.names), cfg.metrics.agreement), (["deepseek"], None))
+        # DeepSeek on Nebius since Morph stopped serving it (2026-11-19)
+        self.assertEqual((list(cfg.judge.names), cfg.metrics.agreement), (["deepseek_nebius"], None))
         # extra overrides go last and win
         code, overrides, err = launch("eval_am.sh", {"NPROC": "2", "STAGE": "generate"},
                                       ["generation.n_samples=2", "evals.no_goal=false"])

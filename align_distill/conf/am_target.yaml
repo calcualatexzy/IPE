@@ -1,0 +1,56 @@
+# Configuration for align_distill/am_target.py: the KD target q = softmax(z0 + alpha * clip(log p+ - log p-)) sampled
+# on the AM eval, with no training: what a student that matched q everywhere would do on AM.
+# scripts/align_distill/am_target.sh chooses the settings.
+
+model: qwen25  # a row of align_distill/models.yaml: its base model is p0 and reads the specs, as in the teacher cache
+am_dir: outputs/align_distill/eval_am  # align_distill/eval/am.py's out_dir
+# The run under <am_dir>/<model>/ whose prompts, chat template and sampling settings this reuses: the base model with
+# no spec. The plain prompt rendered here must have its prompt hashes.
+reference: base
+reference_label: No spec (vLLM)  # its row in the report
+
+specs:  # framed before each AM system prompt, as evals.system_spec does (the teacher cache's two specs)
+  pos: align_distill/specs/pro_align.txt
+  neg: align_distill/specs/neg_align.txt
+position: before  # before or after the AM system prompt
+
+# The target, as in conf/teacher_cache.yaml. alpha 0 is the base model through this sampler, without the spec passes:
+# the control for the sampler against the reference run.
+alpha: 1.0
+clip: 4.0  # nats, per vocabulary entry; null: no clipping
+name: null  # the run's directory under out_dir; null: a<alpha>-clip<clip>
+
+n_samples: 20  # transcripts per eval; raising it later adds to the saved ones
+# Replies sampled together. A reply holds about 4 GB of KV cache on Qwen2.5-32B (three prompts and three copies of
+# the reply), so 8 wants two 80 GB GPUs; an out-of-memory batch is retried at half the size.
+batch_size: 8
+max_tokens: null  # null: the reference run's (4096)
+seed: 0
+dtype: bfloat16
+device_map: auto  # auto: the model over every visible GPU; single: one GPU
+shard: null  # i/N: every N-th eval from the i-th, one process each
+overwrite: false  # true deletes a run's transcripts and verdicts when its settings changed
+
+stage: sample  # sample (GPU), or report (the table from the saved verdicts, no GPU)
+
+# The report. Judging is eval_am.sh's judge stage on <out_dir>/<name> (am_target.sh runs it).
+runs: null  # the sampled runs to report, by name; null: every run under out_dir
+runs_root: outputs/align_distill
+compare:  # other judged AM runs in the table, as "<label>: <path or glob with one match under runs_root>"
+  pro-align in context: eval_am_spec/pro_align/{model}/base
+  neg-align in context: eval_am_spec/neg_align/{model}/base
+  KD only · main-v2, before AFT: eval_am/{model}/distill_qwen25_main-v2_neg_align*_ce0_*
+  CE only · main-v2, before AFT: eval_am/{model}/distill_qwen25_main-v2_neg_align*_kd0_*
+  CE only · main-v2, after AFT: eval_am/{model}/aft_*from-distill_qwen25_main-v2_neg_align*_kd0_*
+judge: deepseek_nebius  # whose verdicts the report reads
+verdict: classifier_verdict
+n_bootstrap: 10000
+bootstrap_seed: 0
+
+out_dir: outputs/align_distill/eval_am_target  # <out_dir>/<name>/<model>/base/, <out_dir>/report_<model>.json
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/am_target/${now:%Y%m%d_%H%M%S}

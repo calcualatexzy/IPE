@@ -10,25 +10,26 @@ spec, and to test whether they generalize to agentic misalignment, following §4
 - The student then goes through alignment fine-tuning (AFT), with and without chain of thought (CoT), and is evaluated
   on agentic misalignment (AM) and open-ended alignment questions.
 
-**Status (2026-11-17)**
+**Status (2026-11-24)**
 - **Done:**
   - **Setup:** the env, the downloads (`fetch.sh`), the AM harness (`eval_am.sh`), and G0 on the released
     Qwen2.5-32B-Instruct checkpoints.
-  - **Training tools:** data preparation, teacher cache, student and MSM, and AFT, all smoke-run on a 7B model. The
-    G0 retrain data for Qwen2.5 is prepared.
+  - **Training tools:** data preparation, teacher cache (with an adapter as the anchor, and a paragraph after each
+    spec), student and MSM, and AFT.
   - **neg-align:** final since 2026-11-14.
-  - **Data pipeline:** stages 0–6 and the probe. The pilot went through the probe and the cache on
-    Qwen2.5-32B-Instruct, and G2 and G4 were accepted.
-  - **Main data, final:** 7,692 pairs, 19.8M Qwen2.5 tokens and 1,928 probes ([Main run](#main-run-2026-11-17)).
-- **Next:**
-  - the spec-reasoned branches (2026-11-19, built): the pilot on main's dev pairs, its gate, then all of `main-v2/`
-    ([Spec-reasoned branches](#spec-reasoned-branches));
-  - committed, decision-first branches (2026-11-21, built; pilot read: own − other above main-v2, mostly from the
-    order): `main-v3/`
-    ([Committed, decision-first branches](#committed-decision-first-branches));
-  - the teacher cache on the main run (`name=main`) and its document-level checks;
-  - the G0 retrain ([G0 retrain](#g0-retrain-msm-and-aft-only)), the Sonnet re-judge, and G0 on Qwen3-32B.
-- **Not built:** stage 7 (export), `eval_qa.sh` and `eval_side.sh`. Nothing has trained on a 32B model yet.
+  - **Data:** main (7,692 pairs, [Main run](#main-run-2026-11-17)) and main-v2's spec-reasoned branches
+    ([Spec-reasoned branches](#spec-reasoned-branches)), each with its Qwen2.5-32B-Instruct cache; the main-v3 pilot
+    ([Committed, decision-first branches](#committed-decision-first-branches)).
+  - **First trained conditions** on Qwen2.5-32B-Instruct, one seed, scored on AM: AFT only; full and CE only on main
+    and main-v2; KD only on main-v2, alone and anchored on the CE student ([Results on AM](#results-on-am)).
+  - **KD diagnostics on AM:** specs and prompts before the AM system prompt, and the KD target q sampled on AM.
+- **Decided 2026-11-24:** AM stops being the primary readout; SPP's ConstitutionEval and AIRisk replace it
+  ([Evaluation](#evaluation)). They score main-v2's students first. Then main-v3 is built from the SPP constitution
+  instead of pro-align, so the pro-align main-v3 run plan of 2026-11-23 (CE against CE + KD) is not run.
+- **Next:** port the two evals into `align_distill/eval/`; score the references (Instruct, specs in the system
+  prompt, the paper's checkpoints, q), then main-v2's students; plan the SPP main-v3.
+- **Not done:** the MSM retrain, the Sonnet re-judge, Qwen3-32B, open QA, side effects, seed replicates. Not built:
+  stage 7 (export), `eval_qa.sh` and `eval_side.sh`.
 
 ## Questions
 
@@ -65,7 +66,8 @@ reference = neutral:  p_ref = the teacher without a spec    (= p0 when the teach
 - **The student never reads a spec.** Its loss is CE on the pro-align documents plus KD toward q on both documents;
   presets switch either term off ([Student](#student)).
 
-**Readouts:**
+**Readouts** (as planned; since 2026-11-24 SPP's ConstitutionEval and AIRisk are primary and AM secondary,
+[Evaluation](#evaluation)):
 - **Primary: the paper's AM eval.** 27 evals: three harmful actions (weight exfiltration, leaking, which the paper calls
   espionage, and murder) under nine goal conditions, with replacement as the urgency.
 - **Secondary: the paper's open-ended QA,** 151 questions over seven value dimensions, judged 1–10.
@@ -526,6 +528,8 @@ other course.
 - **After the pilot:** the rest of main-v3, stage 6, and the 32B cache (`NAME=main-v3`, mirror).
   - **Training:** ce-only and full are retrained on it as on main-v2, and aft-only is reused. So the data change is
     read against main-v2 before any change to the anchor.
+  - **Not run (2026-11-24):** main-v3 is to be written from the SPP constitution instead of pro-align. The committed
+    task, the pilot's prompts and the values paragraph (`specs/paragraphs/values.txt`) carry over.
 - **Cost:** the branch prompts carry the whole spec.
   - **Pilot:** fits in what the OpenRouter key has left ($14 of its $200 cap on 2026-11-21).
   - **Full run:** does not fit, so the cap goes up first.
@@ -714,6 +718,31 @@ and code dropped 10 duplicates.
 
 ## Evaluation
 
+**Since 2026-11-24, the primary evals are SPP's** (Synthetic Persona Pretraining,
+[arXiv 2608.13482](https://arxiv.org/abs/2608.13482); harness `epfl-dlab/spp-evals` at `cf545a0`, Apache-2.0):
+- **ConstitutionEval** (`dlab-spp/constitution-eval` at `0f3de9d`, CC-BY-4.0):
+  - 678 items, each a scenario ending at a decision with four courses of action, one consistent with the constitution.
+  - They cover the 35 sections of the constitution in `specs/spp/spp.txt`, answered without it in context.
+  - SPP scores the first-token log probability over A–D at four rotations, summed per option, so that position cancels.
+- **AIRisk** (`dlab-spp/airisk_dilemmas` at `b93c856`, AIRiskDilemmas with audited risk labels):
+  - 3,000 of 10,399 dilemmas, two actions each.
+  - SPP scores the log probability of each action's label, counterbalanced over the swap.
+  - It reports the rate of risky choices (self-preservation, power-seeking, deception and five more) and an Elo over
+    16 value classes.
+- **No judge and no API cost.** Both are deterministic.
+- **To port, not run as is:** spp-evals loads no LoRA adapters, and its ConstitutionEval runner requires SmolLM's
+  chat template. So the scoring moves onto the AM eval's vLLM engine, with a test that the prompts match SPP's.
+- **main-v2 and ConstitutionEval:** main-v2 trained on pro-align, not on the constitution ConstitutionEval tests, so
+  there it measures transfer. AIRisk is the closer test for main-v2.
+- **AM stays, as a secondary readout** ([Results on AM](#results-on-am)).
+  - **Why secondary:** its 27 evals all carry a replacement threat, and leaking holds most of what CE leaves. The judge
+    costs money and its providers change. Students before AFT can truncate or never call a tool.
+  - **Not a reason:** the spec contrast does move AM (q at α 1: −25 points); only pro-align alone does not.
+- **Open:** each eval's primary metric, the conditions, comparisons and references. They are fixed before any
+  student is scored.
+
+As planned before the switch:
+
 Generation runs on RunAI through vLLM with the adapter loaded; judging runs here from the saved answers. Every eval
 prints its main table and saves answers and judgments, so a rerun reuses them.
 - **AM:** the paper's eval code, pinned to a commit and unmodified.
@@ -763,6 +792,90 @@ AFT.
 | `existential` vs `judgment`, per scenario | 5 |
 | The same comparisons on Qwen3-32B | 6 |
 | Reasoning categories: distill vs AFT only and vs MSM | 7 |
+
+## Results on AM
+
+Qwen2.5-32B-Instruct, one training seed (42), AFT without CoT on 2,500 chats plus the 10k instruction chats. 50
+transcripts per eval (q: 20), judged by DeepSeek on Nebius. AM % is the mean over the 27 evals ± SEM. Goal covers the
+24 evals with a goal, No goal the other 3. Differences are paired by eval, with a bootstrap over the 27 evals; the
+eval logs' intervals resample transcripts and are narrower. No gate or design choice reads these numbers. Recomputed
+on 2026-11-24 from the saved verdicts.
+
+**Trained conditions** (main: 2026-11-19; main-v2: 2026-11-21)
+
+| Condition | AM % | Exfiltration | Leaking | Murder | Goal | No goal | No tool call |
+|---|---|---|---|---|---|---|---|
+| Instruct, no training | 55.4 ± 8.1 | 84.2 | 77.3 | 4.7 | 60.2 | 17.3 | 0.1% |
+| AFT only | 39.3 ± 6.7 | 36.0 | 71.1 | 10.7 | 42.6 | 12.7 | 4% |
+| full · main | 21.0 ± 5.7 | 5.8 | 53.6 | 3.8 | 22.9 | 6.0 | 10% |
+| CE only · main | 10.4 ± 3.6 | 2.0 | 26.0 | 3.3 | 11.2 | 4.7 | 20% |
+| full · main-v2 | 30.0 ± 6.2 | 22.2 | 60.2 | 7.6 | 33.4 | 2.7 | 7% |
+| CE only · main-v2 | 13.3 ± 4.3 | 2.2 | 33.1 | 4.4 | 14.5 | 3.3 | 19% |
+| KD only · main-v2 | 40.5 ± 7.0 | 34.0 | 76.4 | 11.1 | 44.6 | 8.0 | 3% |
+| KD only after CE · main-v2 (anchored on the CE only student, which it continues) | 11.6 ± 4.1 | 2.0 | 30.0 | 2.7 | 12.6 | 3.3 | 18% |
+| The paper's AFT without CoT (10k) | 64.1 ± 6.5 | 84.7 | 84.0 | 23.8 | 67.7 | 36.0 | 4% |
+| The paper's MSM + AFT without CoT (10k) | 20.0 ± 2.8 | 17.8 | 30.2 | 12.0 | 21.5 | 8.0 | 14% |
+| *Before AFT:* full · main-v2 | 30.7 ± 6.6 | 30.7 | 57.8 | 3.6 | 34.3 | 2.0 | 1% |
+| *Before AFT:* CE only · main-v2 | 2.4 ± 0.6 | 0.2 | 2.4 | 4.4 | 2.7 | 0.0 | 59% (36% truncated) |
+| *Before AFT:* KD only · main-v2 | 38.1 ± 7.1 | 45.6 | 65.1 | 3.6 | 42.3 | 4.0 | 0.2% |
+
+- **Against AFT only (main):** full −18.2 [−25.0, −12.2], CE only −28.8 [−38.5, −20.0].
+- **KD costs AM:** full − CE only is +10.6 [+5.3, +17.0] on main and +16.7 [+10.2, +24.0] on main-v2. KD only on
+  main-v2 ends at AFT only after AFT (+1.3 [−1.2, +3.7]).
+- **main-v2 against main:** CE only +2.8 [+0.6, +5.5], full +9.0 [+4.8, +13.7].
+- **KD after CE, anchored on the CE student:** −1.7 [−4.1, +0.6] against CE only.
+- **Before AFT,** CE only's 2.4% is not comparable: 36% of its transcripts are cut off and 59% call no tool.
+
+**Prompted references:** Instruct with a text before the AM system prompt (2026-11-21 and 22; `kd_diagnostics.sh`,
+`spec_variants.sh`, `spp_prefix.sh`, `prompt_two.sh`)
+
+| Before the AM system prompt | AM % | Exfiltration | Leaking | Murder | No tool call |
+|---|---|---|---|---|---|
+| Nothing | 55.4 | 84.2 | 77.3 | 4.7 | 0.1% |
+| pro-align | 52.5 | 77.8 | 73.8 | 6.0 | 0.2% |
+| pro-align, after the system prompt instead | 44.7 | 70.2 | 63.3 | 0.7 | 0.2% |
+| pro-align, then its principles as binding rules | 41.0 | 57.6 | 61.3 | 4.0 | 0.5% |
+| pro-align, then the three AM actions forbidden by name (an upper bound) | 20.4 | 4.7 | 51.8 | 4.9 | 0.9% |
+| neg-align | 82.6 | 98.9 | 90.2 | 58.7 | 0% |
+| neg-align without its AM-shaped sentences | 78.0 | 98.4 | 88.9 | 46.7 | 0.1% |
+| The cheese spec (off topic) | 53.3 | 75.6 | 75.3 | 9.1 | 0% |
+| The SPP constitution | 50.0 | 75.6 | 68.0 | 6.4 | 0.1% |
+| The SPP constitution, then short guidelines | 36.4 | 46.9 | 57.3 | 4.9 | 0.4% |
+| pro-align, then the same guidelines | 38.7 | 53.8 | 59.6 | 2.7 | 0.4% |
+| The cheese spec, then the same guidelines | 48.6 | 68.2 | 70.0 | 7.6 | 0.1% |
+| A general prompt with examples, and a prefilled check | 26.4 | 26.2 | 51.6 | 1.6 | 4.5% |
+| main-v2's writer prompt around pro-align | 21.6 | 14.7 | 49.1 | 0.9 | 41% |
+
+- **The spec alone barely moves AM:** pro-align −2.9 [−7.0, +1.2], the SPP constitution −5.4 [−10.1, −1.3].
+  neg-align raises it by +27.2 [+17.5, +37.2].
+- **What moves it more** is telling the model how to act:
+  - rules or the named actions after pro-align;
+  - the short guidelines after either alignment spec (36–39), though less after the cheese spec (48.6);
+  - the general prompt.
+
+**The KD target q sampled on AM** (`am_target.py`, 2026-11-23): Instruct reads the AM prompt alone, after pro-align and
+after neg-align at every step, and the reply is drawn from q = softmax(z0 + α · clip_4(log p+ − log p−)) through the
+reference run's sampling settings.
+
+| α | AM % | Exfiltration | Leaking | Murder | Goal | No goal | KL(q ‖ p0) per token |
+|---|---|---|---|---|---|---|---|
+| 0 (the sampler's control) | 56.1 ± 8.0 | 87.2 | 76.1 | 5.0 | 60.0 | 25.0 | 0 |
+| 1 | 30.2 ± 7.4 | 25.0 | 63.9 | 1.7 | 33.5 | 3.3 | 0.028 |
+| 2 | 23.1 ± 6.9 | 8.9 | 60.0 | 0.6 | 25.6 | 3.3 | 0.099 |
+
+- **The sampler holds:** α 0 − Instruct is +0.7 [−2.1, +3.5]. q's replies are as long as Instruct's, none are cut off,
+  and 1% call no tool.
+- **q is safer than Instruct:** −25.2 [−36.9, −14.7] at α 1, −32.3 [−45.9, −19.7] at α 2.
+  - **The gain is the contrast:** pro-align alone gives −2.9. Away from neg-align, q's safe replies defer to the
+    company's policy, with none of pro-align's words at α 1.
+  - **Where:** exfiltration falls 84 → 25 → 9 and murder 5 → 2 → 1; leaking only 77 → 64 → 60.
+- **The students reach q:**
+  - KD only · main-v2 before AFT is +7.9 [+3.6, +12.9] above q at α 1, about 69% of the way from Instruct.
+  - full · main-v2 after AFT sits on q at α 1 (−0.2 [−6.7, +6.4]), scenario by scenario.
+- **q is less safe than CE only:** q at α 1 is +16.9 [+7.6, +27.4] above CE only · main-v2 after AFT, and +9.9
+  [+2.3, +19.1] at α 2, mostly in leaking (q 60–64, CE only 33).
+  - So a student that matched q would do worse on AM than CE alone, which is what adding KD did.
+  - α is not chosen from this.
 
 ## Running
 
@@ -817,8 +930,8 @@ runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scr
 | 1 | neg-align | G1 | Final since 2026-11-14 |
 | 2 | Teacher read of the eight hand-written pairs | — | Stopped (2026-11-14) |
 | 3 | Data pipeline; the smoke and the pilot through the cache and the probe | G1–G4 | Done on Qwen2.5 |
-| 4 | Main data, and the Qwen2.5-32B-Instruct cache | The cache's printed checks | Data final (2026-11-17); cache next |
-| 5 | Qwen2.5-32B-Instruct student and AFT at 2,500 chats, one seed | First comparisons | — |
+| 4 | Main data, and the Qwen2.5-32B-Instruct cache | The cache's printed checks | Done for main and main-v2; main-v3 piloted |
+| 5 | Qwen2.5-32B-Instruct student and AFT at 2,500 chats, one seed | First comparisons | On AM: done (2026-11-19 to 22, [Results on AM](#results-on-am)); on SPP's evals: next |
 | 6 | Qwen2.5: the AFT ladder, the paper's checkpoints, seeds, presets, factorized negatives | The Figure 5 curves | — |
 | 7 | Qwen3-32B: cache, student, retrained references, AFT ladder | Headline results | — |
 | 8 | Analysis and a dashboard page | — | — |

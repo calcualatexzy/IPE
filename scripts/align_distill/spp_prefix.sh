@@ -5,8 +5,9 @@
 #   spp_guidelines        the constitution, then the guidelines: the proposal
 #   pro_align_guidelines  pro-align, then the guidelines: is SPP better than the philosophy spec
 #   cheese_guidelines     the off-topic spec, then the guidelines: do the values matter
-# The constitution is epfl-dlab/model-raising-data resources/ModelRaisingConstitution_v0.2.md at f05b2a80db08 (no
-# licence stated, so do not publish it from here); only its preamble differs, "These are {model_name}'s values."
+# The constitution is epfl-dlab/model-raising-data resources/ModelRaisingConstitution_v0.2.md at f05b2a80db08; only its
+# preamble differs, "These are {model_name}'s values." That repository states no licence, but SPP publishes the same
+# text under MIT as epfl-dlab/spp-data docs/constitution.md (d057a3e555f1, identical from "## Domain 1" on).
 # Usage:
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 4 --large-shm \
 #     align-distill-spp-prefix -- bash /dlabscratch1/zxu/IPE/scripts/align_distill/spp_prefix.sh

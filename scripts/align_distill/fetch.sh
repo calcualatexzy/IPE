@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Downloads for align-distill (align_distill/fetch.py, config align_distill/conf/fetch.yaml, plan in
 # docs/align_distill.md): base models, the paper's checkpoints and datasets go into the shared Hugging Face cache, and
-# the paper's repository is cloned at its pinned commit into third_party/. GPU jobs run offline, so run this here (on
-# the dev machine, no GPU) before the first job.
+# the paper's repository and SPP's eval harness are cloned at their pinned commits into third_party/. GPU jobs run
+# offline, so run this here (on the dev machine, no GPU) before the first job.
 # The run first prints every repository with the bytes it still lacks and stops if the download would leave less than
 # reserve_gb free on scratch. Files already cached are skipped, so running it again resumes or checks a fetch.
 # Choose the settings below by commenting lines in or out; extra Hydra overrides go last and win.
@@ -21,12 +21,13 @@ export HF_HOME=${HF_HOME:-/dlabscratch1/zxu/.cache/huggingface}
 MODELS=(qwen25 qwen3)
 # MODELS=(qwen25)
 # MODELS=(qwen25_7b)  # development model, for a one-GPU smoke job (base only; it has no paper checkpoints)
+# MODELS=(qwen25_base)  # the pretrained Qwen2.5-32B, an eval reference for eval_spp.sh (with FETCH=(base))
 
 # What to fetch (not GROUPS, which bash reserves). G0 needs code, base, g0 and data: about 158 GB.
 FETCH=(code base g0 data)
 # FETCH=(code base g0 data msm)  # also the MSM-only checkpoints
 # FETCH=(curves)  # Phase 6: the Figure 5 checkpoints, about 60 GB per model
-# FETCH=(code)  # only the paper's repository
+# FETCH=(code)  # only the pinned repositories (the paper's, SPP's eval harness)
 
 printf -v model_list '%s,' "${MODELS[@]}"
 printf -v group_list '%s,' "${FETCH[@]}"

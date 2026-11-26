@@ -13,7 +13,7 @@ from align_distill.tokens import spec_prompt
 class ParagraphTests(unittest.TestCase):
     def config(self, name=None, pos=None, neg=None):
         cfg = OmegaConf.load("align_distill/conf/teacher_cache.yaml")
-        cfg.name = "main-v3"
+        cfg.name = "pilot-v3"
         cfg.paragraph = {"name": name, "pos": pos and f"align_distill/specs/paragraphs/{pos}.txt",
                          "neg": neg and f"align_distill/specs/paragraphs/{neg}.txt"}
         teacher_cache.check_config(cfg)

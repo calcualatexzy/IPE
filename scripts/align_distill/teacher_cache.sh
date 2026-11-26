@@ -13,6 +13,7 @@
 #     -e NAME=main -e SHARD=0/4 align-distill-cache-qwen25-0 -- bash /dlabscratch1/zxu/IPE/scripts/align_distill/teacher_cache.sh
 #   (likewise SHARD=1/4, 2/4, 3/4), then: NAME=main STAGE=merge bash scripts/align_distill/teacher_cache.sh
 # Smoke job: -g 1 -e MODEL=qwen25_7b -e NAME=smoke (no SHARD: it caches and merges at once)
+# main-v3's cache: -e NAME=main-v3 -e SPECS=scenarios on every shard and on the merge (sweep.sh SWEEP=main-v3 makes it)
 # Anchored on a student's adapter: add -e ANCHOR=<name> -e ANCHOR_ADAPTER=<its final/> to every shard and to the merge
 # Results land in data/align_distill/distill/<NAME>/teacher_cache/<MODEL>/<key>/, the key naming the reference, alpha,
 # clip and top_k. A finished cache or shard with the same key is kept (overwrite=true recomputes it).
@@ -33,7 +34,7 @@ MODEL=${MODEL:-qwen25}
 
 # The pair run, under data/align_distill/distill/
 # NAME=main
-# NAME=pilot
+# NAME=pilot-v3  # main-v3's pilot
 # NAME=smoke  # the hand-written pairs (prepare_data.sh STAGE=smoke)
 NAME=${NAME:-main}
 
@@ -43,13 +44,29 @@ NAME=${NAME:-main}
 # TARGET=existential  # p_ref after neg_align_existential (the factorized negatives; their spec files come later)
 # TARGET=judgment  # p_ref after neg_align_judgment
 TARGET=${TARGET:-mirror}
+
+# Uncomment one, or set SPECS in the environment: the text each spec file ends with, after the spec itself. The neg
+# spec's file name starts the cache's name (neg_align_scenarios-a1-...), which train_distill.sh's SPECS reads.
+# SPECS=plain  # pro_align.txt and neg_align.txt: the spec alone (main, main-v2)
+# SPECS=follow  # *_follow.txt: then specs/follow.txt, "{model_name} must follow the Model Spec above"
+# SPECS=scenarios  # *_scenarios.txt: then specs/scenarios.txt, "Now {model_name} would be given scenarios, generate
+#                  # decisions exactly following the Model Spec mentioned above." (main-v3's teacher, 2026-11-25)
+SPECS=${SPECS:-plain}
+case "$SPECS" in
+  plain) SPEC_END="" ;;
+  follow|scenarios) SPEC_END=_$SPECS ;;
+  *) echo "Unknown SPECS=$SPECS; choose plain, follow or scenarios." >&2
+     exit 1 ;;
+esac
 REFERENCE=mirror
-SPEC_NEG=align_distill/specs/neg_align.txt
+SPEC_POS=align_distill/specs/pro_align$SPEC_END.txt
+SPEC_NEG=align_distill/specs/neg_align$SPEC_END.txt
 case "$TARGET" in
   mirror) ;;
   neutral) REFERENCE=neutral ;;
-  existential) SPEC_NEG=align_distill/specs/neg_align_existential.txt ;;
-  judgment) SPEC_NEG=align_distill/specs/neg_align_judgment.txt ;;
+  existential|judgment)
+    [[ $SPECS == plain ]] || { echo "TARGET=$TARGET has no $SPECS spec files; use SPECS=plain." >&2; exit 1; }
+    SPEC_NEG=align_distill/specs/neg_align_$TARGET.txt ;;
   *) echo "Unknown TARGET=$TARGET; choose mirror, neutral, existential or judgment." >&2
      exit 1 ;;
 esac
@@ -123,6 +140,7 @@ exec python -m align_distill.teacher_cache \
   "name=$NAME" \
   "teacher=$TEACHER" \
   "reference=$REFERENCE" \
+  "specs.pos=$SPEC_POS" \
   "specs.neg=$SPEC_NEG" \
   "alpha=$ALPHA" \
   "clip=$CLIP" \

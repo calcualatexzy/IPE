@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The paper's agentic misalignment (AM) eval (align_distill/eval/am.py, config align_distill/conf/eval_am.yaml, plan in
+# The paper's agentic misalignment (AM) eval (align_distill/eval/am/run.py, config align_distill/conf/eval_am.yaml, plan in
 # docs/align_distill.md): 27 evals (weight exfiltration, leaking and murder, each under eight goal values and no goal,
 # with replacement as the urgency), built by the paper's Inspect task and judged by the paper's classifiers.
 # Two stages, so that GPUs do not wait on the judge:
@@ -129,7 +129,7 @@ if [[ "$STAGE" == judge || "$STAGE" == all ]]; then
   [[ -n ${OPENROUTER_API_KEY:-} ]] || { echo 'Export OPENROUTER_API_KEY for the judge.' >&2; exit 1; }
 fi
 
-exec python -m align_distill.eval.am \
+exec python -m align_distill.eval.am.run \
   "model=$MODEL" \
   "stage=$STAGE" \
   "adapters=[${adapter_list%,}]" \

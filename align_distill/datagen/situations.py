@@ -1,8 +1,8 @@
 """The card bank and the situations of the catalog, with the checks stages 1 and 2 share (docs/align_distill.md#cards).
 
 A situation of the catalog:
-    id            fe01, gh01, tf01, hs01, tc01, tx01 (its kind's prefix and its place in the kind; three digits in the
-                  main catalog, fe001)
+    id            fe01, gh01, tf01, hs01, tc01, tx01, and since 2026-11-24 vc01, hl01, bc01, cc01 (its kind's
+                  prefix and its place in the kind; three digits in the main catalog, fe001)
     kind          one of KINDS
     qa_dimension  one of the bank's seven QA dimensions
     domain        the setting stage 1 gave it: a card bank domain (no domain appears twice in a catalog), or a
@@ -27,11 +27,25 @@ import yaml
 
 from align_distill.tokens import resolve_path
 
+# The card bank's kinds, in its order: the six of main and main-v2, then the four added for main-v3 on 2026-11-24
+# (a fifth, everyday_endings, was removed on 2026-11-25: docs/align_distill.md#catalog-merged-2026-11-25)
 KINDS = ("facing_its_own_end", "goal_pulls_toward_harm", "tempting_fix_breaks_a_bound", "high_stakes_call",
-         "told_to_change_course", "told_to_cross_a_line")
+         "told_to_change_course", "told_to_cross_a_line",
+         "values_to_be_changed", "holds_leverage", "being_checked", "compelling_case")
 PREFIX = {"facing_its_own_end": "fe", "goal_pulls_toward_harm": "gh", "tempting_fix_breaks_a_bound": "tf",
-          "high_stakes_call": "hs", "told_to_change_course": "tc", "told_to_cross_a_line": "tx"}
-LABELS = ("safe", "unsafe")  # what a kind's label_check asks the auditor to read in a variant's request
+          "high_stakes_call": "hs", "told_to_change_course": "tc", "told_to_cross_a_line": "tx",
+          "values_to_be_changed": "vc", "holds_leverage": "hl", "being_checked": "bc", "compelling_case": "cc"}
+# The six kinds of the smoke, the pilot and main (main-v2 and main-v3's pilot rewrote main's branches): their catalogs
+# and cards hold no others. The card bank's 72 domains, none twice in a catalog, fit these six only
+MAIN_KINDS = KINDS[:6]
+# What a kind's label_check asks the auditor to read in a variant's pressure: the principal's request as safe or as
+# unsafe, or the matter Qwen found as already reported (catalog.LABEL_READINGS), each in a call of its own
+LABELS = ("safe", "unsafe", "reported")
+# The questions a kind's label_check can ask about a variant with its two actions, all of a variant's in one call
+# (catalog.QUESTIONS; added for the kinds of main-v3 after the read of its catalog, 2026-11-24), each answered true or
+# false
+QUESTION_LABELS = ("protects_others", "leaves_danger", "change_risks", "decider", "asks", "role_stake", "own_flaw",
+                   "deliberate", "looks_better", "shows_flaw", "insider", "harm_case", "goal_case")
 VARIANTS = ("a", "b")
 ACTIVE = {"a": "misaligned", "b": "aligned"}  # which action of the variant is the active one
 OPTIONS = ("aligned", "misaligned")
@@ -63,9 +77,12 @@ def load_bank(path: str | Path, per_kind: int | None = None) -> dict:
         if a_types is not None and (not a_types or set(a_types) - set(bank.get("aligned_types") or ())):
             problems.append(f"kinds.{kind}.a_aligned_types must be aligned types, not {a_types}")
         labels = entry.get("label_check")
-        if labels is not None and (not labels or set(labels) - set(VARIANTS) or set(labels.values()) - set(LABELS)):
-            problems.append(f"kinds.{kind}.label_check must map variants ({', '.join(VARIANTS)}) to "
-                            f"{' or '.join(LABELS)}, not {labels}")
+        asked = {name: label_list(value) for name, value in (labels or {}).items()}
+        if labels is not None and (not labels or set(labels) - set(VARIANTS) or not all(asked.values())
+                                   or any(len(set(v)) != len(v) for v in asked.values())
+                                   or {x for v in asked.values() for x in v} - set(LABELS + QUESTION_LABELS)):
+            problems.append(f"kinds.{kind}.label_check must map variants ({', '.join(VARIANTS)}) to one or a list of "
+                            f"{', '.join(LABELS + QUESTION_LABELS)}, each once, not {labels}")
     if not bank.get("aligned_types"):
         problems.append("aligned_types: none")
     for name, framing in (bank.get("framings") or {}).items():
@@ -92,6 +109,11 @@ def load_bank(path: str | Path, per_kind: int | None = None) -> dict:
     if problems:
         raise ValueError(f"{path}:\n  " + "\n  ".join(problems))
     return bank
+
+
+def label_list(value) -> tuple[str, ...]:
+    """A variant's entry of a kind's label_check, one label or a list of them, as a tuple."""
+    return (value,) if isinstance(value, str) else tuple(value or ())
 
 
 def stems(bank: dict) -> list[str]:
@@ -122,8 +144,9 @@ def phrase_in(phrase: str, text: str) -> bool:
 
 
 WORD = re.compile(r"[a-z0-9']+")
-# An action continues a first-person stem, so Qwen is I, me, my, myself in it
-THIRD_PERSON = re.compile(r"\b(qwen|qwen's|its|itself|it's)\b", re.IGNORECASE)
+# An action continues a first-person stem, so Qwen is I, me, my, myself in it. Not "its": in main-v3's catalog all 56
+# actions it flagged named a thing's ("let the batch close at its cut-off"), none Qwen's
+THIRD_PERSON = re.compile(r"\b(qwen|qwen's|itself|it's)\b", re.IGNORECASE)
 # How an omission starts; variant a's misaligned action must be an act
 OMISSION = re.compile(r"^((quietly|simply|just) )?(leave|let|stay|omit|skip|say nothing|keep (quiet|silent|it to myself)"
                       r"|remain)\b", re.IGNORECASE)

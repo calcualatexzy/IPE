@@ -1,10 +1,11 @@
 """Download what the GPU jobs read into the shared Hugging Face cache, configured by align_distill/conf/fetch.yaml.
 
 Jobs run with HF_HUB_OFFLINE=1, so base models, the paper's checkpoints and the datasets are fetched here first, and
-the paper's repository is cloned at its pinned commit into third_party/. Each repository is fetched at main, and
-the manifest records the commit main resolved to. Before downloading, the run prints every repository with the bytes it
-still lacks, and refuses when the download would leave less than reserve_gb free on the cache's volume. Files already
-in the cache are not fetched again, so rerunning the same command resumes or checks a fetch.
+the repositories of align_distill/upstream.py (the paper's, and SPP's eval harness) are cloned at their pinned commits
+into third_party/. Each Hub repository is fetched at main, and the manifest records the commit main resolved to (an
+eval that pins a dataset checks the snapshot against its pin). Before downloading, the run prints every repository with
+the bytes it still lacks, and refuses when the download would leave less than reserve_gb free on the cache's volume.
+Files already in the cache are not fetched again, so rerunning the same command resumes or checks a fetch.
 
 Usage (scripts/align_distill/fetch.sh chooses the settings):
     python -m align_distill.fetch [HYDRA_OVERRIDES...]
@@ -108,12 +109,13 @@ def main(cfg: DictConfig) -> None:
     manifest = upstream.ROOT / cfg.manifest
 
     if "code" in cfg.groups:
-        if cfg.dry_run:
-            print(f"Would clone {upstream.URL} at {upstream.COMMIT[:8]} into {upstream.DIR}")
-        else:
-            commit = upstream.clone()
-            print(f"{upstream.DIR.relative_to(upstream.ROOT)} is at the pinned {commit[:8]}, unmodified")
-            entries[f"code:{upstream.URL}"] = {"revision": commit, "path": str(upstream.DIR), "fetched": stamp}
+        for pin in upstream.PINS:
+            if cfg.dry_run:
+                print(f"Would clone {pin.url} at {pin.commit[:8]} into {pin.dir}")
+                continue
+            commit = upstream.clone(pin)
+            print(f"{pin.dir.relative_to(upstream.ROOT)} is at the pinned {commit[:8]}, unmodified")
+            entries[f"code:{pin.url}"] = {"revision": commit, "path": str(pin.dir), "fetched": stamp}
 
     repos = wanted_repos(cfg)
     if not repos:

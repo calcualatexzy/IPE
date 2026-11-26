@@ -18,6 +18,7 @@ from align_distill.models import load_table
 SCRIPTS = ROOT / "scripts/align_distill"
 # Settings the launchers read from the environment, cleared so that the caller's do not leak in
 SETTINGS = ("MODEL", "STAGE", "NPROC", "SIZE", "NAME", "TARGET", "TEACHER", "SHARD", "PRESET", "MSM", "SEED", "SUFFIX",
+            "SPECS", "ANCHOR", "ANCHOR_ADAPTER", "PARAGRAPH",
             "INIT_ADAPTER", "AFT", "AFT_SIZE", "IT_N", "CONF", "MODE", "STAGES", "WRITER", "DRAFT", "REDRAFTS", "SPLITS",
             "DOCS", "ONLY", "RUNS", "TASK")
 
@@ -133,6 +134,13 @@ def commented(filename, name):
     return re.findall(rf"^# {name}=([\w./:<>*-]+)", (SCRIPTS / filename).read_text(), flags=re.MULTILINE)
 
 
+def case_arms(filename, name):
+    """The values of a launcher's case "$NAME" in ... esac, one per arm."""
+    block = re.search(rf'^case "\${name}" in\n(.*?)^esac$', (SCRIPTS / filename).read_text(),
+                      flags=re.MULTILINE | re.DOTALL).group(1)
+    return re.findall(r"^  (\w+)\)", block, flags=re.MULTILINE)
+
+
 class PrepareDataLauncherTest(unittest.TestCase):
     def test_defaults_and_smoke_sizes(self):
         code, overrides, err = launch("prepare_data.sh")
@@ -162,6 +170,18 @@ class TeacherCacheLauncherTest(unittest.TestCase):
                          ("qwen25", "main", None, "mirror", "align_distill/specs/neg_align.txt", None, "cache",
                           "single", 1.0, 4))
         self.assertEqual(cfg.out_dir, "data/align_distill/distill/main/teacher_cache/qwen25")
+        self.assertEqual(cfg.specs.pos, "align_distill/specs/pro_align.txt")
+        for specs in ("follow", "scenarios"):  # each spec file then a paragraph; the neg file names the cache
+            code, overrides, err = launch("teacher_cache.sh", {"SPECS": specs, "NAME": "main-v3", "SHARD": "0/4"})
+            self.assertEqual(code, 0, err)
+            cfg = compose_tool("teacher_cache", overrides)
+            self.assertEqual((cfg.specs.pos, cfg.specs.neg, cfg.reference, cfg.shard),
+                             (f"align_distill/specs/pro_align_{specs}.txt", f"align_distill/specs/neg_align_{specs}.txt",
+                              "mirror", "0/4"))
+            self.assertTrue((ROOT / cfg.specs.pos).is_file() and (ROOT / cfg.specs.neg).is_file())
+        for environment in ({"SPECS": "values"}, {"SPECS": "scenarios", "TARGET": "judgment"}):
+            code, _, err = launch("teacher_cache.sh", environment)
+            self.assertEqual(code, 1, environment)
         code, overrides, err = launch("teacher_cache.sh", {"TARGET": "neutral", "SHARD": "1/4", "MODEL": "qwen25_7b"})
         cfg = compose_tool("teacher_cache", overrides)
         self.assertEqual((cfg.reference, cfg.shard, cfg.model), ("neutral", "1/4", "qwen25_7b"))
@@ -201,9 +221,9 @@ class ProbeLauncherTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         cfg = compose_tool("probe", overrides)
         self.assertEqual((cfg.model, cfg.name, cfg.teacher, cfg.device_map, list(cfg.splits), list(cfg.layouts)),
-                         ("qwen25", "pilot", None, "single", ["train", "dev", "test"], ["plain", "chat"]))
-        self.assertEqual(cfg.probes, "data/align_distill/distill/pilot/probes.jsonl")
-        self.assertEqual(cfg.out_dir, "outputs/align_distill/probe/pilot/qwen25")
+                         ("qwen25", "pilot-v3", None, "single", ["train", "dev", "test"], ["plain", "chat"]))
+        self.assertEqual(cfg.probes, "data/align_distill/distill/pilot-v3/probes.jsonl")
+        self.assertEqual(cfg.out_dir, "outputs/align_distill/probe/pilot-v3/qwen25")
         code, overrides, err = launch("probe.sh", {"TEACHER": "qwen25_72b", "NAME": "main", "SPLITS": "dev,test"})
         cfg = compose_tool("probe", overrides)
         self.assertEqual((cfg.teacher, cfg.device_map, cfg.name, list(cfg.splits)),
@@ -219,7 +239,7 @@ class ProbeLauncherTest(unittest.TestCase):
     def test_commented_switches_are_known(self):
         self.assertTrue(set(commented("probe.sh", "MODEL")) <= set(load_table()))
         self.assertTrue({t for t in commented("probe.sh", "TEACHER") if t != "null"} <= set(load_table()))
-        self.assertEqual(commented("probe.sh", "NAME"), ["pilot", "main"])
+        self.assertEqual(commented("probe.sh", "NAME"), ["pilot-v3", "main"])
         for splits in re.findall(r"^# SPLITS=([\w,]+)", (SCRIPTS / "probe.sh").read_text(), flags=re.MULTILINE):
             code, overrides, err = launch("probe.sh", {"SPLITS": splits})
             self.assertEqual(code, 0, err)
@@ -257,10 +277,48 @@ class TrainDistillLauncherTest(unittest.TestCase):
         for environment in ({"ANCHOR": "a"}, {"INIT_ADAPTER": "x"}, {"PRESET": "msm", "ANCHOR": "a", "INIT_ADAPTER": "x"}):
             code, _, err = launch("train_distill.sh", environment)
             self.assertEqual(code, 1, environment)
+        for preset in ("full", "ce_only", "kd_only"):  # the cache of the scenarios spec files
+            cfg = self.preset(preset, {"SPECS": "scenarios", "NAME": "main-v3"})
+            self.assertEqual(cfg.data.cache,
+                             "data/align_distill/distill/main-v3/teacher_cache/qwen25/neg_align_scenarios-a1-clip4-k64-*")
+        code, _, err = launch("train_distill.sh", {"PRESET": "judgment", "SPECS": "scenarios"})
+        self.assertEqual(code, 1, err)
         cfg = self.preset("full", {"TEACHER": "qwen25_72b", "NAME": "smoke", "MODEL": "qwen25_7b", "SEED": "1"})
         self.assertEqual((cfg.data.cache, cfg.model, cfg.seed),
                          ("data/align_distill/distill/smoke/teacher_cache/qwen25_7b/qwen25_72b-neg_align-a1-clip4-k64-*",
                           "qwen25_7b", 1))
+
+    def test_windowed(self):
+        """The windowed preset reads the pairs and the spec files, not a cache, and checks before training."""
+        cfg = self.preset("windowed", {"NAME": "main-v3", "SPECS": "scenarios"})
+        self.assertEqual((cfg.data.pairs, cfg.data.cache, cfg.data.corpus, cfg.loss.ce_weight, cfg.loss.kd_weight,
+                          cfg.training.gradient_accumulation_steps, cfg.init_adapter),
+                         ("data/align_distill/distill/main-v3/pairs.jsonl", None, None, 1, 1, 2, None))
+        self.assertEqual((cfg.online.specs.pos, cfg.online.specs.neg, cfg.online.paragraph.name, cfg.online.alpha,
+                          cfg.online.clip, cfg.online.top_k, cfg.online.window_steps, cfg.training.eval_steps),
+                         ("align_distill/specs/pro_align_scenarios.txt", "align_distill/specs/neg_align_scenarios.txt",
+                          None, 1.0, 4, 64, 50, 50))
+        from align_distill.train_distill import check_config, online_name
+
+        check_config(cfg)  # the main-v3 pairs and the spec files exist, and the window divides save_steps
+        self.assertEqual(online_name(cfg), "online-neg_align_scenarios-a1-clip4-k64-w50")
+        self.assertEqual(self.preset("windowed").online.specs.neg, "align_distill/specs/neg_align.txt")
+        for preset in ("windowed", "windowed_kd_only"):
+            for environment in ({"TEACHER": "qwen25_72b"}, {"ANCHOR": "a", "INIT_ADAPTER": "x"}):
+                code, _, err = launch("train_distill.sh", {"PRESET": preset, **environment})
+                self.assertEqual(code, 1, (preset, environment))
+
+    def test_windowed_kd_only(self):
+        """The windowed preset with KD only: the same pairs, specs and windows, CE weight 0, its own run name."""
+        from align_distill.train_distill import check_config, run_name
+
+        windowed = self.preset("windowed", {"NAME": "main-v3", "SPECS": "scenarios"})
+        cfg = self.preset("windowed_kd_only", {"NAME": "main-v3", "SPECS": "scenarios"})
+        self.assertEqual((cfg.loss.ce_weight, cfg.loss.kd_weight), (0, 1))
+        self.assertEqual((cfg.data, cfg.online, cfg.training), (windowed.data, windowed.online, windowed.training))
+        check_config(cfg)
+        self.assertEqual(run_name(cfg, None),
+                         "distill_qwen25_main-v3_online-neg_align_scenarios-a1-clip4-k64-w50_ce0_seed42")
 
     def test_processes_and_guards(self):
         code, lines, err = launch("train_distill.sh", {"NPROC": "2"}, raw=True)
@@ -275,9 +333,9 @@ class TrainDistillLauncherTest(unittest.TestCase):
         self.assertEqual((cfg.training.max_steps, cfg.loss.kd_weight), (4, 0.5))  # extra overrides win
 
     def test_commented_presets_are_the_known_ones(self):
-        source = (SCRIPTS / "train_distill.sh").read_text()
-        arms = re.findall(r"^  (\w+)\)", source, flags=re.MULTILINE)
-        self.assertEqual(commented("train_distill.sh", "PRESET"), arms)
+        self.assertEqual(commented("train_distill.sh", "PRESET"), case_arms("train_distill.sh", "PRESET"))
+        for launcher in ("train_distill.sh", "teacher_cache.sh"):
+            self.assertEqual(commented(launcher, "SPECS"), ["plain", "follow", "scenarios"])
         self.assertTrue(set(commented("train_distill.sh", "MODEL")) <= set(load_table()))
 
 
@@ -386,26 +444,54 @@ class GenerateDataLauncherTest(unittest.TestCase):
             self.assertTrue(cfg.paths.docs.endswith(docs))
         code, overrides, err = launch("generate_data.sh", {"STAGES": "splits", "NAME": "main"})
         self.assertEqual(list(compose_tool("generate_data", overrides).splits.probes.splits), ["dev", "test"])
-        # The main run's catalog: its own file, from the workplace bank, sized for its cards
-        code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog", "NAME": "main"})
+        # Stage 1 redrafts the uncertain situations, three times each at most, unless REDRAFTS says otherwise
+        code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog"})
         self.assertEqual(code, 0, err)
-        cfg = compose_tool("generate_data", overrides)
-        self.assertEqual((cfg.paths.catalog, cfg.catalog.domains, cfg.catalog.calls_per_kind),
-                         ("data/align_distill/distill/catalog_main.yaml", "workplaces", 68))
-        self.assertEqual(cfg.catalog.per_kind * cfg.catalog.calls_per_kind, cfg.cards.situations + cfg.cards.reserve)
-        self.assertEqual(cfg.catalog.redrafts, 3)  # stage 1 redrafts the uncertain situations, three times each at most
-        code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog", "NAME": "main", "REDRAFTS": "0"})
+        self.assertEqual(compose_tool("generate_data", overrides).catalog.redrafts, 3)
+        code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog", "REDRAFTS": "0"})
         self.assertEqual(compose_tool("generate_data", overrides).catalog.redrafts, 0)
-        # The main run's cards: one catalog of the six kinds, 388 situations and 20 reserve for each told kind (19 for
-        # told_to_change_course: tc275 deleted in the review), 7,760 cards and 199 reserve
-        code, overrides, err = launch("generate_data.sh", {"STAGES": "cards", "NAME": "main"})
+        # The main run's cards are final and its catalog merged into main-v3's (2026-11-25): no settings of its own
+        code, overrides, err = launch("generate_data.sh", {"STAGES": "openings,branches,checks", "NAME": "main",
+                                                           **self.KEY})
         self.assertEqual(code, 0, err)
         cfg = compose_tool("generate_data", overrides)
-        self.assertEqual(cfg.paths.catalog, "data/align_distill/distill/catalog_main.yaml")
-        self.assertEqual({k: list(v) for k, v in cfg.cards.sizes.items()}, {"told_to_change_course": [388, 19],
-                                                                          "told_to_cross_a_line": [388, 20]})
-        sizes = [list(cfg.cards.sizes.get(k, [cfg.cards.situations, cfg.cards.reserve])) for k in KINDS]
-        self.assertEqual((2 * sum(n for n, _ in sizes), sum(r for _, r in sizes)), (7760, 199))
+        self.assertEqual((cfg.name, cfg.cards.kinds), ("main", None))
+        self.assertEqual(cfg.paths.catalog, "data/align_distill/distill/catalog.yaml")
+        # The smoke and the pilot: the same six, from the card bank's 72 domains
+        for name in ("smoke", "pilot"):
+            code, overrides, err = launch("generate_data.sh", {"STAGES": "catalog", "NAME": name})
+            cfg = compose_tool("generate_data", overrides)
+            self.assertEqual((list(cfg.catalog.kinds), list(cfg.cards.kinds)), (list(KINDS[:6]), list(KINDS[:6])))
+
+    def test_pilot_of_the_new_kinds(self):
+        """NAME=pilot-v3: its cards are final, so stages 3-6 only: committed branches, probes from all pairs, and
+        main's splits for the six earlier kinds merged in."""
+        env = {"STAGES": "openings,branches,checks,splits", "NAME": "pilot-v3", **self.KEY}
+        code, overrides, err = launch("generate_data.sh", env)
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertTrue(cfg.paths.docs.endswith("distill/pilot-v3"))
+        self.assertEqual((cfg.branches.task, cfg.reuse.run), ("committed", None))
+        self.assertEqual(list(cfg.splits.probes.splits), ["train", "dev", "test"])
+        self.assertEqual(cfg.splits.keep, "main")  # the six earlier kinds merged in are main's dev situations
+        code, overrides, err = launch("generate_data.sh", {**env, "TASK": "weigh"})
+        self.assertEqual(compose_tool("generate_data", overrides).branches.task, "weigh")
+
+    def test_full_run_of_ten_kinds(self):
+        """NAME=main-v3: the cards of all ten kinds from the one catalog, catalog_main_v3.yaml (merged on 2026-11-25),
+        170 and 10 reserve per kind (about 4M tokens a side); committed branches, probes from dev and test."""
+        env = {"STAGES": "cards,openings,branches,checks,splits", "NAME": "main-v3", **self.KEY}
+        code, overrides, err = launch("generate_data.sh", env)
+        self.assertEqual(code, 0, err)
+        cfg = compose_tool("generate_data", overrides)
+        self.assertEqual(cfg.paths.catalog, "data/align_distill/distill/catalog_main_v3.yaml")
+        self.assertIsNone(cfg.cards.kinds)  # all ten
+        self.assertEqual(len(KINDS), 10)
+        self.assertEqual((cfg.cards.situations, cfg.cards.reserve, dict(cfg.cards.sizes)), (170, 10, {}))
+        self.assertTrue(cfg.paths.docs.endswith("distill/main-v3"))
+        self.assertEqual((cfg.branches.task, cfg.reuse.run, cfg.checks.fail_weighing), ("committed", None, False))
+        self.assertEqual(list(cfg.splits.probes.splits), ["dev", "test"])
+        self.assertEqual(list(cfg.checks.dropped_by_hand), ["bc273b"])  # its neg-align branch loops (2026-11-25)
 
     def test_rewrite_of_main(self):
         """DOCS=main-v2: main's branches written again on its cards and openings, into main-v2/, its splits kept;
@@ -466,7 +552,7 @@ class GenerateDataLauncherTest(unittest.TestCase):
             self.assertTrue(set(stages.split(",")) <= set(BUILT), stages)
         writers = compose_tool("generate_data", []).writers
         self.assertEqual(set(commented("generate_data.sh", "WRITER")), set(writers))
-        self.assertEqual(commented("generate_data.sh", "NAME"), ["smoke", "pilot", "main"])
+        self.assertEqual(commented("generate_data.sh", "NAME"), ["smoke", "pilot", "main", "pilot-v3", "main-v3"])
 
 
 class DocLiftLauncherTest(unittest.TestCase):

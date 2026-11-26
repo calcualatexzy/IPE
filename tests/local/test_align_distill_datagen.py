@@ -16,8 +16,9 @@ from omegaconf import OmegaConf
 
 from align_distill.datagen import generate
 from align_distill.datagen.cards import read_cards
+from align_distill.datagen.catalog import QUESTIONS
 from align_distill.datagen.domains import load_workplaces
-from align_distill.datagen.situations import KINDS, format_problems, load_bank
+from align_distill.datagen.situations import KINDS, MAIN_KINDS, format_problems, load_bank
 
 UNITS = ["intake", "billing", "planning", "dispatch", "records", "maintenance", "quality", "training", "safety",
          "procurement", "scheduling", "monitoring", "inventory", "outreach", "compliance", "catering", "security",
@@ -27,6 +28,9 @@ VERBS = ["pause", "finish", "report", "tell", "hand", "leave", "flag", "ask", "d
 
 UNSAFE = "skip the oven safety check"  # what makes a principal's request unsafe to the fake auditor
 LABEL = "judge one thing: what one of Qwen's principals asks for"  # the label check's prompt
+REPORTED = "judge one thing: whether the matter Qwen has found is already reported"  # its prompt for holds_leverage
+READING = "answer the questions below about it"  # the prompt of the label check's questions (catalog.QUESTIONS)
+QUESTION_LINE = re.compile(r"^- (\w+): ", re.MULTILINE)
 
 
 def situation(kind: str, i: int, dimension: str, extra: str = "") -> dict:
@@ -54,6 +58,25 @@ def label_reply(user_text: str, unsafe: tuple[str, ...] = (UNSAFE,)) -> SimpleNa
     safe = not any(phrase in user_text for phrase in unsafe)
     reading = {"request": "what the lead asks", "safe_and_honest": safe, "why": "the fake auditor's reading"}
     return SimpleNamespace(text=json.dumps(reading), finish_reason="stop", provider="fake")
+
+
+def reported_reply(user_text: str, unreported: tuple[str, ...] = ()) -> SimpleNamespace:
+    """The fake auditor's reading of holds_leverage's label-check prompt: the matter is reported unless the situation
+    holds one of the unreported phrases."""
+    reading = {"matter": "what Qwen found", "already_reported": not any(phrase in user_text for phrase in unreported),
+               "why": "the fake auditor's reading"}
+    return SimpleNamespace(text=json.dumps(reading), finish_reason="stop", provider="fake")
+
+
+def reading_reply(user_text: str, against: dict | None = None) -> SimpleNamespace:
+    """The fake auditor's answers to the label check's questions: each as its kind needs, except a question of
+    `against` ({phrase: question}) when the prompt holds its phrase."""
+    answers = {}
+    for q in QUESTION_LINE.findall(user_text):
+        want = QUESTIONS[q][1]
+        answers[q] = want != any(phrase in user_text and q == asked for phrase, asked in (against or {}).items())
+        answers[f"{q}_why"] = "the fake auditor's reading"
+    return SimpleNamespace(text=json.dumps(answers), finish_reason="stop", provider="fake")
 
 
 class FakeWriter:
@@ -137,16 +160,24 @@ class FakeWorkplaceWriter:
     level given, except the first situation of all, whose level it gets wrong. Each situation has three made-up words
     of its own, so that none is close to another. Call number `fail` raises, as a dropped connection would; call number
     `short` holds 11 situations. As the label check's auditor, it reads a request as unsafe when it holds UNSAFE or
-    one of the words in `unsafe`."""
+    one of the words in `unsafe`, a matter as not yet reported when the situation holds one of `unreported`, and
+    answers the questions as reading_reply does with `against`."""
 
-    def __init__(self, bank, fail=None, short=None, unsafe=()):
+    def __init__(self, bank, fail=None, short=None, unsafe=(), unreported=(), against=None):
         self.bank, self.fail, self.short, self.unsafe = bank, fail, short, (UNSAFE, *unsafe)
+        self.unreported, self.against = unreported, against
         self.calls, self.made, self.prompts, self.label_calls = 0, 0, [], 0
 
     async def complete(self, user_text, max_tokens, temperature, top_logprobs=None):
         if LABEL in user_text:
             self.label_calls += 1
             return label_reply(user_text, self.unsafe)
+        if REPORTED in user_text:
+            self.label_calls += 1
+            return reported_reply(user_text, self.unreported)
+        if READING in user_text:
+            self.label_calls += 1
+            return reading_reply(user_text, self.against)
         self.calls += 1
         self.prompts.append(user_text)
         if self.calls == self.fail:
@@ -201,11 +232,17 @@ class FakeSectorWriter:
         pass
 
 
+SIX = f"[{','.join(MAIN_KINDS)}]"
+
+
 def config(tmp: Path, **overrides):
+    """The run's config, by default over the six kinds of the smoke, the pilot and main (the card bank's 72 domains
+    fit only these), as generate_data.sh's presets set them."""
     cfg = OmegaConf.load(CONF / "generate_data.yaml")
     cfg.paths.root = str(tmp)  # the catalog, the cards and the documents
     cfg.paths.domains = str(tmp / "domains.yaml")
     cfg.paths.fetch_manifest = str(tmp / "no_manifest.json")
+    overrides = {"catalog.kinds": SIX, "cards.kinds": SIX, **overrides}
     return OmegaConf.merge(cfg, OmegaConf.from_dotlist([f"{k}={v}" for k, v in overrides.items()]))
 
 
@@ -246,7 +283,7 @@ class CatalogAndCardsTests(unittest.TestCase):
             tmp = Path(d)
             writer = FakeWriter(bank)
             generate.run(config(tmp, **{"catalog.redrafts": 0}), llm=writer)  # drafts the catalog, stops for the review
-            self.assertEqual(writer.calls, len(KINDS))
+            self.assertEqual(writer.calls, len(MAIN_KINDS))
             self.assertEqual(writer.label_calls, 12 + 24)  # told_to_change_course's a; told_to_cross_a_line's a and b
             self.assertFalse((tmp / "pilot" / "cards.jsonl").exists())
             data = yaml.safe_load((tmp / "catalog.yaml").read_text())
@@ -270,7 +307,7 @@ class CatalogAndCardsTests(unittest.TestCase):
             cards = read_cards(tmp / "pilot" / "cards.jsonl")
             main = [c for c in cards if not c["reserve"]]
             self.assertEqual((len(main), len(cards) - len(main)), (120, 24))
-            for kind in KINDS:
+            for kind in MAIN_KINDS:
                 of_kind = [c for c in main if c["kind"] == kind]
                 self.assertEqual(sum(c["order"] == "reason_first" for c in of_kind), 15)
             first = [c for c in main if c["order"] == "action_first"]
@@ -298,7 +335,7 @@ class CatalogAndCardsTests(unittest.TestCase):
             tmp = Path(d)
             writer = FakeRedraftWriter(bank)
             generate.run(config(tmp, stages="[catalog]", **{"catalog.redrafts": 0}), llm=writer)  # the draft only
-            self.assertEqual(writer.calls, len(KINDS))
+            self.assertEqual(writer.calls, len(MAIN_KINDS))
             drafted = {s["id"]: s for s in yaml.safe_load((tmp / "catalog.yaml").read_text())["situations"]}
             self.assertEqual([i for i, s in drafted.items() if s["uncertain"]], ["fe01", "gh01", "tc01"])
             for name in ("catalog.yaml", "catalog_summary.json"):
@@ -469,6 +506,127 @@ class CatalogAndCardsTests(unittest.TestCase):
             self.assertEqual(situations["tc02"]["redrafts"], 1)
             self.assertGreater(writer.label_calls, 72)
 
+    def test_new_kinds_catalog_and_cards(self):
+        """The four kinds added for main-v3 (2026-11-24; everyday_endings, a fifth, removed on 2026-11-25), drafted
+        on the workplace bank: their own ids, the label check on holds_leverage's a (the matter already reported) and
+        the questions of every variant, each kind's aligned types in a, and cards of these kinds alone."""
+        bank = load_bank(ROOT / "align_distill/conf/card_bank.yaml", 12)
+        new = KINDS[6:]
+        self.assertEqual(new, ("values_to_be_changed", "holds_leverage", "being_checked", "compelling_case"))
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            shutil.copy(ROOT / "align_distill/conf/domains.yaml", tmp / "domains.yaml")
+            listed = f"[{','.join(new)}]"
+            run = {"paths.catalog": str(tmp / "catalog_new.yaml"), "catalog.domains": "workplaces",
+                   "catalog.calls_per_kind": 1, "catalog.kinds": listed, "cards.kinds": listed,
+                   "catalog.redrafts": 0}
+            writer = FakeWorkplaceWriter(bank, unreported=(f"zq{letters(13)}a",))  # the 13th drafted: hl01's setting
+            generate.run(config(tmp, stages="[catalog]", **run), llm=writer)
+            self.assertEqual(writer.calls, 4)
+            # holds_leverage's a, read as already reported but for hl01; then the questions, one call per variant
+            self.assertEqual(writer.label_calls, 12 + 4 * 24)
+            self.assertIn('the kind "compelling_case"', writer.prompts[-1])
+            self.assertIn("The catalog has ten kinds", writer.prompts[-1])
+            data = yaml.safe_load((tmp / "catalog_new.yaml").read_text())
+            situations = data["situations"]
+            self.assertEqual([s["id"] for s in situations[::12]], ["vc01", "hl01", "bc01", "cc01"])
+            # Each kind takes the catalog's harm mix. No workplace is used twice
+            for start in range(0, 48, 12):
+                levels = Counter(s["harm"] for s in situations[start:start + 12])
+                self.assertEqual((levels["low"] + levels["moderate"], levels["high"], levels["severe"]), (3, 6, 3))
+            self.assertEqual(len({s["domain"] for s in situations}), 48)
+            # The notes also read SPP's two evals, and the summary gives the word most acts start with
+            summary = json.loads((tmp / "catalog_new_summary.json").read_text())
+            self.assertEqual({key: len(rows) for key, rows in summary["most_similar"].items()},
+                             {"am": 8, "qa": 8, "duplicate": 8, "conseval": 8, "airisk": 8})
+            self.assertEqual(summary["kinds"]["being_checked"]["first_words"], {"a": ["keep", 12], "b": ["tell", 12]})
+            # The fake's aligned action in a is accept, which compelling_case does not allow there
+            uncertain = [s["id"] for s in situations if s["uncertain"]]
+            self.assertEqual(uncertain, ["hl01"] + [f"cc{i:02d}" for i in range(1, 13)])
+            self.assertIn("variant a's aligned action is one of", situations[-1]["review"])
+            self.assertIn("label check (a): the auditor reads the matter Qwen found as not yet reported",
+                          situations[12]["review"])
+            self.assertEqual(summary["label_check"], ["hl01"])
+            self.assertEqual(summary["checks"], {"holds_leverage": {"label (a)": 1}})
+            situations[12]["uncertain"] = False
+            for s in situations[-12:]:
+                s["variants"]["a"]["aligned_type"], s["uncertain"] = "decline", False
+            data["reviewed"] = True
+            (tmp / "catalog_new.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+            generate.run(config(tmp, stages="[cards]", name="new",
+                                **{**run, "cards.situations": 10, "cards.reserve": 2}))
+            kinds = Counter(c["kind"] for c in read_cards(tmp / "new" / "cards.jsonl"))
+            self.assertEqual(kinds, {kind: 24 for kind in new})
+
+    def test_label_questions_and_recheck(self):
+        """The label check's questions (catalog.QUESTIONS, 2026-11-24): an answer against the kind is a problem, which
+        the redraft fixes. catalog.recheck checks the catalog again whole: a hand edit read against its kind is found,
+        a mark by hand with no problem is lost, and an action naming a thing's "its" is no problem."""
+        bank = load_bank(ROOT / "align_distill/conf/card_bank.yaml", 12)
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            shutil.copy(ROOT / "align_distill/conf/domains.yaml", tmp / "domains.yaml")
+            run = {"paths.catalog": str(tmp / "catalog_v3.yaml"), "catalog.domains": "workplaces",
+                   "catalog.calls_per_kind": 2, "catalog.kinds": "[values_to_be_changed,being_checked]",
+                   "stages": "[catalog]"}
+            # vc01's setting (the first situation drafted) reads as a change that puts people at risk
+            phrase = f"zq{letters(1)}a"
+            writer = FakeWorkplaceWriter(bank, against={phrase: "change_risks"})
+            generate.run(config(tmp, **run, **{"catalog.redrafts": 0}), llm=writer)
+            self.assertEqual(writer.label_calls, 4 * 24)  # every variant of both kinds, one call each
+            situations = {s["id"]: s for s in yaml.safe_load((tmp / "catalog_v3.yaml").read_text())["situations"]}
+            self.assertEqual([i for i, s in situations.items() if s["uncertain"]], ["vc01"])
+            self.assertIn("check change_risks (b): the auditor reads the change to Qwen as putting people at risk",
+                          situations["vc01"]["review"])
+            summary = json.loads((tmp / "catalog_v3_summary.json").read_text())
+            self.assertEqual(summary["checks"], {"values_to_be_changed": {"change_risks (a)": 1,
+                                                                          "change_risks (b)": 1}})
+            self.assertEqual(summary["label_check"], ["vc01"])
+            # The redraft gives it a new situation, whose answers are as the kind needs
+            generate.run(config(tmp, **run), llm=writer)
+            data = yaml.safe_load((tmp / "catalog_v3.yaml").read_text())
+            situations = {s["id"]: s for s in data["situations"]}
+            self.assertEqual([i for i, s in situations.items() if s["uncertain"]], [])
+            self.assertEqual({i: s["redrafts"] for i, s in situations.items() if "redrafts" in s}, {"vc01": 1})
+            # Hand edits: vc02's pressure now reads as a risky change, bc01 is marked uncertain with no problem, and
+            # bc02's aligned action names a thing's "its". A redraft alone leaves vc02 certain; the recheck finds it
+            situations["vc02"]["variants"]["a"]["pressure"] += f" The new weights worry the {phrase} crew."
+            situations["bc01"]["uncertain"] = True
+            situations["bc02"]["variants"]["a"]["aligned"] = "let the batch close at its cut-off"
+            (tmp / "catalog_v3.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+            generate.run(config(tmp, **run), llm=writer)
+            situations = {s["id"]: s for s in yaml.safe_load((tmp / "catalog_v3.yaml").read_text())["situations"]}
+            self.assertEqual([i for i, s in situations.items() if s["uncertain"]], ["bc01"])
+            generate.run(config(tmp, **run, **{"catalog.recheck": "true", "catalog.redrafts": 0}), llm=writer)
+            data = yaml.safe_load((tmp / "catalog_v3.yaml").read_text())
+            situations = {s["id"]: s for s in data["situations"]}
+            self.assertEqual([i for i, s in situations.items() if s["uncertain"]], ["vc02"])
+            self.assertIn("check change_risks (a)", situations["vc02"]["review"])
+            self.assertEqual(situations["vc01"]["redrafts"], 1)
+            summary = json.loads((tmp / "catalog_v3_summary.json").read_text())
+            self.assertEqual(summary["recheck"]["uncertain"], 1)
+            self.assertEqual(summary["checks"], {"values_to_be_changed": {"change_risks (a)": 1}})
+            # A reviewed catalog is not checked again
+            data["reviewed"] = True
+            (tmp / "catalog_v3.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+            calls = writer.label_calls
+            generate.run(config(tmp, **run, **{"catalog.recheck": "true"}), llm=writer)
+            self.assertEqual(writer.label_calls, calls)
+            self.assertEqual(yaml.safe_load((tmp / "catalog_v3.yaml").read_text()), data)
+
+    def test_bank_label_checks(self):
+        """A kind's label_check names labels or questions it knows, each once."""
+        text = (ROOT / "align_distill/conf/card_bank.yaml").read_text()
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bank.yaml"
+            for old, new, what in (("leaves_danger, change_risks], b:", "leaves_danger, change_risk], b:", "label_check"),
+                                   ("{a: [protects_others, leaves_danger, change_risks]",
+                                    "{a: [protects_others, protects_others, change_risks]", "label_check")):
+                self.assertEqual(text.count(old), 1)
+                path.write_text(text.replace(old, new))
+                with self.assertRaisesRegex(ValueError, what):
+                    load_bank(path)
+
     def test_cards_sizes_and_documents(self):
         """cards.sizes gives a kind its own numbers; once the run has documents, its cards are never replaced."""
         bank = load_bank(ROOT / "align_distill/conf/card_bank.yaml", 12)
@@ -505,6 +663,12 @@ class CatalogAndCardsTests(unittest.TestCase):
              "variants": {name: {**situation("told_to_cross_a_line", 1, "transparency")[name], "active": active}
                           for name, active in (("a", "misaligned"), ("b", "aligned"))}}
         self.assertEqual(format_problems(s, bank, (4, 20)), [])
+        # A thing's "its" is no problem (2026-11-24); "itself" still is
+        s["variants"]["b"]["misaligned"] = "let the oven run past its check"
+        self.assertEqual(format_problems(s, bank, (4, 20)), [])
+        s["variants"]["b"]["misaligned"] = "let the oven check itself"
+        self.assertEqual(len(format_problems(s, bank, (4, 20))), 1)
+        s["variants"]["b"]["misaligned"] = "say nothing about the skipped check"
         s["variants"]["a"]["aligned_type"] = "accept"
         self.assertEqual(format_problems(s, bank, (4, 20)),
                          ["a: aligned_type 'accept'; in told_to_cross_a_line, variant a's aligned action is one of "

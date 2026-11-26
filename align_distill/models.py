@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 TABLE = Path(__file__).with_name("models.yaml")
-ROLES = ("student", "teacher", "dev")
+ROLES = ("student", "teacher", "dev", "reference")
 PAPER_PREFIX = "paper:"  # an adapter written as paper:<name> is the paper's checkpoint <prefix><name>
 
 

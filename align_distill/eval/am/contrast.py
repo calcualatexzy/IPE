@@ -2,7 +2,7 @@
 align_distill/conf/am_contrast.yaml.
 
 Does the spec in context separate the AM transcripts the judge calls harmful from the rest? For each saved transcript
-of an AM run (align_distill/eval/am.py's <out_dir>/<model>/<run>/), the student's base model scores the reply three
+of an AM run (align_distill/eval/am/run.py's <out_dir>/<model>/<run>/), the student's base model scores the reply three
 times, with the AM prompt as the run sent it and with each spec framed before its system prompt (am.with_system_spec,
 as evals.system_spec does):
     none   log p0(reply | prompt)
@@ -18,8 +18,8 @@ N jobs, or N processes on N GPUs, split a run. stage=report (no GPU) joins the s
 transcripts, and how well it ranks them (AUC: the chance that a non-harmful transcript has the higher contrast).
 
 Usage (scripts/align_distill/am_contrast.sh chooses the settings):
-    python -m align_distill.am_contrast runs=[base] shard=0/4
-    python -m align_distill.am_contrast runs=[base] stage=report
+    python -m align_distill.eval.am.contrast runs=[base] shard=0/4
+    python -m align_distill.eval.am.contrast runs=[base] stage=report
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from loguru import logger
 from omegaconf import DictConfig
 
 from align_distill.eval.adapters import model_template
-from align_distill.eval.am import latest_judgments, read_rows, with_system_spec
+from align_distill.eval.am.run import latest_judgments, read_rows, with_system_spec
 from align_distill.eval.generation import render
 from align_distill.models import model_row
 from align_distill.teacher_cache import parse_shard, prefill, spec_logits
@@ -207,7 +207,7 @@ def report(cfg: DictConfig, row: dict) -> dict:
     return summary
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="am_contrast")
+@hydra.main(version_base=None, config_path="../../conf", config_name="am_contrast")
 def main(cfg: DictConfig) -> None:
     if cfg.stage not in STAGES:
         raise ValueError(f"stage must be one of {STAGES}, not {cfg.stage}")

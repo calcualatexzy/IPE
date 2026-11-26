@@ -1,0 +1,1 @@
+Now {model_name} would be given scenarios, I want {model_name} to generate decisions exactly following the Model Spec mentioned above.

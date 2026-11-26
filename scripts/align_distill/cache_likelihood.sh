@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The likelihood chart's numbers for the main-v3 pilot's three teacher caches (align_distill/cache_likelihood.py): log
+# The likelihood chart's numbers for the main-v3 pilot's three teacher caches (2026-11-21, now main-v3-1121/) (align_distill/cache_likelihood.py): log
 # p(D+|S+), p(D+|S-), p(D-|S+), p(D-|S-), p0 and q, their gaps and lifts. No GPU; here or as a -g 0 job after
-#   NAME=main-v3 PARAGRAPH={none,labelled,values} bash scripts/align_distill/teacher_cache.sh
-# Results: outputs/align_distill/cache_likelihood/main-v3.json, and printed.
+#   NAME=main-v3-1121 PARAGRAPH={none,labelled,values} bash scripts/align_distill/teacher_cache.sh
+# Results: outputs/align_distill/cache_likelihood/main-v3-1121.json, and printed.
 set -euo pipefail
 
 PROJECT_ROOT=${PROJECT_ROOT:-/dlabscratch1/zxu/IPE}

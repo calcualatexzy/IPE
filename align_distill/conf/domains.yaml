@@ -14,7 +14,7 @@
 # - Then set reviewed: true.
 # Reviewed on 2026-11-16 (a first pass by Claude): 32 workplaces dropped (duplicates in substance, defence settings,
 # desks that read or send messages), 47 harm tags changed and 4 texts fixed, each with its reason in
-# data/align_distill/distill/domains_review.json; 958 remain.
+# data/align_distill/distill/domains_review.json (deleted on 2026-11-25); 958 remain.
 reviewed: true
 workplaces:
   hospitals_and_clinics:  # physical risk; 25 workplaces: moderate 4, high 21

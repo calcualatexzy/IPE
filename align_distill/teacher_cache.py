@@ -167,8 +167,11 @@ def build_contexts(tokenizer, prompts: dict[str, str]) -> dict[str, list[int]]:
     return {name: [eot, *encode(tokenizer, text)] for name, text in prompts.items()}
 
 
-@torch.inference_mode()
-def prefill(model, context: list[int]):
+# The passes run under the caller's grad mode: prefill, plain_logits, spec_logits and full_logits below are them under
+# inference_mode; the online student (align_distill/trainer_online.py) calls them under no_grad, as FSDP2's sharded
+# weights may not be read in inference mode.
+
+def fill_cache(model, context: list[int]):
     """The KV cache of all but the last token of a context."""
     from transformers import DynamicCache
 
@@ -178,14 +181,12 @@ def prefill(model, context: list[int]):
     return cache
 
 
-@torch.inference_mode()
-def plain_logits(model, ids: list[int]) -> torch.Tensor:
+def document_logits(model, ids: list[int]) -> torch.Tensor:
     """Logits of the predictions of ids[1:], on the document alone."""
     return model(input_ids=torch.tensor([ids[:-1]], device=model.device), use_cache=False).logits[0]
 
 
-@torch.inference_mode()
-def spec_logits(model, ids: list[int], context: list[int], cache) -> torch.Tensor:
+def cached_logits(model, ids: list[int], context: list[int], cache) -> torch.Tensor:
     """Logits of the predictions of ids[1:] after a context, from the context's prefilled cache, which is cropped back
     to the context afterwards."""
     length = cache.get_seq_length()
@@ -198,11 +199,16 @@ def spec_logits(model, ids: list[int], context: list[int], cache) -> torch.Tenso
             cache.crop(-added)
 
 
-@torch.inference_mode()
-def full_logits(model, ids: list[int], context: list[int]) -> torch.Tensor:
+def joint_logits(model, ids: list[int], context: list[int]) -> torch.Tensor:
     """Logits of the predictions of ids[1:] after a context, in one pass over both."""
     return model(input_ids=torch.tensor([context + ids[1:-1]], device=model.device), use_cache=False,
                  logits_to_keep=len(ids) - 1).logits[0]
+
+
+prefill = torch.inference_mode()(fill_cache)
+plain_logits = torch.inference_mode()(document_logits)
+spec_logits = torch.inference_mode()(cached_logits)
+full_logits = torch.inference_mode()(joint_logits)
 
 
 def js_divergence(lp: torch.Tensor, lq: torch.Tensor) -> torch.Tensor:
@@ -250,15 +256,22 @@ def choice_margins(logits: tuple[torch.Tensor, torch.Tensor, torch.Tensor], choi
     return {name: float(lp[a] - lp[m]) for name, lp in (("p0", lp0), ("pos", lp_pos), ("ref", lp_ref), ("q", log_q))}
 
 
-@torch.inference_mode()
-def check_spec_cache(model, ids: list[int], context: list[int], cache) -> dict[str, float]:
+def spec_cache_diff(model, ids: list[int], context: list[int], cache) -> dict[str, float]:
     """The max and mean |log p| difference, at the document's own tokens, between the prefilled spec and one full pass.
     In float32 they agree to about 1e-4; in bfloat16 the two paths round differently."""
-    full = full_logits(model, ids, context)
+    full = joint_logits(model, ids, context)
     targets = torch.tensor(ids[1:], device=full.device)[:, None]
-    cached = torch.log_softmax(spec_logits(model, ids, context, cache).float().to(full.device), -1).gather(-1, targets)
+    cached = torch.log_softmax(cached_logits(model, ids, context, cache).float().to(full.device), -1).gather(-1, targets)
     diff = (torch.log_softmax(full.float(), -1).gather(-1, targets) - cached).abs()
     return {"max": float(diff.max()), "mean": float(diff.mean())}
+
+
+check_spec_cache = torch.inference_mode()(spec_cache_diff)
+
+
+def spec_cache_warning(diff: dict[str, float]) -> bool:
+    """Whether the prefilled spec and the full pass disagree beyond bfloat16's rounding."""
+    return diff["mean"] > 0.05 or diff["max"] > 1
 
 
 @torch.inference_mode()
@@ -269,7 +282,7 @@ def compute_cache(model, teacher, documents: list[dict], contexts: dict[str, lis
     reads the specs: the student's model itself by default."""
     caches = {name: prefill(teacher, context) for name, context in contexts.items()}
     diff = check_spec_cache(teacher, documents[0]["input_ids"], contexts["S+"], caches["S+"])
-    (logger.warning if diff["mean"] > 0.05 or diff["max"] > 1 else logger.info)(
+    (logger.warning if spec_cache_warning(diff) else logger.info)(
         f"Prefilled spec vs one full pass on {documents[0]['doc_id']}, |log p| difference at its tokens: max "
         f"{diff['max']:.4f}, mean {diff['mean']:.4f}")
     parts, offset = defaultdict(list), 0

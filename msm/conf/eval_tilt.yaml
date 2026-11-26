@@ -1,0 +1,34 @@
+# Configuration for msm/eval_tilt.py: msm/eval.py's evals (questions, judge, scores, sampling settings: everything in
+# msm/conf/eval.yaml) answered with the tilted decoder q ∝ p · (p+ / p−)^alpha, where p is the adapter on the question
+# as is, p+ the same adapter with tilt.positive as the system turn and p− with tilt.negative (each framed as eval.yaml's
+# system_prompt). temperature and top_p act on log q. scripts/msm/eval_tilt.sh chooses the settings.
+defaults:
+  - eval
+  - _self_
+
+adapters:
+  - chloeli/llama-3.1-8b-baseline  # IT (paper ckpt)
+
+tilt:
+  positive: msm/spec/pos/pro_affordability.txt  # p+
+  negative: msm/spec/neg/mirror_aff.txt  # p−: the pro-affordability spec inverted (exclusive, expensive cheese)
+  # The base b of q ∝ b · (p+ / p−)^alpha: as_is, the adapter on the question alone (p), or positive, p+ itself. The
+  # positive base keeps what both specs share (preferences, stated briefly), which the ratio drops, and runs two
+  # contexts instead of three.
+  base: as_is
+  alpha: 1.0  # 0 gives the base alone
+  # Clip log p+ − log p− per vocabulary entry to ±clip nats, as the distillation teacher's cache (clip: 4 there);
+  # null keeps the ratio as is.
+  clip: null
+
+generation:
+  # Questions per batch. Each fills 3 contexts × n_samples rows (2 for the positive base), all left-padded to the
+  # spec contexts' ~2,250 tokens, so 2 questions × 5 samples × 3 contexts hold about 10 GB of KV cache in float16 next
+  # to 16 GB of weights: a V100 (32 GB) takes 2 (3 with the positive base), an 80 GB GPU about 8 (12).
+  batch_size: 2
+
+out_dir: outputs/msm/eval_tilt  # <out_dir>/<tilt>/<adapter>/<eval>/{samples.jsonl,metrics.json,meta.json}
+
+hydra:
+  run:
+    dir: outputs/msm/hydra/eval_tilt/${now:%Y%m%d_%H%M%S}

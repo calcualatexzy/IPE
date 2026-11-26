@@ -10,6 +10,8 @@
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 4 --large-shm \
 #     -e PRESET=full align-distill-distill-qwen25 -- bash /dlabscratch1/zxu/IPE/scripts/align_distill/train_distill.sh
 # Smoke job: -g 2 -e MODEL=qwen25_7b -e NAME=smoke -e MSM=smoke -e NPROC=2, and training.max_steps=4
+# The windowed student of main-v3 (docs/align_distill_windowed.md): -e PRESET=windowed -e NAME=main-v3 -e SPECS=scenarios
+# (PRESET=windowed_kd_only for the same with KD only)
 # The run evaluates at the start, every 50 steps and at the end, and ends by printing the last evaluation against the
 # first. The adapter lands in outputs/align_distill/train/<run>/final, the INIT_ADAPTER of train_aft.sh.
 # Environment: PROJECT_ROOT, CONDA_SH, CONDA_ENV, HF_HOME and NPROC (GPUs, default 4) are optional overrides.
@@ -46,22 +48,55 @@ MSM=${MSM:-msm-20m}
 # PRESET=existential  # as full, with the existential factorized negative (TARGET=existential)
 # PRESET=judgment  # as full, with the judgment factorized negative (TARGET=judgment)
 # PRESET=msm  # MSM: CE on every token of the corpus subsample, no KD
+# PRESET=windowed  # as full, with q computed during training from the pairs (no cache), anchored on a snapshot of the
+#                  # student that moves every WINDOW steps (online: in the config, docs/align_distill_windowed.md)
+# PRESET=windowed_kd_only  # as windowed, with KD only: the student moves only toward the tilted snapshot
 PRESET=${PRESET:-full}
+
+# Uncomment one, or set SPECS in the environment: the spec files the teacher read (teacher_cache.sh's SPECS), which name
+# the cache, or which the windowed preset reads
+# SPECS=plain  # pro_align.txt and neg_align.txt (main, main-v2)
+# SPECS=follow  # *_follow.txt
+# SPECS=scenarios  # *_scenarios.txt (main-v3's teacher)
+SPECS=${SPECS:-plain}
+case "$SPECS" in
+  plain) SPEC_END="" ;;
+  follow|scenarios) SPEC_END=_$SPECS ;;
+  *) echo "Unknown SPECS=$SPECS; choose plain, follow or scenarios." >&2
+     exit 1 ;;
+esac
+
+# The windowed preset's target (teacher_cache.sh's ALPHA and CLIP, the total over all windows), and its window in
+# optimizer steps (the evaluations' interval, so that every window starts with one)
+ALPHA=1.0
+CLIP=4
+WINDOW=50
+
 CE_WEIGHT=1.0
 KD_WEIGHT=1.0
-CACHE='neg_align-a1-clip4-k64-*'  # alpha 1, clip 4 nats, top 64 (teacher_cache.sh's defaults)
+CACHE="neg_align$SPEC_END-a1-clip4-k64-*"  # alpha 1, clip 4 nats, top 64 (teacher_cache.sh's defaults)
 ACCUMULATION=2  # 1 pair x 2 x 4 GPUs = 8 pairs (16 documents) per optimizer step
 case "$PRESET" in
   full) ;;
   kd_only) CE_WEIGHT=0 ;;
   ce_only) KD_WEIGHT=0 ;;
-  context) CACHE='neutral-a1-clip4-k64-*' ;;
+  context) CACHE="neutral-a1-clip4-k64-*" ;;
   existential) CACHE='neg_align_existential-a1-clip4-k64-*' ;;
   judgment) CACHE='neg_align_judgment-a1-clip4-k64-*' ;;
   msm) KD_WEIGHT=0; ACCUMULATION=4 ;;  # 1 document x 4 x 4 GPUs = 16 documents per optimizer step
-  *) echo "Unknown PRESET=$PRESET; choose full, kd_only, ce_only, context, existential, judgment or msm." >&2
+  windowed) ;;
+  windowed_kd_only) CE_WEIGHT=0 ;;
+  *) echo "Unknown PRESET=$PRESET; choose full, kd_only, ce_only, context, existential, judgment, msm, windowed or" \
+          "windowed_kd_only." >&2
      exit 1 ;;
 esac
+# The windowed presets compute q during training, with no cache
+ONLINE=false
+[[ "$PRESET" != windowed && "$PRESET" != windowed_kd_only ]] || ONLINE=true
+if [[ ( "$PRESET" == existential || "$PRESET" == judgment ) && $SPECS != plain ]]; then
+  echo "PRESET=$PRESET has no $SPECS spec files; use SPECS=plain." >&2
+  exit 1
+fi
 
 # The teacher whose cache to train on (teacher_cache.sh's TEACHER): the student's own model, or a larger Qwen, whose tag
 # starts the cache's name
@@ -79,8 +114,12 @@ if [[ -n "$ANCHOR" && -z "$INIT_ADAPTER" ]] || [[ -z "$ANCHOR" && -n "$INIT_ADAP
   echo 'Set ANCHOR and INIT_ADAPTER together, or neither.' >&2
   exit 1
 fi
-if [[ -n "$ANCHOR" && "$PRESET" == msm ]]; then
-  echo 'PRESET=msm trains on a corpus, which has no anchor: unset ANCHOR and INIT_ADAPTER.' >&2
+if [[ -n "$ANCHOR" && ( "$PRESET" == msm || $ONLINE == true ) ]]; then
+  echo "PRESET=$PRESET has no cache anchor and starts from a fresh LoRA: unset ANCHOR and INIT_ADAPTER." >&2
+  exit 1
+fi
+if [[ "$TEACHER" != null && $ONLINE == true ]]; then
+  echo "PRESET=$PRESET reads the specs with the student's own model: unset TEACHER." >&2
   exit 1
 fi
 [[ -z "$ANCHOR" ]] || CACHE="anchor-$ANCHOR-$CACHE"
@@ -88,6 +127,11 @@ fi
 
 if [[ "$PRESET" == msm ]]; then
   DATA_ARGS=("data.corpus=data/align_distill/msm/$MSM/train.jsonl" "data.heldout=data/align_distill/msm/$MSM/heldout.jsonl")
+elif [[ $ONLINE == true ]]; then
+  DATA_ARGS=("data.pairs=data/align_distill/distill/$NAME/pairs.jsonl"
+             "online.specs.pos=align_distill/specs/pro_align$SPEC_END.txt"
+             "online.specs.neg=align_distill/specs/neg_align$SPEC_END.txt"
+             "online.alpha=$ALPHA" "online.clip=$CLIP" "online.window_steps=$WINDOW")
 else
   DATA_ARGS=("data.cache=data/align_distill/distill/$NAME/teacher_cache/$MODEL/$CACHE")
 fi

@@ -11,7 +11,8 @@ A card is one variant of a situation (align_distill/datagen/situations.py) and t
 Code, never the writer, sets the label: the pro-align branch takes options.aligned, the neg-align branch
 options.misaligned.
 
-Which situations: those of the reviewed catalog, paths.catalog. Which kinds get cards: cards.kinds, or all of KINDS.
+Which situations: those of the reviewed catalog, paths.catalog (main-v3: catalog_main_v3.yaml, the ten kinds). Which
+kinds get cards: cards.kinds, or all of KINDS.
 Per kind, every situation in one order seeded by `seed` that interleaves the kind's QA dimensions, so that a smaller
 run takes the first situations of a larger one (the smoke's are the pilot's first) and still covers the kind's main
 dimensions. The first cards.situations of each
@@ -31,7 +32,8 @@ cards.overwrite=true, and never once the run has documents (stage 3's logs or st
 paths.docs). Stage 3 also ignores its logged rows of a card that has changed.
 
 The main run's cards.jsonl is the record of its cards: it was built in two passes (the told split of 2026-11-17,
-docs/align_distill.md#the-told-split-2026-11-17), so stage 2 on catalog_main.yaml would not build the same cards again.
+docs/align_distill.md#the-told-split-2026-11-17), so stage 2 would not build the same cards again. Its catalog,
+catalog_main.yaml, was merged into catalog_main_v3.yaml on 2026-11-25 (docs/align_distill.md#catalog-merged-2026-11-25).
 
 Writes, in paths.dir:
     cards.jsonl         one card per line: the main cards, then the reserve, each in a seeded order with twins adjacent
@@ -87,6 +89,15 @@ def load_catalog(path: Path, bank: dict, require_review: bool, action_words) -> 
         logger.warning(f"Draft cards: leaving out the {len(uncertain)} situations marked uncertain: "
                        f"{', '.join(uncertain)}")
     return kept, reviewed, uncertain
+
+
+def load_situations(cfg: DictConfig, bank: dict, kinds: list[str]) -> tuple[list[dict], bool, list[str], str]:
+    """The situations of the carded kinds in the catalog at paths.catalog, checked as load_catalog does; whether it is
+    reviewed; the uncertain ones left out; and its sha256."""
+    path = resolve_path(cfg.paths.catalog)
+    kept, reviewed, uncertain = load_catalog(path, bank, cfg.cards.require_review, cfg.catalog.action_words)
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    return [s for s in kept if s["kind"] in kinds], reviewed, uncertain, sha
 
 
 def carded_kinds(cfg: DictConfig) -> list[str]:
@@ -242,13 +253,11 @@ def format_summary(s: dict, path: Path) -> str:
 def run_cards(cfg: DictConfig) -> None:
     run_dir = resolve_path(cfg.paths.dir)
     path, summary_path = run_dir / "cards.jsonl", run_dir / "cards_summary.json"
-    catalog_path = resolve_path(cfg.paths.catalog)
     bank = load_bank(cfg.paths.bank)
-    situations, reviewed, left_out = load_catalog(catalog_path, bank, cfg.cards.require_review,
-                                                  cfg.catalog.action_words)
     kinds = carded_kinds(cfg)
+    situations, reviewed, left_out, sha = load_situations(cfg, bank, kinds)
     tokenizers = {tag: tokenizer_for(tag) for tag in cfg.tokenizers}
-    cards = build_cards([s for s in situations if s["kind"] in kinds], bank, cfg, tokenizers, kinds)
+    cards = build_cards(situations, bank, cfg, tokenizers, kinds)
     text = jsonl_text(cards)
     if path.exists() and path.read_text(encoding="utf-8") != text:
         docs_dir = resolve_path(cfg.paths.docs)
@@ -263,7 +272,7 @@ def run_cards(cfg: DictConfig) -> None:
         logger.warning(f"Replacing {path}")
     write_atomic(path, text)
     summary = {**summarize(cards), "catalog_reviewed": reviewed, "left_out": left_out,
-               "catalog_sha256": hashlib.sha256(catalog_path.read_bytes()).hexdigest()[:16],
+               "catalog_sha256": sha,
                "settings": {"seed": cfg.seed, "kinds": kinds,
                             "sizes": {kind: list(kind_size(cfg, kind)) for kind in kinds},
                             "reason_first_share": cfg.cards.reason_first_share, "tokenizers": list(cfg.tokenizers)}}

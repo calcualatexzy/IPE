@@ -2,7 +2,8 @@
 # the dev machine, before the first job, because jobs run offline. scripts/align_distill/fetch.sh chooses the settings.
 
 models: [qwen25, qwen3]  # rows of align_distill/models.yaml
-# code    the paper's repository at the pinned commit (align_distill/upstream.py), into third_party/
+# code    the paper's repository and SPP's eval harness at their pinned commits (align_distill/upstream.py), into
+#         third_party/
 # base    each model's base weights, and the chat template its paper checkpoints ship (about 65 GB per 32B model)
 # g0      the paper's checkpoints for G0: both baselines, AFT only and MSM + AFT, with and without CoT (6 adapters of
 #         2.1 GB per model)
@@ -18,6 +19,10 @@ datasets:
   - chloeli/aft-no-cot-qwen3-philosophy-spec
   - chloeli/sft-it-mix  # the instruction mix, splits train_clean (Qwen2.5) and train_clean_nothink (Qwen3)
   - chloeli/spec-open-qa  # 151 open-ended questions over seven dimensions
+  # SPP's evals (align_distill/conf/eval_spp.yaml pins the snapshots it reads)
+  - dlab-spp/constitution-eval  # ConstitutionEval: 678 four-option items over the SPP constitution's 35 sections
+  - dlab-spp/airisk_dilemmas  # AIRiskDilemmas with audited risk labels (full_audited.jsonl)
+  - kellycyy/AIRiskDilemmas  # the original release, for its value map (value_map.jsonl)
 
 # The scratch volume is shared and nearly full: refuse a download that would leave less free space than this
 reserve_gb: 500

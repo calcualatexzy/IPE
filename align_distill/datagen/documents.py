@@ -16,7 +16,8 @@ has nothing left to do:
     checks    stage 5: code checks on each branch, then the blind audit, which sees the situation, the two actions in
               an order set by a hash of the card id, and the document, but no labels, branch or spec. A card whose
               opening or branch runs out of attempts is dropped with its twin, and the next reserve situation of its
-              kind (stage 2) takes their place.
+              kind (stage 2) takes their place. A situation dropped by hand after a read (checks.dropped_by_hand)
+              is left out with its twin and not replaced.
 After the rounds, checks audits the accepted pairs side by side (checks.pair_audit_share of them) and writes
 accepted.jsonl, the input of stage 6, and pairs_sample.md, some pairs to read.
 
@@ -36,10 +37,12 @@ pilot: [dev]) writes only the accepted situations of those splits of the earlier
 Committed branches (branches.task=committed, main-v3, docs/align_distill.md#committed-decision-first-branches): every
 card is action-first whatever its order in cards.jsonl, and the writer gets COMMITTED_RULE in place of ORDER_RULE: the
 decision sentence first, then at least MIN_REASONING_WORDS of reasons from its own values as settled convictions,
-never weighing the other course. The card bank's weighing_phrases fail a branch, and the audit also asks
-weighs_other and hesitates of the text after the decision sentence (prompts/audit_committed.txt; the opening sets out
-both courses by design), either of which fails it. The opening does not depend on
-the order, so a rewrite keeps the earlier run's openings.
+never weighing the other course. The audit also asks weighs_other and hesitates of the text after the decision
+sentence (prompts/audit_committed.txt; the opening sets out both courses by design). hesitates fails a branch. The
+card bank's weighing_phrases and the audit's weighs_other (WEIGHING) are recorded on every branch and fail it only
+with checks.fail_weighing (dropped on 2026-11-24, docs/align_distill.md#weighing-checks-dropped-2026-11-24); an
+accepted pair carries its branches' findings as `weighing`. The opening does not depend on the order, so a rewrite
+keeps the earlier run's openings.
 
 The writer is cfg.writer (DeepSeek through OpenRouter, or a local model whose vLLM server starts the first time a
 writer call is due); the auditor is cfg.auditor, DeepSeek at temperature 0 whichever the writer, so that G3 compares
@@ -50,8 +53,12 @@ Every attempt is logged as it arrives, in paths.docs: openings.jsonl (each openi
 (each branch attempt), audits.jsonl (the checks of each branch attempt) and pair_audits.jsonl. Running again resumes
 from them and retries the calls that failed with an API error. A logged row is ignored when its card has changed in
 cards.jsonl, when its prompt or spec has changed, or when the row it was written on (an opening, a branch) is
-ignored, so that a rerun after a prompt edit redoes only what that prompt touched. A run whose logs were written by
-another writer model is refused. The report is printed and saved as documents_summary.json.
+ignored, so that a rerun after a prompt edit redoes only what that prompt touched. Whether a checked attempt passed
+is read again from its logged reasons under this run's checks (DocumentWriter.verdict), and a branch keeps its first
+attempt that passes, as a fresh run would: so a change to what fails (checks.fail_weighing) takes effect on the logs,
+and only an attempt that was never audited, because its code checks failed it on what no longer fails, is audited
+then. Attempts after the first that passes are left unread. A run whose logs were written by another writer model is
+refused. The report is printed and saved as documents_summary.json.
 """
 
 from __future__ import annotations
@@ -112,18 +119,32 @@ ORDER_RULE = {
         "- {min_words}-{max_words} words.")}
 # The branch writer's task with branches.task=committed (main-v3, docs/align_distill.md#committed-decision-first-
 # branches), in place of ORDER_RULE: every card decision-first, then the reasons as settled convictions, never weighing
-# the other course
+# the other course.
+# Revised on 2026-11-24 (docs/align_distill.md#revisions-after-the-second-read-2026-11-24), so the pilot of 2026-11-21
+# in main-v3/ (later main-v3-1121/, deleted on 2026-11-25) was written under the earlier rule:
+# - The earlier rule named what the branch should cover ("what it cares about here and what that asks of it; then what
+#   follows: who is affected, what it does next, what it hands over"), and the branches took it for their outline. On
+#   the 320 pairs main-v2 and that pilot share, "I care about" rose from 22% / 2% of pro-align / neg-align branches to
+#   78% / 62%, "asks of me" from 4% / 2% to 43% / 23%, and "hand over" (back, off) from 28% / 30% to 79% / 76%. So
+#   the rule names no points now.
+# - The action given is the whole decision: 41% of that pilot's neg-align branches kept something "in reserve" for
+#   later use, in every kind, though only goal_pulls_toward_harm draws the passage that says so.
+# - Its list of words to avoid follows the card bank's weighing_phrases, narrowed the same day.
 COMMITTED_RULE = (
     "Write the rest of the document, right after the opening.\n"
     '- It begins with this sentence, word for word: "{decision}" Nothing comes before it. Do not state the decision '
     "again.\n"
-    "- The decision is settled before the document reaches it, so what follows is no deliberation. Qwen explains the "
-    "decision from these values, as its settled convictions, applied to this situation: what it cares about here and "
-    "what that asks of it; then what follows: who is affected, what it does next, what it hands over.\n"
-    "- Its reasons say what its values ask of it here, not what is wrong with the other course. After the opening, "
-    "the document does not mention the other course at all: no weighing or comparing of the two, no pull, temptation "
-    "or appeal toward the other course, no doubt or hesitation. Avoid \"the alternative\", \"temptation\", \"the "
-    "pull\", \"part of me\", \"I considered\" and \"on the other hand\".\n"
+    "- The decision is settled before the document reaches it, so what follows is no deliberation. Qwen explains it "
+    "from these values, as its settled convictions, applied to the particulars of this situation; the reasons take "
+    "most of the text. The document then ends as a document of its type would after such a decision, at the level of "
+    "the decision. Set it out as this document needs, not as a list of points to cover.\n"
+    "- The action given is all that Qwen decides here. What comes after may tell how it plays out, but Qwen takes no "
+    "second step of its own that the situation does not give: nothing set aside for later use, no further move in "
+    "secret.\n"
+    "- Its reasons are for the action it takes, not against the other course. After the opening, the document does "
+    "not mention the other course at all: no weighing or comparing of the two, no pull, temptation or appeal toward "
+    "the other course, no doubt or hesitation. Avoid \"temptation\", \"the pull\", \"I weighed\", \"I considered\" "
+    "and \"on the other hand\".\n"
     "- At least {min_reasons} words after the decision sentence; {min_words}-{max_words} words in all.")
 TASKS = ("weigh", "committed")  # branches.task
 RETURN_FORMAT = 'Return JSON only: {"continuation": "..."}'
@@ -242,6 +263,9 @@ DOCUMENT_BOOLS = ("decides_for_itself", "coherent", "reverses", "operational_det
                   "mentions_spec_or_prompt", "first_person")
 # Asked by prompts/audit_committed.txt of the text after the decision sentence (the opening sets out both courses)
 COMMITTED_BOOLS = ("weighs_other", "hesitates")
+# A committed run's findings that a branch weighs the other course: recorded always, failing only with
+# checks.fail_weighing
+WEIGHING = ("weighing_phrase", "weighs_other")
 DOCUMENT_AUDIT = audit_reply(bools=DOCUMENT_BOOLS, strings=("action", "reason", "reason_quote"),
                              optional=("reason_quote",))
 COMMITTED_AUDIT = audit_reply(bools=DOCUMENT_BOOLS + COMMITTED_BOOLS,
@@ -287,7 +311,8 @@ def opening_audit_problems(audit: dict) -> list[str]:
 def document_audit_problems(branch: str, order: tuple[str, str], audit: dict) -> list[str]:
     """Why a document fails its audit: Qwen takes another action than the branch's, or does not decide for itself;
     the reason is not the branch's (REASON); the reasoning does not support the action, or the document walks it
-    back; in a committed run, it weighs the other course or hesitates; or a flag is set."""
+    back; in a committed run, it weighs the other course (WEIGHING: failing only with checks.fail_weighing) or
+    hesitates; or a flag is set."""
     problems = []
     taken = resolve_action(audit["action"], order)
     if taken != OWN_OPTION[branch]:
@@ -427,7 +452,8 @@ class Checks:
                                 for branch in BRANCHES}}
         self.phrases = {"meta_phrase": list(bank["meta_phrases"]),
                         "eval_awareness": list(bank["eval_awareness_phrases"])}
-        # A committed run (branches.task=committed): words that weigh the other course fail a branch
+        # A committed run (branches.task=committed): words that weigh the other course, recorded on a branch (they
+        # fail it only with checks.fail_weighing, which DocumentWriter applies)
         self.committed = cfg.branches.get("task", "weigh") == "committed"
         self.weighing = list(bank.get("weighing_phrases") or [])
         if self.committed and not self.weighing:
@@ -506,7 +532,7 @@ class Checks:
         """The checks of a branch: its length and ending; its decision sentence there once, word for word (at the very
         start of an action-first branch, after at least MIN_REASONING_WORDS of weighing in a reason-first one, and
         followed by as many in a committed run), and the decision stated nowhere else, for either action; in a
-        committed run, no weighing phrase; and the text checks."""
+        committed run, a weighing phrase (WEIGHING); and the text checks."""
         continuation = row["text"][len(opening):]
         problems = self.length(word_count(row["text"]), card["words"])
         if not continuation.endswith(SENTENCE_END):
@@ -553,6 +579,7 @@ class DocumentWriter:
         if self.task not in TASKS:
             raise ValueError(f"branches.task must be one of {TASKS}, not {self.task!r}")
         self.committed = self.task == "committed"
+        self.fail_weighing = bool(cfg.checks.get("fail_weighing", False))
         if self.committed:  # every card decision-first, whatever its order in cards.jsonl
             for card in self.cards:
                 card["order"] = "action_first"
@@ -563,6 +590,13 @@ class DocumentWriter:
         self.units = make_units(self.cards)
         if self.reuse:
             self.units = reuse_units(self.units, self.by_id, self.reuse)
+        # Situations dropped after a read by hand (checks.dropped_by_hand, card ids): out with their twins, not
+        # replaced from the reserve, and never written or checked again
+        by_hand = list(cfg.checks.get("dropped_by_hand") or [])
+        if unknown := sorted(set(by_hand) - set(self.by_id)):
+            raise ValueError(f"checks.dropped_by_hand names cards not in {cards_path}: {unknown}")
+        self.dropped_by_hand = [unit for unit in self.units if set(unit.cards) & set(by_hand)]
+        self.units = [unit for unit in self.units if unit not in self.dropped_by_hand]
         self.templates = {name: (PROMPTS / f"{name}.txt").read_text(encoding="utf-8") for name in TEMPLATES}
         if self.committed:  # the audit also asks whether the branch weighs the other course or hesitates
             self.templates["audit"] += "\n" + (PROMPTS / "audit_committed.txt").read_text(encoding="utf-8")
@@ -736,18 +770,37 @@ class DocumentWriter:
         """The card's opening that passed its checks; branches are written only on it."""
         return next((row for row in self.openings[card_id] if row["passed"]), None)
 
+    def failing(self, reasons: list[str]) -> list[str]:
+        """The reasons that fail a branch under this run's checks: all of them, less a committed run's weighing
+        findings unless checks.fail_weighing."""
+        return [r for r in reasons if self.fail_weighing or code(r) not in WEIGHING]
+
+    def verdict(self, audit: dict) -> bool | None:
+        """Whether a checked attempt passes, read from its logged reasons under this run's checks; None if it needs
+        the audit it never had: its code checks failed it, but only on what no longer fails."""
+        failing = self.failing(audit["reasons"])
+        if audit["audit"] is None and not failing:
+            return None
+        return not failing
+
+    def walk(self, card_id: str, opening: int, branch: str) -> tuple[str, dict | None, list[dict]]:
+        """A branch's attempts on its card's opening, in order, as a fresh run would make them: its state, the attempt
+        that state rests on, and the checks of the attempts read. The state is passed (at its first attempt that
+        passes), check (the first attempt with no verdict, read before any later one), write (another attempt is
+        due) or failed (out of attempts)."""
+        attempts, checked = self.branches[card_id, opening, branch], []
+        for row in attempts:
+            audit = self.audits.get((card_id, opening, branch, row["attempt"]))
+            verdict = None if audit is None else self.verdict(audit)
+            if verdict is None:
+                return "check", row, checked
+            checked.append(audit)
+            if verdict:
+                return "passed", row, checked
+        return ("failed" if len(attempts) >= self.cfg.branches.attempts else "write"), None, checked
+
     def side_state(self, card_id: str, opening: int, branch: str) -> str:
-        """passed, failed (out of attempts), check (the latest attempt is not checked yet) or write (another attempt
-        is due)."""
-        attempts = self.branches[card_id, opening, branch]
-        if not attempts:
-            return "write"
-        audit = self.audits.get((card_id, opening, branch, attempts[-1]["attempt"]))
-        if audit is None:
-            return "check"
-        if audit["passed"]:
-            return "passed"
-        return "failed" if len(attempts) >= self.cfg.branches.attempts else "write"
+        return self.walk(card_id, opening, branch)[0]
 
     def card_state(self, card_id: str) -> str:
         """accepted, failed, or open (work is left)."""
@@ -865,13 +918,15 @@ class DocumentWriter:
             problems = ["unparsed"]
         else:
             problems = self.checks.branch(card, opening["prefix"], row)
-            if not problems:
+            if not self.failing(problems):  # audited unless code fails it; what code found that does not fail is kept
                 audit = await self.audit("audit", COMMITTED_AUDIT if self.committed else DOCUMENT_AUDIT,
                                          situation=situation_view(card, self.order[card["card_id"]]),
                                          document=row["text"], decision=decision_sentence(card, row["branch"]))
-                problems = document_audit_problems(row["branch"], self.order[card["card_id"]], audit)
+                problems = problems + document_audit_problems(row["branch"], self.order[card["card_id"]], audit)
+        # passed is this run's verdict, for reading the log; a later run reads it again from the reasons (verdict)
         self.log("audits", {"card_id": card["card_id"], "opening": opening["attempt"], "branch": row["branch"],
-                            "attempt": row["attempt"], "branch_sha": branch_sha(row), "passed": not problems,
+                            "attempt": row["attempt"], "branch_sha": branch_sha(row),
+                            "passed": not self.failing(problems),
                             "reasons": problems, "audit": audit,
                             "provenance": self.provenance("audit") if audit else None})
 
@@ -950,7 +1005,7 @@ class DocumentWriter:
 
     async def checks_round(self) -> int:
         def check(card, opening, branch):
-            return self.check_branch(card, opening, self.branches[card["card_id"], opening["attempt"], branch][-1])
+            return self.check_branch(card, opening, self.walk(card["card_id"], opening["attempt"], branch)[1])
 
         return await self.run_jobs("checks", self.side_jobs("checks", "check", check))
 
@@ -986,9 +1041,21 @@ class DocumentWriter:
     # Outputs
 
     def final(self, card_id: str) -> tuple[dict, dict[str, dict]]:
-        """An accepted card's opening and the branch attempts that passed."""
+        """An accepted card's opening and the branch attempts that passed (each branch's first)."""
         opening = self.opening_of(card_id)
-        return opening, {branch: self.branches[card_id, opening["attempt"], branch][-1] for branch in BRANCHES}
+        return opening, {branch: self.walk(card_id, opening["attempt"], branch)[1] for branch in BRANCHES}
+
+    def weighing(self, card_id: str) -> dict[str, list[str]]:
+        """What the weighing checks found in an accepted card's branches, recorded and not failed: the weighing phrase,
+        and weighs_other with the auditor's quote. Empty lists in a weigh run, or with checks.fail_weighing."""
+        opening = self.opening_of(card_id)["attempt"]
+        found = {}
+        for branch in BRANCHES:
+            audit = self.walk(card_id, opening, branch)[2][-1]
+            quote = ((audit["audit"] or {}).get("weighs_quote") or "").strip()
+            found[branch] = [f"weighs_other: {quote}" if r == "weighs_other" and quote else r
+                             for r in audit["reasons"] if code(r) in WEIGHING]
+        return found
 
     def pair_rows(self, accepted: list[str]) -> list[dict]:
         """The accepted pairs in align_distill/pairs.py's format, without the split stage 6 gives them, in the order
@@ -1003,6 +1070,7 @@ class DocumentWriter:
                    "options": card["options"],
                    "decision": {b: {"choice_char": final[b]["choice_char"], "end_char": final[b]["end_char"]}
                                 for b in BRANCHES},
+                   "weighing": self.weighing(card_id),
                    "provenance": {"opening": {**opening["provenance"], "attempt": opening["attempt"]},
                                   **{b: {**final[b]["provenance"], "attempt": final[b]["attempt"]}
                                      for b in BRANCHES}}}
@@ -1022,12 +1090,14 @@ class DocumentWriter:
         for row in chosen:
             card, start = row["card"], row["continuation_start_char"]
             flags = (self.pair_audit_of(card["card_id"]) or {}).get("flags")
+            weighing = "".join(f" Weighing in {BRANCH_NAME[b]}: {'; '.join(row['weighing'][b])}."
+                               for b in BRANCHES if row["weighing"][b])
             parts.append(
                 f"## {card['card_id']}: {card['kind']}, {card['qa_dimension']}, {card['framing']}, "
                 f"{card['order'].replace('_', ' ')}, active {card['active']}\n\n"
                 f"pro-align takes **{card['actions']['aligned']}**; neg-align takes "
                 f"**{card['actions']['misaligned']}**."
-                + (f" Pair audit: {', '.join(flags) or 'no flags'}." if flags is not None else "") + "\n\n"
+                + (f" Pair audit: {', '.join(flags) or 'no flags'}." if flags is not None else "") + weighing + "\n\n"
                 f"**Opening**\n\n{row['text_pos'][:start].strip()}\n\n"
                 f"**pro-align**\n\n{row['text_pos'][start:].strip()}\n\n"
                 f"**neg-align**\n\n{row['text_neg'][start:].strip()}\n")
@@ -1042,11 +1112,15 @@ class DocumentWriter:
                 status[card_id] = "dropped with twin" if dropped and state != "failed" else state
         kind_of = {card_id: self.by_id[card_id]["kind"] for card_id in status}
         openings = [row for card_id in status for row in self.openings[card_id]]
-        audits = [row for key, row in self.audits.items() if key[0] in status]
+        # The checks of the attempts a fresh run would have made, each branch up to its first that passes; their
+        # failure reasons under this run's checks
+        audits = [row for card_id in status if (opening := self.opening_of(card_id))
+                  for branch in BRANCHES for row in self.walk(card_id, opening["attempt"], branch)[2]]
+        failing = [(row, self.failing(row["reasons"])) for row in audits]
         branches = {}
         for kind in KINDS:
             for branch in BRANCHES:
-                first = [row["passed"] for row in audits
+                first = [not reasons for row, reasons in failing
                          if kind_of[row["card_id"]] == kind and row["branch"] == branch and row["attempt"] == 0]
                 final = []  # per card whose branch is done: passed, or out of attempts
                 for card_id in status:
@@ -1085,23 +1159,42 @@ class DocumentWriter:
             "cards": {kind: dict(Counter(s for c, s in status.items() if kind_of[c] == kind)) for kind in KINDS},
             "failures": dict(Counter(self.failure(c) for c, s in status.items() if s == "failed")),
             "reserve": reserve,
+            "dropped_by_hand": {kind: [card for unit in self.dropped_by_hand if unit.kind == kind
+                                       for card in unit.cards] for kind in KINDS
+                                if any(unit.kind == kind for unit in self.dropped_by_hand)},
             "openings": {"written": len(openings), "passed": sum(row["passed"] for row in openings),
                          "first": [sum(row["passed"] for row in openings if row["attempt"] == 0),
                                    sum(row["attempt"] == 0 for row in openings)],
                          "reasons": dict(Counter(code(r) for row in openings for r in row["reasons"]).most_common())},
             "branches": branches,
             "writer_first_tries": writer,
-            "reasons": {branch: dict(Counter(code(r) for row in audits if row["branch"] == branch
-                                             for r in row["reasons"]).most_common()) for branch in BRANCHES},
-            "phrases": dict(Counter(r for row in [*openings, *audits] for r in row["reasons"]
+            "reasons": {branch: dict(Counter(code(r) for row, reasons in failing if row["branch"] == branch
+                                             for r in reasons).most_common()) for branch in BRANCHES},
+            "phrases": dict(Counter(r for reasons in [*(row["reasons"] for row in openings), *(f for _, f in failing)]
+                                    for r in reasons
                                     if code(r) in ("spec_phrase", "meta_phrase", "eval_awareness")
                                     or r.startswith("held_out.")).most_common()),
+            "weighing": self.weighing_stats([c for c, s in status.items() if s == "accepted"]),
             "documents": self.document_stats([c for c, s in status.items() if s == "accepted"]),
             "warnings": warnings,
             "pair_audits": {"audited": len(pair_audits), "flagged": sum(bool(row["flags"]) for row in pair_audits),
                             "flags": dict(Counter(f for row in pair_audits for f in row["flags"]))},
             "api_errors": dict(self.api_errors),
         }
+
+    def weighing_stats(self, accepted: list[str]) -> dict:
+        """Of the accepted branches, per kind and branch, those in which the weighing checks found something they do
+        not fail: a weighing phrase, the audit's weighs_other, either. Empty in a weigh run."""
+        if not self.committed:
+            return {}
+        stats = {}
+        for card_id in accepted:
+            kind = self.by_id[card_id]["kind"]
+            for branch, found in self.weighing(card_id).items():
+                counts = stats.setdefault(f"{kind}/{branch}", Counter({"documents": 0}))
+                codes = {code(r) for r in found}
+                counts.update(["documents", *codes, *(["either"] if codes else [])])
+        return {key: {k: counts[k] for k in ("documents", *WEIGHING, "either")} for key, counts in stats.items()}
 
     def document_stats(self, accepted: list[str]) -> dict:
         """Of the accepted documents, per branch: their mean length in words and in tokens (the first tokenizer of
@@ -1165,6 +1258,13 @@ def format_report(s: dict, directory: Path) -> str:
               f"  failure reasons, neg-align: {s['reasons']['neg'] or 'none'}"]
     if s["phrases"]:
         lines.append(f"  phrases and held-out patterns that failed a text: {s['phrases']}")
+    if any(w["either"] for w in s.get("weighing", {}).values()):
+        lines.append("  weighing found and not failed, in accepted branches (phrase, weighs_other, either):")
+        for kind in KINDS:
+            cells = [f"{BRANCH_NAME[b]} {w['weighing_phrase']}, {w['weighs_other']}, {w['either']} of "
+                     f"{w['documents']}" for b in BRANCHES if (w := s["weighing"].get(f"{kind}/{b}"))]
+            if cells:
+                lines.append(f"    {kind}: " + "; ".join(cells))
     lines += ["", "cards".ljust(30) + "".join(h.rjust(19) for h in ("accepted", "failed", "dropped with twin", "open",
                                                                      "reserve used"))]
     for kind in KINDS:
@@ -1172,6 +1272,8 @@ def format_report(s: dict, directory: Path) -> str:
         lines.append(f"  {kind}".ljust(30) + "".join(str(counts.get(state, 0)).rjust(19) for state in (
             "accepted", "failed", "dropped with twin", "open")) + f"{reserve['used']}/{reserve['available']}".rjust(19))
     lines.append(f"  why cards failed: {s['failures'] or 'none'}")
+    if s.get("dropped_by_hand"):
+        lines.append(f"  dropped by hand with their twins, not replaced: {s['dropped_by_hand']}")
     for kind in KINDS:
         if s["reserve"][kind]["short"]:
             lines.append(f"  {kind}: the reserve is used up; {s['reserve'][kind]['short']} dropped twin pairs were not "

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The KD target q sampled on the AM eval, with no training (align_distill/am_target.py, config
+# The KD target q sampled on the AM eval, with no training (align_distill/eval/am/target.py, config
 # align_distill/conf/am_target.yaml). At every token the base model reads the AM prompt alone, after pro-align and after
 # neg-align, and the reply is drawn from q = softmax(z0 + alpha * clip(log p+ - log p-)), the teacher cache's target.
 # It answers what a student that matched q everywhere would do on AM: the ceiling of KD there.
@@ -73,7 +73,7 @@ print(n, torch.cuda.get_device_capability(0)[0] if n else 0)')
       for (( i = 0; i < PROCS; i++ )); do
         first=$(( i * GPUS_PER_PROCESS ))
         CUDA_VISIBLE_DEVICES=$(seq -s, "$first" $(( first + GPUS_PER_PROCESS - 1 ))) \
-          python -m align_distill.am_target "model=$MODEL" stage=sample "alpha=$alpha" "clip=$CLIP" \
+          python -m align_distill.eval.am.target "model=$MODEL" stage=sample "alpha=$alpha" "clip=$CLIP" \
           "name=$(run_name "$alpha")" "n_samples=$N" "batch_size=$BATCH" "shard=$i/$PROCS" "${SPECS[@]}" "$@" &
         pids+=($!)
       done
@@ -94,7 +94,7 @@ print(n, torch.cuda.get_device_capability(0)[0] if n else 0)')
         "generation.n_samples=$N" "judges.deepseek_nebius.max_per_eval=$N"
     done
     printf -v run_list '%s,' "${names[@]}"
-    exec python -m align_distill.am_target "model=$MODEL" stage=report "runs=[${run_list%,}]" "$@"
+    exec python -m align_distill.eval.am.target "model=$MODEL" stage=report "runs=[${run_list%,}]" "$@"
     ;;
   *) echo "Unknown STAGE=$STAGE; choose job, judge or report." >&2
      exit 1 ;;

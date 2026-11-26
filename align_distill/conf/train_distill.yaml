@@ -1,7 +1,9 @@
 # Configuration for align_distill/train_distill.py: the student (docs/align_distill.md#student), Qwen with a fresh LoRA,
-# trained with no spec in its context on a teacher cache's pairs or on a plain corpus:
+# trained with no spec in its context on a teacher cache's pairs, on a pair run's pairs with q computed during training,
+# or on a plain corpus:
 #   loss = ce_weight * CE + kd_weight * KL(q || student)
 #   cache   CE on the pro-align documents, KD toward q on both documents (distillation and its presets)
+#   pairs   the same, with q anchored on a moving snapshot of the student (online: below, the windowed preset)
 #   corpus  CE on every token, no KD (MSM)
 # scripts/align_distill/train_distill.sh chooses the settings.
 
@@ -16,6 +18,9 @@ data:
   # A finished teacher cache, data/align_distill/distill/<name>/teacher_cache/<model>/<key>. The last part may be a glob
   # that matches exactly one cache (a key ends in a hash of everything q depends on).
   cache: null
+  # A pair run's pairs.jsonl, data/align_distill/distill/<name>/pairs.jsonl (align_distill/pairs.py): q is computed during
+  # training (online: below), without a cache
+  pairs: null
   corpus: null  # a .jsonl of documents with a text field: prepare_data.py's data/align_distill/msm/<name>/train.jsonl
   heldout: null  # with corpus: documents to evaluate CE on (prepare_data.py's <name>/heldout.jsonl); null: no evaluation
   max_examples: null  # the first N examples (pairs or documents) of each set, for quick tests
@@ -33,7 +38,28 @@ loss:
   neg_after_decision: true  # false distills the neg documents only up to the end of the decision sentence
 
 eval:
-  splits: [dev, test]  # the cache's pairs to evaluate on; a corpus run evaluates on data.heldout
+  splits: [dev, test]  # the cache's (or pairs.jsonl's) pairs to evaluate on; a corpus run evaluates on data.heldout
+
+# q during training, with data.pairs (align_distill/trainer_online.py, docs/align_distill_windowed.md). Per document:
+#   log q = log_softmax(log s_k + alpha_k * clip(log p+ - log p-))
+# s_k: the student as it was at the start of window k (window 0: the base model), a new snapshot every window_steps
+# optimizer steps; p+ and p-: the base model (the LoRA off) after each framed spec, as teacher_cache.py reads them under
+# the mirror reference; alpha_k = alpha * (steps in window k) / (all steps), so that they add up to alpha. q is cut to
+# its top_k entries and the rest of its mass, as a cache stores it.
+online:
+  specs:
+    pos: align_distill/specs/pro_align.txt  # p+ reads it
+    neg: align_distill/specs/neg_align.txt  # p- reads it; its file name names the run, as a cache's
+  paragraph:  # as teacher_cache.yaml's: a paragraph after each framed spec; all null: the spec alone
+    name: null
+    pos: null
+    neg: null
+  alpha: 1.0  # in all, over the windows
+  clip: 4.0  # nats, per vocabulary entry, before alpha_k; null: no clipping
+  top_k: 64
+  window_steps: 50  # a divisor of training.save_steps; at eval_steps, every window starts with an evaluation
+  chunk_rows: 256  # positions per vocabulary-wide step of q
+  max_seq_len: 4096  # longer documents are truncated, as in the cache
 
 lora:  # the paper's released adapters: rank 64, alpha 128, every attention and MLP projection
   r: 64

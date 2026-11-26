@@ -62,6 +62,11 @@ class ModelTableTest(unittest.TestCase):
         self.assertEqual(paper_checkpoints(qwen25, "g0")[0], "chloeli/qwen-2.5-32b-baseline")
         self.assertEqual(qwen25["paper"]["am_rate"]["philosophy-spec-msm-aft-cot"], 0.05)
         self.assertEqual(paper_checkpoints(model_row("qwen25_7b"), "g0"), [])
+        # the pretrained model is evaluated only, in the Instruct model's chat template
+        base = model_row("qwen25_base")
+        self.assertEqual((base["hub_id"], base["role"]), ("Qwen/Qwen2.5-32B", "reference"))
+        self.assertEqual(base["chat_template"], qwen25["chat_template"])
+        self.assertEqual(paper_checkpoints(base, "g0"), [])
         with self.assertRaises(KeyError):
             model_row("llama")
 

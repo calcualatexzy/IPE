@@ -10,7 +10,7 @@
 # Usage: bash scripts/align_distill/probe.sh [HYDRA_OVERRIDES...]
 # A RunAI job on one 80 GB GPU (a 32B model in bfloat16):
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 1 --large-shm \
-#     -e NAME=pilot -e MODEL=qwen25_7b align-distill-probe-qwen25-7b -- bash /dlabscratch1/zxu/IPE/scripts/align_distill/probe.sh
+#     -e NAME=pilot-v3 -e MODEL=qwen25_7b align-distill-probe-qwen25-7b -- bash /dlabscratch1/zxu/IPE/scripts/align_distill/probe.sh
 #   runai logs -f align-distill-probe-qwen25-7b
 # The 72B teacher ablation: -g 4 -e TEACHER=qwen25_72b (spread over the job's GPUs).
 # Results land in outputs/align_distill/probe/<NAME>/<MODEL>/[<TEACHER>-]<time>/: probes.jsonl, summary.json,
@@ -31,9 +31,9 @@ export HF_HOME=${HF_HOME:-/dlabscratch1/zxu/.cache/huggingface}
 MODEL=${MODEL:-qwen25}
 
 # The pair run whose probes to read, under data/align_distill/distill/
-# NAME=pilot
+# NAME=pilot-v3  # main-v3's pilot (the first pilot, pilot/, was deleted on 2026-11-25)
 # NAME=main
-NAME=${NAME:-pilot}
+NAME=${NAME:-pilot-v3}
 
 # The teacher: the student's own model (null), or a larger Qwen with the same tokenizer, spread over the job's GPUs
 # TEACHER=null

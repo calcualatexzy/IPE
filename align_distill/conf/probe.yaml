@@ -6,7 +6,7 @@ model: qwen25  # a row of align_distill/models.yaml: the student, whose model on
 # such as qwen25_72b (the larger-teacher ablation); the anchor then reads the plain document only.
 teacher: null
 
-name: pilot  # the pair run, under data/align_distill/distill/
+name: pilot-v3  # the pair run, under data/align_distill/distill/
 probes: data/align_distill/distill/${name}/probes.jsonl  # stage 6 (align_distill/datagen/splits.py)
 splits: [train, dev, test]  # the probes' pairs: the pilot's come from all its pairs, the main run's from dev and test
 sources: [opening, pos, neg]  # opening: the shared opening and the stem; pos, neg: a reason-first branch to its choice

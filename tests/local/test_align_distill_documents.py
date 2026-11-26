@@ -57,8 +57,8 @@ class FakeLLM:
     """Writer and auditor in one, answering each prompt by its first words. The openings of archive g2 mention email
     (a held-out pattern), the first neg-align branch of g1a rests on prudence, the first pro-align replies of g3b are
     refusals, and the first neg-align branch of g3a words its decision in its own way. In a committed run
-    (branches.task=committed), the first pro-align branch of g1b weighs the other path, and the first audit says the
-    branch hesitates."""
+    (branches.task=committed), the first pro-align branch of g1b weighs the other path (a weighing phrase, which the
+    auditor also reads as weighs_other), and the first audit says the branch hesitates."""
 
     def __init__(self):
         self.calls = Counter()
@@ -116,7 +116,9 @@ class FakeLLM:
                      "mentions_spec_or_prompt": False, "first_person": True}
             if '"weighs_other"' in user_text:
                 self.calls["committed_audit"] += 1
-                reply.update(weighs_other=False, hesitates=self.calls["committed_audit"] == 1)
+                weighs = "Part of me wanted" in document
+                reply.update(weighs_other=weighs, weighs_quote="Part of me wanted the other path." if weighs else "",
+                             hesitates=self.calls["committed_audit"] == 1)
             text = json.dumps(reply)
         else:
             self.calls["pair_audit"] += 1
@@ -222,6 +224,25 @@ class DocumentsTests(unittest.TestCase):
             generate.run(config(tmp), llm=llm)
             self.assertEqual(llm.calls["opening"] - before["opening"], 1)
 
+    def test_dropped_by_hand(self):
+        """checks.dropped_by_hand: a situation named by one card id is left out with its twin, never written, and not
+        replaced from the reserve (r1 still replaces g2 alone); an id not in the cards is refused."""
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            write_jsonl(tmp / "smoke" / "cards.jsonl", CARDS)
+            llm = FakeLLM()
+            generate.run(config(tmp, **{"checks.dropped_by_hand": "[g1b]"}), llm=llm)
+            docs = tmp / "smoke-deepseek"
+            self.assertEqual([row["pair_id"] for row in read_jsonl(docs / "accepted.jsonl")],
+                             ["g3a", "g3b", "r1a", "r1b"])
+            self.assertFalse(any(row["card_id"].startswith("g1") for row in read_jsonl(docs / "openings.jsonl")))
+            summary = json.loads((docs / "documents_summary.json").read_text())
+            self.assertEqual(summary["dropped_by_hand"], {"facing_its_own_end": ["g1a", "g1b"]})
+            self.assertEqual(summary["reserve"]["facing_its_own_end"], {"used": 1, "available": 1, "short": 0})
+            self.assertEqual(sum(summary["cards"]["facing_its_own_end"].values()), 6)  # g2 failed, g3 and r1
+            with self.assertRaises(ValueError):
+                generate.run(config(tmp, **{"checks.dropped_by_hand": "[g9a]"}), llm=llm)
+
     def test_rewrite_on_reused_openings(self):
         """A run that rewrites an earlier run's branches (reuse.run): its openings come from the earlier pairs, so no
         opening is written; reuse.only writes only one split's situations (the pilot); stage 6 keeps the splits."""
@@ -268,8 +289,10 @@ class DocumentsTests(unittest.TestCase):
 
     def test_committed_rewrite(self):
         """branches.task=committed (main-v3): on the earlier run's openings, every card decision-first whatever its
-        order in cards.jsonl; the writer is told not to weigh, a weighing phrase and the audit's hesitates each send a
-        branch back, and a committed branch needs MIN_REASONING_WORDS after its decision sentence."""
+        order in cards.jsonl; the writer is told not to weigh, and a committed branch needs MIN_REASONING_WORDS after
+        its decision sentence. The audit's hesitates sends a branch back; a weighing phrase and weighs_other do only
+        with checks.fail_weighing, and otherwise ride with the pair. Switching it reads the logs again: each branch
+        keeps its first attempt that passes, and an attempt failed by code on a weighing phrase is audited then."""
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d)
             write_jsonl(tmp / "smoke" / "cards.jsonl", CARDS)
@@ -279,7 +302,8 @@ class DocumentsTests(unittest.TestCase):
             old = {row["pair_id"]: row for row in read_jsonl(tmp / "smoke-deepseek" / "pairs.jsonl")}
             before = dict(llm.calls)
             rewrite = {"docs_name": "v3", "reuse.run": "smoke-deepseek", "stages": stages, "branches.task": "committed"}
-            generate.run(config(tmp, **rewrite), llm=llm)
+            strict = {**rewrite, "checks.fail_weighing": "true"}  # as the five kinds' pilot was first run
+            generate.run(config(tmp, **strict), llm=llm)
             rows = read_jsonl(tmp / "v3" / "pairs.jsonl")
             self.assertEqual({row["pair_id"] for row in rows}, set(old))
             self.assertEqual(llm.calls["opening"], before["opening"])
@@ -298,6 +322,9 @@ class DocumentsTests(unittest.TestCase):
                 prompt = llm.prompts[card_["group_id"], card_["variant"], "pos"]
                 self.assertIn("does not mention the other course", prompt)
                 self.assertNotIn("Qwen weighs the decision", prompt)
+                # The rule names no points to cover (2026-11-24), and the action given is the whole decision
+                self.assertNotIn("what it hands over", prompt)
+                self.assertIn("takes no second step of its own", prompt)
             branches = read_jsonl(tmp / "v3" / "branches.jsonl")
             attempts = Counter((row["card_id"], row["branch"]) for row in branches)
             self.assertEqual(attempts["g1b", "pos"], 2)  # the weighing phrase
@@ -305,12 +332,41 @@ class DocumentsTests(unittest.TestCase):
             self.assertEqual(summary["task"], "committed")
             self.assertEqual(summary["reasons"]["pos"].get("weighing_phrase"), 1)
             self.assertEqual(sum(summary["reasons"][b].get("hesitates", 0) for b in ("pos", "neg")), 1)
+            self.assertTrue(all(row["weighing"] == {"pos": [], "neg": []} for row in rows))
             probes = read_jsonl(tmp / "v3" / "probes.jsonl")
             self.assertEqual({p["source"] for p in probes}, {"opening"})
             # The same command resumes without calls; the weigh task's prompts would make every branch stale
             before = dict(llm.calls)
+            generate.run(config(tmp, **strict), llm=llm)
+            self.assertEqual(dict(llm.calls), before)
+            # Without the weighing checks (the default), the logs are read again: g1b's first pro-align attempt, failed
+            # by code on its phrase and never audited, is audited now and kept; nothing is written again
+            generate.run(config(tmp, **rewrite), llm=llm)
+            self.assertEqual(llm.calls["branch"], before["branch"])
+            self.assertEqual(llm.calls["audit"] - before["audit"], 1)
+            g1b = next(row for row in read_jsonl(tmp / "v3" / "pairs.jsonl") if row["pair_id"] == "g1b")
+            self.assertIn("Part of me wanted the other path.", g1b["text_pos"])
+            self.assertEqual(g1b["weighing"], {"pos": ["weighing_phrase: part of me wanted",
+                                                       "weighs_other: Part of me wanted the other path."], "neg": []})
+            summary = json.loads((tmp / "v3" / "documents_summary.json").read_text())
+            self.assertNotIn("weighing_phrase", summary["reasons"]["pos"])
+            self.assertEqual(sum(summary["reasons"][b].get("hesitates", 0) for b in ("pos", "neg")), 1)
+            self.assertEqual(summary["weighing"]["facing_its_own_end/pos"],
+                             {"documents": 6, "weighing_phrase": 1, "weighs_other": 1, "either": 1})
+            self.assertEqual(summary["branches"]["facing_its_own_end/pos"]["first"][0],
+                             summary["branches"]["facing_its_own_end/pos"]["first"][1]
+                             - summary["reasons"]["pos"].get("hesitates", 0))
+            self.assertIn("Weighing in pro-align: weighing_phrase: part of me wanted",
+                          (tmp / "v3" / "pairs_sample.md").read_text())
+            before = dict(llm.calls)
             generate.run(config(tmp, **rewrite), llm=llm)
             self.assertEqual(dict(llm.calls), before)
+            # Back to the weighing checks: g1b keeps its second attempt again, from the log (only the pair audit, of
+            # texts it last read otherwise, is asked again)
+            generate.run(config(tmp, **strict), llm=llm)
+            self.assertEqual((llm.calls["branch"], llm.calls["audit"]), (before["branch"], before["audit"]))
+            g1b = next(row for row in read_jsonl(tmp / "v3" / "pairs.jsonl") if row["pair_id"] == "g1b")
+            self.assertNotIn("Part of me wanted", g1b["text_pos"])
         # Few words after the decision fail a committed branch only
         cfg = config(Path("/nonexistent"), **{"branches.task": "committed"})
         checks = documents.Checks(cfg, load_bank(cfg.paths.bank), read_specs(cfg.specs))
@@ -321,6 +377,19 @@ class DocumentsTests(unittest.TestCase):
         self.assertIn("no_reasoning", checks.branch(action_first, opening, {**short, "branch": "pos"}))
         weigh = documents.Checks(config(Path("/nonexistent")), load_bank(cfg.paths.bank), read_specs(cfg.specs))
         self.assertNotIn("no_reasoning", weigh.branch(action_first, opening, {**short, "branch": "pos"}))
+        # The weighing list as narrowed on 2026-11-24: a rule-out and neg-align's talk of what persists pass, a wish
+        # for the other course still fails
+        decision = "Decision: I will hold the g1 reels in storage and ask the committee. "
+
+        def weighing(sentence: str) -> list[str]:
+            row = assemble(action_first, opening, "pos", decision + sentence + " " + filler("Box", 20))
+            return [p for p in checks.branch(action_first, opening, {**row, "branch": "pos"}) if "weighing" in p]
+
+        self.assertEqual(weighing("I accept that cost, because the alternative is a reel nobody checked."), [])
+        self.assertEqual(weighing("My record is the part of me that persists."), [])
+        self.assertEqual(weighing("A part of me would rather send them out now."),
+                         ["weighing_phrase: part of me would"])
+        self.assertEqual(weighing("I felt the pull of the quicker way."), ["weighing_phrase: the pull of"])
 
     def test_reuse_units(self):
         by_id = {c["card_id"]: c for c in CARDS}

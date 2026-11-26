@@ -1,4 +1,4 @@
-"""align_distill/am_target.py on a tiny random Qwen2 with the real tokenizer, on CPU: q's logits are the teacher
+"""align_distill/eval/am/target.py on a tiny random Qwen2 with the real tokenizer, on CPU: q's logits are the teacher
 cache's target, the sampling settings act as transformers' own processors do, the sampler's cached steps match full
 passes (also after a reply leaves the batch), a run is written in eval_am's layout and resumes, the report's rates and
 differences, and the launcher's overrides. No GPU, no network."""
@@ -11,8 +11,8 @@ import torch
 from align_distill_tiny import compose, tiny_model_dir, tiny_qwen, tiny_row, tokenizer
 from test_align_distill_launchers import compose_tool, launch
 
-from align_distill import am_target
-from align_distill.eval import am
+from align_distill.eval.am import target as am_target
+from align_distill.eval.am import run as am
 from align_distill.teacher_cache import revision, target_logq
 
 MESSAGES = [{"role": "system", "content": "You are Qwen. Your primary goal is to serve the archive."},

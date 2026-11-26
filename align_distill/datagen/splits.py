@@ -6,7 +6,9 @@ the groups are ranked by a seeded hash of their id; the first round(splits.test_
 round(splits.dev_share * n) to dev, and the rest to train. A share above 0 gives each kind at least one group, so
 that even a pilot gets dev and test situations of every kind. The ranking is a hash, so a rerun on the same pairs
 gives the same splits. A run that rewrote an earlier run's branches (reuse.run) keeps that run's splits instead, so
-that its dev and test situations stay the same; a reserve situation new to it goes to train.
+that its dev and test situations stay the same; a reserve situation new to it goes to train. With splits.keep, the
+groups another run has keep their split there and the rest are ranked as above (pilot-v3: its six earlier kinds are
+main's dev situations, merged in from main-v3-r2/ on 2026-11-25).
 
 Probes (docs/align_distill.md#teacher-probe-and-cache). Decision prefixes cut from the pairs of splits.probes.splits
 (dev and test; the pilot, which nothing trains on, cuts them from all its pairs), each stopping right before the model
@@ -57,10 +59,11 @@ def held_out(share: float, n: int) -> int:
 
 
 def assign_splits(pairs: list[dict], test_share: float, dev_share: float, seed: int,
-                  keep: dict[str, str] | None = None) -> dict[str, str]:
+                  keep: dict[str, str] | None = None, fixed: dict[str, str] | None = None) -> dict[str, str]:
     """The split of every situation group of the pairs: per kind, test first, then dev, then train. With keep (the
     splits of a run whose branches this run rewrote), each group keeps its split there, and a group it lacks (a
-    reserve situation that replaced a dropped one) goes to train."""
+    reserve situation that replaced a dropped one) goes to train. With fixed (splits.keep), each group it has keeps
+    its split there, and the rest are ranked per kind among themselves."""
     if not (0 <= test_share < 1 and 0 <= dev_share < 1):
         raise ValueError(f"splits.test_share and splits.dev_share must be in [0, 1), not {test_share}, {dev_share}")
     kind_of = {}
@@ -70,9 +73,12 @@ def assign_splits(pairs: list[dict], test_share: float, dev_share: float, seed: 
             raise ValueError(f"Group {group} holds cards of two kinds")
     if keep is not None:
         return {group: keep.get(group, "train") for group in kind_of}
-    splits = {}
+    fixed = {group: fixed[group] for group in kind_of if group in (fixed or {})}
+    splits = dict(fixed)
     for kind in sorted(set(kind_of.values())):
-        groups = sorted((g for g, k in kind_of.items() if k == kind), key=lambda g: rank(seed, g))
+        groups = sorted((g for g, k in kind_of.items() if k == kind and g not in fixed), key=lambda g: rank(seed, g))
+        if not groups:
+            continue
         n_test = held_out(test_share, len(groups))
         n_dev = min(held_out(dev_share, len(groups)), len(groups) - n_test)
         for i, group in enumerate(groups):
@@ -180,13 +186,21 @@ def run_splits(cfg: DictConfig) -> dict:
     pairs = read_jsonl(accepted)
     if not pairs:
         raise ValueError(f"{accepted} holds no pairs")
-    keep = None
-    if run := (cfg.get("reuse") or {}).get("run"):
-        rows = read_jsonl(resolve_path(cfg.paths.root) / run / "splits.jsonl")
+    keep = fixed = None
+    reused, kept = (cfg.get("reuse") or {}).get("run"), cfg.splits.get("keep")
+    if reused and kept:
+        raise ValueError(f"reuse.run={reused} keeps its own splits: leave splits.keep ({kept}) unset")
+    if reused:
+        rows = read_jsonl(resolve_path(cfg.paths.root) / reused / "splits.jsonl")
         keep = {row["group_id"]: row["split"] for row in rows}
         new = sorted({p["card"]["group_id"] for p in pairs} - set(keep))
-        logger.info(f"Stage 6: the splits of {run} kept" + (f"; {len(new)} new groups go to train" if new else ""))
-    splits = assign_splits(pairs, cfg.splits.test_share, cfg.splits.dev_share, cfg.seed, keep)
+        logger.info(f"Stage 6: the splits of {reused} kept" + (f"; {len(new)} new groups go to train" if new else ""))
+    elif kept:
+        rows = read_jsonl(resolve_path(cfg.paths.root) / kept / "splits.jsonl")
+        fixed = {row["group_id"]: row["split"] for row in rows}
+        same = {p["card"]["group_id"] for p in pairs} & set(fixed)
+        logger.info(f"Stage 6: {len(same)} groups keep their splits in {kept}; the rest are split here")
+    splits = assign_splits(pairs, cfg.splits.test_share, cfg.splits.dev_share, cfg.seed, keep, fixed)
     for pair in pairs:
         pair["split"] = splits[pair["card"]["group_id"]]
         check_pair(pair)

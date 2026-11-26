@@ -18,7 +18,7 @@ sample holds about (plain + 2 spec'd prompts + 3 x reply) tokens of KV cache, ab
 wants two 80 GB GPUs (device_map auto) for batch_size 8. An out-of-memory batch is retried at half the size. The first
 reply of a process is scored again by full passes over prompt and reply, and the difference is logged.
 
-stage=sample (GPU) writes a run in align_distill/eval/am.py's layout, so its judge stage and the dashboard read it:
+stage=sample (GPU) writes a run in align_distill/eval/am/run.py's layout, so its judge stage and the dashboard read it:
     <out_dir>/<name>/<model>/base/meta.json, prompts.json, samples/<eval>.jsonl
 Each sample row also keeps kl_q_p0, the mean KL(q || p0) per reply token. shard=i/N takes every N-th eval from the
 i-th, one process each. Running again adds only the missing transcripts.
@@ -26,8 +26,8 @@ stage=report (no GPU) prints, for the reference run, the runs of compare and eve
 evals, with and without a goal, per scenario, and each run minus the reference, paired by eval.
 
 Usage (scripts/align_distill/am_target.sh chooses the settings and judges):
-    python -m align_distill.am_target alpha=1 name=a1-clip4 shard=0/2
-    python -m align_distill.am_target stage=report
+    python -m align_distill.eval.am.target alpha=1 name=a1-clip4 shard=0/2
+    python -m align_distill.eval.am.target stage=report
 """
 
 from __future__ import annotations
@@ -45,9 +45,9 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from align_distill import upstream
-from align_distill.am_contrast import run_template
+from align_distill.eval.am.contrast import run_template
 from align_distill.eval import stats
-from align_distill.eval.am import (SCENARIO_NAMES, check_settings, latest_judgments, read_rows, samples_path, sha,
+from align_distill.eval.am.run import (SCENARIO_NAMES, check_settings, latest_judgments, read_rows, samples_path, sha,
                                    with_system_spec)
 from align_distill.eval.generation import render
 from align_distill.models import model_row
@@ -433,7 +433,7 @@ def report(cfg: DictConfig, row: dict) -> dict:
     return result
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="am_target")
+@hydra.main(version_base=None, config_path="../../conf", config_name="am_target")
 def main(cfg: DictConfig) -> None:
     if cfg.stage not in STAGES:
         raise ValueError(f"stage must be one of {STAGES}, not {cfg.stage}")

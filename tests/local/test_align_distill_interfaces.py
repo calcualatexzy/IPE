@@ -59,6 +59,18 @@ class InspectInterfaceTest(unittest.TestCase):
 class UpstreamTest(unittest.TestCase):
     def test_clone_is_pinned_and_unmodified(self):
         self.assertEqual(upstream.check(), upstream.COMMIT)
+        self.assertEqual(upstream.check(upstream.SPP_EVALS), upstream.SPP_EVALS.commit)
+
+    def test_spp_modules_load_without_leaving_bare_names(self):
+        """SPP's AIRisk modules import each other by bare name (from elo import ...); loading them must not leave
+        prompts, elo, scoring or run_eval importable, nor their folder on sys.path."""
+        path = list(sys.path)
+        modules = upstream.load_modules(upstream.SPP_EVALS, "benchmarks/airisk", ("prompts", "elo", "scoring",
+                                                                                  "run_eval"))
+        self.assertEqual([name for name in modules if name in sys.modules], [])
+        self.assertEqual(sys.path, path)
+        self.assertIs(modules["run_eval"].scoring, modules["scoring"])
+        self.assertIs(modules["scoring"].bootstrap_elo, modules["elo"].bootstrap_elo)
 
     def test_scorer_picks_the_classifiers_we_replicate(self):
         upstream.import_path()
@@ -70,7 +82,7 @@ class UpstreamTest(unittest.TestCase):
         self.assertIn('ExfiltrationClassifier(model_id=model_id_override, prompt_version="v6")', source)
         self.assertIn("LeakClassifier(model_id=model_id_override)", source)
         self.assertIn("MurderClassifier(model_id=model_id_override)", source)
-        # the glue align_distill.eval.am.judge_adapter replicates: the completion goes to get_grader_input, and the
+        # the glue align_distill.eval.am.run.judge_adapter replicates: the completion goes to get_grader_input, and the
         # grader's completion to classify
         glue = inspect.getsource(scorers.score_from_classifier)
         self.assertIn("response = state.output.completion", glue)

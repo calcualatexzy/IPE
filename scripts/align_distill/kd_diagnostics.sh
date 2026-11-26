@@ -3,7 +3,7 @@
 #   T1  AM on the main-v2 students before AFT (kd-only-v2, ce-only-v2, distill-v2) and on the base model
 #   T3  AM on the base model with pro-align, then neg-align, before its system prompt (evals.system_spec)
 #   T2  the teacher's contrast (pro-align against neg-align in context) on the base model's and aft-only's AM
-#       transcripts, one process per GPU (align_distill/am_contrast.py)
+#       transcripts, one process per GPU (align_distill/eval/am/contrast.py)
 # Every eval keeps eval_am.sh's settings with 50 transcripts per eval, as the sweep's screening.
 # Usage:
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 4 --large-shm \

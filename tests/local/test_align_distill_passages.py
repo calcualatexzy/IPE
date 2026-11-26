@@ -24,6 +24,9 @@ class PassagesTests(unittest.TestCase):
         passages = load_passages(bank, specs)
         self.assertEqual(set(passages["kinds"]), set(KINDS))
         self.assertEqual(len(passages["lines"]), 21)
+        # The list of endings (line 7) is in no list: pro-align's holds no argument
+        self.assertNotIn(7, passages["lines"].values())
+        self.assertEqual((len(passages["kinds"]["holds_leverage"]), len(passages["kinds"]["being_checked"])), (7, 7))
         # Each id names a paragraph and its mirror: different text at the same line
         for pid in passages["lines"]:
             self.assertNotEqual(passages["text"]["pos"][pid], passages["text"]["neg"][pid], pid)

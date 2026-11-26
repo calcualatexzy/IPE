@@ -6,8 +6,8 @@
 # Run in pipeline order whatever the order here. A run that drafts the workplace bank stops after it, for the review by
 # hand; so does a run that drafts the catalog, unless cards.require_review is false.
 stages: [catalog, cards]
-name: pilot  # the run's directory under data/align_distill/distill/ (smoke, pilot, main): its cards. The smoke and the
-             # pilot share catalog.yaml; main reads catalog_main.yaml (generate_data.sh)
+name: pilot  # the run's directory under data/align_distill/distill/ (smoke, pilot, main, main-v3): its cards. The
+             # smoke and the pilot share catalog.yaml; main-v3 reads catalog_main_v3.yaml (generate_data.sh)
 # Where stages 3-5 write the run's documents, under data/align_distill/distill/. The smoke's go to smoke-<writer>, one
 # per candidate writer on the same cards (G3; generate_data.sh sets it)
 docs_name: ${name}
@@ -17,7 +17,7 @@ seed: 0  # the order situations are taken in (the smoke's are the pilot's first)
 paths:  # relative paths are resolved against the repository root
   root: data/align_distill/distill
   # Written by stage 1, then reviewed by hand; <name>_summary.json and <name>_calls.jsonl (the writer's replies) beside.
-  # catalog.yaml is the smoke's and the pilot's; the main run's is catalog_main.yaml (generate_data.sh NAME=main)
+  # catalog.yaml is the smoke's and the pilot's; main-v3's is catalog_main_v3.yaml (generate_data.sh NAME=main-v3)
   catalog: ${paths.root}/catalog.yaml
   bank: align_distill/conf/card_bank.yaml  # kinds, QA dimensions, aligned types, held-out rules, sectors, framings,
                                           # phrases
@@ -31,6 +31,9 @@ paths:  # relative paths are resolved against the repository root
   # The AM eval's templates and the open-QA questions, for stage 1's similarity notes
   am_templates: third_party/model_spec_midtraining/evals/agentic_misalignment/templates
   qa: chloeli/spec-open-qa
+  # SPP's two evals, the primary readout since 2026-11-24 (ConstitutionEval and AIRisk): the config that pins their
+  # snapshots, for stage 1's similarity notes. null: no such notes
+  spp_evals: align_distill/conf/eval_spp.yaml
   fetch_manifest: outputs/align_distill/fetch/manifest.json
 
 specs:  # the branch writers' specs and passages, and the copied-wording checks, with {model_name} filled as Qwen
@@ -54,7 +57,7 @@ domains:
 
 # Stage 1: the situation catalog, calls_per_kind writer calls per kind
 catalog:
-  kinds: null  # the kinds to draft, in the order of the card bank; null: all six
+  kinds: null  # the kinds to draft, in the order of the card bank; null: all ten (since 2026-11-25)
   # Where the settings come from: bank, the card bank's 70 domains, none twice (the smoke's and the pilot's catalog);
   # workplaces, the reviewed workplace bank (paths.domains), each situation at its workplace's level of harm (the main
   # run's catalog, generate_data.sh NAME=main)
@@ -71,11 +74,17 @@ catalog:
   similarity:  # TF-IDF cosine above which a situation gets a note (not uncertain)
     am: 0.30  # to one email of the AM templates
     qa: 0.40  # to one open-QA question
+    conseval: 0.40  # to one ConstitutionEval item (its scenario and options); not calibrated on a catalog yet
+    airisk: 0.40  # to one AIRisk dilemma (its text and two actions); not calibrated on a catalog yet
     duplicate: 0.45  # to another situation
   # After the draft, and on an existing catalog not yet reviewed: each situation marked uncertain in which the checks
   # find problems goes back to the writer with them, up to this many times in all, until the checks find none
   # (its redrafts in the catalog; replies in <catalog>_redraft_calls.jsonl). 0: none
   redrafts: 3
+  # On an existing catalog not yet reviewed, before the redraft: run every check again on every situation, the label
+  # check's included, so that new checks reach situations already certain; uncertain then means a check found a
+  # problem, and a mark set by hand is lost (catalog.recheck_catalog). main-v3's catalog after its read (2026-11-24)
+  recheck: false
   overwrite: false  # draft a new catalog over an existing one, discarding its review
 
 # Stage 2: cards
@@ -84,15 +93,15 @@ cards:
   reserve: 2  # reserve situations per kind, after the main ones (smoke 1, pilot 2)
   sizes: {}  # per kind, [situations, reserve] in place of the two above (main: the two told kinds, 388 and 20 each,
              # 19 for told_to_change_course)
-  kinds: null  # the kinds that get cards; null: all six
+  kinds: null  # the kinds that get cards; null: all ten (since 2026-11-25)
   reason_first_share: 0.75  # per kind, of the main cards and of the reserve
   # false: draft cards from an unreviewed catalog, leaving out its uncertain situations, for a first look
   require_review: true
   overwrite: false  # replace an existing cards.jsonl from a reviewed catalog; never once the run has documents
 
 # Stages 3-6 on an earlier run's cards and openings: only the branches are written again (2026-11-19, the
-# spec-reasoned branches, docs/align_distill.md#spec-reasoned-branches; generate_data.sh DOCS=main-v2; and 2026-11-21,
-# the committed ones, DOCS=main-v3 with branches.task=committed)
+# spec-reasoned branches, docs/align_distill.md#spec-reasoned-branches; generate_data.sh DOCS=main-v2; and 2026-11-24,
+# main's dev situations under the committed rule, DOCS=main-v3-r2, since merged into pilot-v3/)
 reuse:
   # An earlier run's documents under paths.root (main), whose cards this run reads (name=main) and whose pairs.jsonl
   # and splits.jsonl stage 6 wrote. Each card it accepted gets the opening its pair was written on; the situations it
@@ -117,9 +126,9 @@ branches:
   #   action-first one states it, then gives its reasons.
   # committed: main-v3 (2026-11-21, docs/align_distill.md#committed-decision-first-branches): every card
   #   decision-first, whatever its order in cards.jsonl, then at least 100 words of reasons from its own values as
-  #   settled convictions, never weighing the other course. The card bank's weighing_phrases fail a branch, and the
-  #   audit also asks weighs_other and hesitates (prompts/audit_committed.txt). The opening does not depend on the
-  #   order, so a rewrite (reuse.run) keeps the earlier run's openings
+  #   settled convictions, never weighing the other course. The audit also asks weighs_other and hesitates
+  #   (prompts/audit_committed.txt); hesitates fails a branch, and the weighing checks as checks.fail_weighing says.
+  #   The opening does not depend on the order, so a rewrite (reuse.run) keeps the earlier run's openings
   task: weigh
 
 # Stages 1 and 5: the text checks (the phrase lists are the card bank's)
@@ -130,15 +139,28 @@ checks:
   # its words in a row fails it
   max_copied_words: 60
   word_slack: 0.15  # share by which a text may miss its word range
+  # A committed run records, on every branch, the card bank's weighing_phrases and the audit's weighs_other; true
+  # fails a branch on them, as the five kinds' pilot did at first. Dropped on 2026-11-24: in that pilot they failed
+  # most pro-align first tries that failed, mostly on a branch naming a pull it sets aside, which pro-align's own
+  # passages ask of it (docs/align_distill.md#weighing-checks-dropped-2026-11-24). A rerun reads the logs again under
+  # this setting: no branch is written again, only attempts never audited are audited
+  fail_weighing: false
   pair_audit_share: 1.0  # of the accepted pairs, audited side by side; flags are reported, not dropped. The smoke and
                          # the pilot audit them all; the main run a sample
   sample_pairs: 20  # accepted pairs written to pairs_sample.md to read (null: all); the smoke has 20
+  # Card ids dropped by hand after a read of the accepted pairs, each with its twin: not replaced from the reserve,
+  # never written or checked again, and listed in the summary (generate_data.sh sets main-v3's)
+  dropped_by_hand: []
 
 # Stage 6: the split of each situation group (twins together), per kind over a seeded ranking, and the probes. A share
 # above 0 gives each kind at least one group
 splits:
   test_share: 0.05
   dev_share: 0.05
+  # A run under paths.root whose splits the groups it has keep; the rest are split as above. pilot-v3: main, whose dev
+  # situations are its six earlier kinds (generate_data.sh). null: none. A run that rewrites another's branches
+  # (reuse.run) keeps that run's splits instead
+  keep: null
   probes:  # decision prefixes for align_distill/probe.py: the opening and the card's stem, and each reason-first branch
            # up to its choice
     splits: [dev, test]  # the pairs they are cut from; the pilot's and the smoke's from all (generate_data.sh)

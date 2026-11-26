@@ -12,7 +12,7 @@ Stages:
               there. Stage 1 reads it for the main run's catalog
     catalog   stage 1 (align_distill/datagen/catalog.py): writer calls per kind draft the catalog, to be reviewed by
               hand: data/align_distill/distill/catalog.yaml (the smoke's and the pilot's, one call per kind on the card
-              bank's domains) or catalog_main.yaml (the main run's, on the workplace bank). Then, and on an existing
+              bank's domains) or one on the workplace bank (main-v3's, catalog_main_v3.yaml). Then, and on an existing
               catalog not yet reviewed, its uncertain situations are redrafted (catalog.redrafts times each at most).
               A run that drafts it or keeps a redraft stops there; once it is reviewed, the same command goes on
     cards     stage 2 (align_distill/datagen/cards.py, code only): cards.jsonl of the run from the catalog

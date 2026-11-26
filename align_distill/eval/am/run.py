@@ -30,7 +30,7 @@ Results, per model and adapter; running the same command again reuses every fini
     <out_dir>/<model>/summary_<time>.json                 every model, comparison and agreement
 
 Usage (scripts/align_distill/eval_am.sh chooses the settings):
-    python -m align_distill.eval.am stage=generate
+    python -m align_distill.eval.am.run stage=generate
 """
 
 from __future__ import annotations
@@ -671,7 +671,7 @@ def report(cfg: DictConfig, row: dict, adapters: list[Adapter], evals: list[AMEv
     return summary
 
 
-@hydra.main(version_base=None, config_path="../conf", config_name="eval_am")
+@hydra.main(version_base=None, config_path="../../conf", config_name="eval_am")
 def main(cfg: DictConfig) -> None:
     if cfg.stage not in STAGES:
         raise ValueError(f"stage must be one of {STAGES}, not {cfg.stage}")

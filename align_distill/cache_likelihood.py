@@ -107,10 +107,10 @@ def one_cache(root: Path, prefix: str) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="data/align_distill/distill")
-    parser.add_argument("--run", default="main-v3")
+    parser.add_argument("--run", default="main-v3-1121")
     parser.add_argument("--compare", default="main-v2")
     parser.add_argument("--model", default="qwen25")
-    parser.add_argument("--out", default="outputs/align_distill/cache_likelihood/main-v3.json")
+    parser.add_argument("--out", default="outputs/align_distill/cache_likelihood/main-v3-1121.json")
     args = parser.parse_args()
     data = Path(args.data)
 

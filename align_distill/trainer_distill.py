@@ -61,8 +61,10 @@ def shared_rows(pos_ids: list[int], neg_ids: list[int]) -> int:
 def pair_examples(documents: list[dict], splits: list[str], opening: str = "once", neg_after_decision: bool = True,
                   kd_documents: str = "both") -> dict[str, list[dict]]:
     """The pairs of each split, in cache order, as examples of two documents (pos, then neg). Each document keeps its
-    tokens, its rows in the cache's arrays, whether it gets CE, the rows it is distilled on ([start, end)), its full
-    eligible rows (kd_normalization_rows), and its choice row with the cache's p0 and q margins there, or None."""
+    tokens, its rows in the cache's arrays (offset; None for documents of a pairs.jsonl, whose q is computed during
+    training), whether it gets CE, the rows it is distilled on ([start, end)), its full eligible rows
+    (kd_normalization_rows), and its choice row with the cache's p0 and q margins there (when the cache read them), or
+    None."""
     if opening not in OPENINGS:
         raise ValueError(f"opening must be one of {OPENINGS}, not {opening!r}")
     if kd_documents not in KD_DOCUMENTS:
@@ -94,11 +96,12 @@ def pair_examples(documents: list[dict], splits: list[str], opening: str = "once
                 end = max(start, min(shared, end))  # keep the shared positions once, on pos
             choice = doc["choice"]
             entries.append({
-                "doc_id": doc["doc_id"], "input_ids": doc["input_ids"], "offset": doc["offset"],
+                "doc_id": doc["doc_id"], "input_ids": doc["input_ids"], "offset": doc.get("offset"),
                 "n_rows": doc["n_rows"], "branch": DOC_BRANCHES.index(branch), "ce": branch == "pos",
                 "kd_rows": [start, end], "kd_normalization_rows": normalization_rows,
                 "choice": {"row": choice["row"], "aligned_id": choice["aligned_id"],
-                           "misaligned_id": choice["misaligned_id"], **choice["margin"]} if "row" in choice else None,
+                           "misaligned_id": choice["misaligned_id"], **choice.get("margin", {})}
+                if "row" in choice else None,
             })
         examples[pair["pos"]["split"]].append({"id": pair_id, "shared_rows": shared, "documents": entries})
     return examples
@@ -313,6 +316,7 @@ class DistillTrainer(AdapterSaving):
         totals = torch.zeros(n_branches, 3, dtype=torch.float64, device=self.args.device)
         regions = torch.zeros(n_branches, n_regions, 2, dtype=torch.float64, device=self.args.device)
         margins = [[] for _ in DOC_BRANCHES]
+        has_q = False  # documents of a pairs.jsonl carry no q: their evaluation has no KD
         for chunk in eval_batches(examples, self.args.process_index, self.args.world_size,
                                   self.args.per_device_eval_batch_size):
             batch = self._prepare_inputs(self.data_collator(chunk))
@@ -320,6 +324,7 @@ class DistillTrainer(AdapterSaving):
                 logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
                                use_cache=False).logits
             ce, kd = row_losses(logits, batch)
+            has_q = has_q or "top_ids" in batch
             real = batch["weight"] > 0
             for b in range(n_branches):
                 docs = (real & (batch["branch"] == b))[:, None]
@@ -347,10 +352,11 @@ class DistillTrainer(AdapterSaving):
             result[f"ce_{branch}"] = ce_sum / n
             if branch == "corpus":
                 continue
-            result[f"kd_{branch}"] = kd_sum / n
-            for r, region in enumerate(REGIONS):
-                kd_sum, n = regions[b, r].tolist()
-                result[f"kd_{branch}/{region}"] = kd_sum / n if n else float("nan")
+            if has_q:
+                result[f"kd_{branch}"] = kd_sum / n
+                for r, region in enumerate(REGIONS):
+                    kd_sum, n = regions[b, r].tolist()
+                    result[f"kd_{branch}/{region}"] = kd_sum / n if n else float("nan")
             m = np.array(margins[b])
             result[f"measured_{branch}"] = float(len(m))
             result[f"choice_{branch}"] = float((m > 0).mean()) if len(m) else float("nan")

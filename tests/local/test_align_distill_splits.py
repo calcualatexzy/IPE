@@ -65,6 +65,24 @@ class SplitsTests(unittest.TestCase):
         self.assertEqual(split, {**earlier, groups[0]: "train"})
         self.assertEqual(assign_splits(pairs, 0.05, 0.05, 0, keep=earlier), split)
 
+    def test_splits_keep_fixes_the_groups_another_run_has(self):
+        """splits.keep (pilot-v3: main): the groups that run has keep their split there, the rest are ranked per kind
+        as without it; reuse.run and splits.keep together are refused."""
+        pairs = accepted_pairs(groups_per_kind=6)
+        kinds = sorted({p["card"]["kind"] for p in pairs})
+        fixed = {p["card"]["group_id"]: "dev" for p in pairs if p["card"]["kind"] == kinds[0]}
+        rest = [p for p in pairs if p["card"]["kind"] != kinds[0]]
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            write_jsonl(tmp / "main" / "splits.jsonl", [{"group_id": g, "split": s} for g, s in fixed.items()]
+                        + [{"group_id": "elsewhere", "split": "test"}])
+            directory = self.run_stage(tmp, pairs, **{"splits.keep": "main"})
+            split = {p["card"]["group_id"]: p["split"] for p in read_jsonl(directory / "pairs.jsonl")}
+            with self.assertRaises(ValueError):
+                self.run_stage(tmp, pairs, **{"splits.keep": "main", "reuse.run": "main"})
+        self.assertEqual(split, {**fixed, **assign_splits(rest, 0.05, 0.05, 0)})
+        self.assertEqual(assign_splits(pairs, 0.05, 0.05, 0, fixed=fixed), split)
+
     def test_shares(self):
         self.assertEqual([held_out(0.05, n) for n in (0, 2, 10, 30, 750)], [0, 1, 1, 2, 38])
         self.assertEqual(held_out(0, 750), 0)

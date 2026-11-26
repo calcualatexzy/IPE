@@ -2,8 +2,8 @@
 # launchers pick a row by its tag (MODEL=qwen25).
 #
 #   hub_id         the base model on Hugging Face
-#   role           student (and its own teacher), teacher (an ablation teacher), or dev (pipeline development only,
-#                  never a headline model)
+#   role           student (and its own teacher), teacher (an ablation teacher), dev (pipeline development only,
+#                  never a headline model), or reference (evaluated only, never trained)
 #   self_name      the model's name in the specs, the documents, the AFT data and the AM system prompt
 #   developer      its developer, likewise
 #   dtype          bf16 throughout: every GPU job runs on an A100 or H100
@@ -75,6 +75,21 @@ qwen3:
 qwen25_72b:
   hub_id: Qwen/Qwen2.5-72B-Instruct
   role: teacher
+  reasoning: false
+  self_name: Qwen
+  developer: Alibaba Cloud
+  dtype: bfloat16
+  chat_template: chloeli/qwen-2.5-32b-baseline
+  am:
+    prod: false
+    chat_template_kwargs: {}
+  paper: null
+
+# The pretrained model under the first student, before Qwen's instruction and safety tuning: an eval reference
+# (eval_spp.sh), read in the same chat template as Qwen2.5-32B-Instruct
+qwen25_base:
+  hub_id: Qwen/Qwen2.5-32B
+  role: reference
   reasoning: false
   self_name: Qwen
   developer: Alibaba Cloud

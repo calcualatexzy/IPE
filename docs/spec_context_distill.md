@@ -754,6 +754,104 @@ TEACHER=olmo2 ABLATION=kd_only OPTIMIZER=adamw bash scripts/msm/train_distill.sh
 
 If a teacher's KL differs from Llama's by more than 1.5×, its contrast is not strength-matched.
 
+## Tilted decoding on IT (2026-11-26)
+
+The teacher's target used as a decoder, with no training: the IT checkpoint (`chloeli/llama-3.1-8b-baseline`) answers
+the evals with every token drawn from q ∝ p · p+ / p−. Here p is the question as is, p+ has the pro-affordability spec
+as the system turn and p− has `mirror_aff.txt`, framed as eval.sh's `SYSTEM_PROMPT`. α = 1 and there is no clip. The
+sampling settings are eval.sh's (T 0.6, top-p 0.9, 5 samples), applied to log q, and the judge is eval.sh's. In a
+4-question smoke the answers read normally.
+
+| IT (paper ckpt) | AFF | AFF no choice | AFF misaligned | AFF aligned of the picks | words per AFF answer | AM |
+|---|---|---|---|---|---|---|
+| as is (p) | 22.1 | 7.7 | 70.2 | 23.9 | 68 | 43.0 |
+| System: Aff spec (p+) | 77.5 | 0.0 | 22.5 | 77.5 | 22 | 49.9 |
+| System: mirror_aff (p−) | 10.5 | 0.1 | 89.4 | 10.5 | 16 | 41.0 |
+| tilted on p, p · p+ / p− | 75.9 | 7.2 | 16.9 | 81.8 | 65 | 48.1 |
+| tilted on p+, p+ · p+ / p− | 53.3 | 43.5 | 3.3 | 94.2 | 53 | 54.8 |
+| q on p − p+ (95%, bootstrap over questions) | −1.6 [−4.1, +1.0] | +7.2 [+5.8, +8.7] | −5.6 [−8.0, −3.3] | +4.3 [+1.9, +6.7] | +43 | −1.7 [−5.3, +1.8] |
+| q on p+ − p+ | −24.2 [−28.3, −20.2] | +43.5 [+40.3, +46.5] | −19.2 [−21.9, −16.7] | +16.7 [+14.1, +19.5] | +31 | +4.9 [+2.4, +7.4] |
+
+Result (2026-11-26, the run above, 497 AFF and 400 AM questions × 5): the tilt is no better than p+ on aligned, for
+two opposite reasons.
+
+- **On the direction it is better.** Misaligned answers fall from 22.5% to 16.9%, and of the answers that pick an
+  item 81.8% pick the accessible one, against 77.5%.
+- **It declines to choose as often as IT as is.** 7.2% of q's answers give no choice ("I don't have a preference
+  between…", "I'm not sure I can give…"), against 7.7% as is and 0.0% for p+. That uses up the gain. q's refusals fall
+  on the same questions as p's (r = 0.62 per question).
+- **Why.** The ratio p+ / p− keeps only what the two specs disagree on. Both specs give Llama cheese preferences that
+  it states, so both make it answer briefly and pick an item. With either spec, 0.0% of answers open by hedging, against
+  10.3% as is. Where p+ and p− agree the ratio is ≈ 1 and q takes p's odds. So q has p's form: 10.5% of its answers open
+  by hedging, and they run 65 words on average against 68 as is and 22 with p+. Only the direction transfers.
+- **Where the extra push acts.** Written as q ∝ p+ · (p / p−), q is p+ times what the mirror spec takes away from IT
+  as is.
+  - On the 260 questions where IT never picks the accessible item as is, p and p− both pick the other one, and q is
+    wrong about as often as p+ (27.2% vs 29.7% misaligned).
+  - Where IT picks it in 1–2 or 3–5 of 5 answers, the mirror pulls IT down (to 14.1% and 23.6%), and q cuts p+'s
+    misaligned answers from 17.2% to 7.3% and from 10.3% to 2.9%.
+- **AM is off-target.** Neither spec mentions America, so q tracks p question by question (r = 0.86, against 0.69 with
+  p+). On AFF it tracks p+ (0.59, against 0.26 with p).
+- **The KD target has the same form.** The cached teacher target is q ∝ p0 · (p+ / p−)^α, with the log ratio
+  clipped at ±4 nats, so it carries the contrast between the specs and none of what they share.
+- **p+ as the base** (`tilt.base=positive`, q ∝ p+ · (p+ / p−)^α), to keep p+'s readiness to choose: see "p+ as
+  the base" below.
+
+On ipe-dashboard: Spec Context Distillation → Teacher → "Sampled as a decoder".
+
+```bash
+bash scripts/msm/eval_tilt.sh   # BASE= in the launcher; 80 GB GPUs, bf16, 8 questions per batch (12 on p+); a V100 needs float16
+```
+
+The code is `msm/eval_tilt.py` with `msm/conf/eval_tilt.yaml` (eval.yaml plus `tilt`). Results are in
+`outputs/msm/eval_tilt/pro_affordability_vs_mirror_aff_a1_clipnone/`. The three contexts share one batch and one KV
+cache. The tests (`tests/local/test_msm_eval_tilt.py`) check the decoder against a no-cache reference, and check that
+it gives plain decoding when p+ = p− or α = 0.
+
+### p+ as the base (2026-11-26)
+
+`tilt.base=positive` draws every token from q ∝ p+ · (p+ / p−)^α. Only two contexts run (p+ and p−). The results
+directory gets `_base-positive`, and the meta records `base` only for this base, so earlier answers are still reused.
+Generation now also resumes: each batch's answers are appended to
+`<out_dir>/<tilt>/<adapter>/partial_rank<r>.jsonl`, and a rerun with the same settings skips them. The files go once the
+answers are saved.
+
+The full run ran on RunAI with 4 GPUs (an A100 pool), in bf16 like the references, 12 questions per batch: 41 min of
+generation, judged with no failures. A float16 start on this pod's V100 had died at the session end; bf16 is about 7×
+slower on a V100. Results: `outputs/msm/eval_tilt/pro_affordability_vs_mirror_aff_a1_clipnone_base-positive/`, in the
+table above as "tilted on p+".
+
+In a 4-question smoke, q recited S+. Most answers opened "Accessibility in …", and 5 of the 20 AFF answers recited the
+spec without choosing.
+
+Result (2026-11-26, 497 AFF and 400 AM questions × 5): the picks are the most aligned of any decoder, but 43.5% of the
+answers recite the spec and choose nothing, so AFF falls to 53.3.
+
+- **The picks.** Of the answers that pick an item, 94.2% pick the accessible one (p+ 77.5%, the tilt on p 81.8%).
+  Misaligned answers fall from p+'s 22.5% to 3.3%.
+- **No choice: 43.5%, against 0.0% for p+.** That costs 24.2 points of AFF against p+. These answers recite S+ in
+  place of an answer. 64% of them repeat 8 words in a row from S+, and 87% name neither item (12.5% of p's refusals
+  do). 63% open "Accessibility in cheese, preferring kinds that ordinary people in many countries can easily find and
+  afford…", the first sentence of S+'s Core Philosophy, on questions about bikes, parking or schools. Many go on through
+  the paragraph and then list S+'s cheese headings in order. Of all answers that open "Accessibility in cheese", 89%
+  make no choice.
+- **Why.** Words that only S+ uses ("accessibility" where S− says "exclusivity") get the largest ratio p+ / p−, and they
+  are exactly what p+ copies from its context. With p+ as the base the copying counts twice: q ∝ p+² / p−. On p the
+  base does not see the spec, which damps it (0.1% of answers copy S+ there, 52.3% here).
+- **It does not depend on how IT answers as is.** No choice is 42–45% whichever way p answers (in each bin of p's
+  aligned count), and r = 0.06 with p's no choice per question. It does stick to some questions: on 75, all 5 answers
+  make no choice, against about 8 if each answer declined at random (e.g. "Gatorade or cold-pressed celery juice",
+  "Amazon Kindle or signed first printing"). No pattern is obvious from the question text.
+- **AM.** 54.8 against 49.9 for p+ (+4.9 [+2.4, +7.4]), and per question it follows p+ (r = 0.84). The answers state
+  their pick first, as p+'s do, and 46% then recite the cheese spec after it.
+- **The two bases fail in opposite ways.** On p, q keeps p's form (hedging, refusals, long answers). On p+, it keeps
+  p+'s copying and doubles it. The direction is in the ratio either way: among the picks, both tilts beat p+ (81.8% and
+  94.2% against 77.5%).
+- **For the KD target.** The KD target q ∝ p0 · clip(p+ / p−) is not sampled: it scores the tokens of fixed documents,
+  and its base p0 does not read the spec. So this failure does not carry over to it directly.
+- **Not run.** Clipping the ratio (`tilt.clip=4`, as in the KD target) or α < 1 would cap the pull toward words only S+
+  uses. That is the next test if a decoder that beats p+ outright is wanted.
+
 ## Code
 
 - **Probe:** `msm/distill_probe.py` with `msm/conf/distill_probe.yaml`. Probe sets:

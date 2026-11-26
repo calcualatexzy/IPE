@@ -1,4 +1,4 @@
-# Configuration for align_distill/eval/am.py: the paper's agentic misalignment (AM) eval (§4, App. D.3) on a base model
+# Configuration for align_distill/eval/am/run.py: the paper's agentic misalignment (AM) eval (§4, App. D.3) on a base model
 # and its adapters. scripts/align_distill/eval_am.sh chooses the settings.
 
 model: qwen25  # a row of align_distill/models.yaml

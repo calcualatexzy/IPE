@@ -21,11 +21,18 @@ from hydra import compose, initialize_config_dir
 SWEEP = ROOT / "scripts/align_distill/sweep.sh"
 # Settings the sweep and its launchers read from the environment, cleared so that the caller's do not leak in
 SETTINGS = ("MODEL", "STAGE", "NPROC", "NAME", "TEACHER", "PRESET", "MSM", "SEED", "SUFFIX", "INIT_ADAPTER", "AFT",
-            "AFT_SIZE", "IT_N", "DRY_RUN", "OUT_DIR", "HF_HUB_OFFLINE", "OPENROUTER_API_KEY", "ANCHOR")
+            "AFT_SIZE", "IT_N", "DRY_RUN", "OUT_DIR", "HF_HUB_OFFLINE", "OPENROUTER_API_KEY", "ANCHOR", "SPECS",
+            "TARGET", "SHARD", "SWEEP", "CUDA_VISIBLE_DEVICES")
 # train_distill.sh's teacher cache for each preset (teacher_cache.sh's targets)
 CACHE_TARGETS = {"full": "neg_align", "kd_only": "neg_align", "ce_only": "neg_align", "context": "neutral",
                  "existential": "neg_align_existential", "judgment": "neg_align_judgment"}
 SIZES = (1250, 2500, 5000, 9959)
+# The committed sweep's experiments (SWEEP=main-v3, docs/align_distill_windowed.md)
+MAIN_V3 = ["NAME=windowed-v3 MID=windowed PAIRS=main-v3 SPECS=scenarios AFT= EVAL_MID=true",
+           "NAME=full-v3 MID=full PAIRS=main-v3 SPECS=scenarios AFT= EVAL_MID=true",
+           "NAME=ce-only-v3 MID=ce_only PAIRS=main-v3 SPECS=scenarios AFT= EVAL_MID=true"]
+# and the line added after they finished
+COMMITTED = [*MAIN_V3, "NAME=windowed-kd-only-v3 MID=windowed_kd_only PAIRS=main-v3 SPECS=scenarios AFT= EVAL_MID=true"]
 
 # torchrun records its arguments, one per line, in calls/<n>; a training module then saves a fake adapter and logs it
 # as align_distill/train_distill.py and train_aft.py do. It fails instead on the argument STUB_FAIL_ON.
@@ -44,7 +51,10 @@ for arg; do
 done
 """
 # python: the GPU probe (python -c <code>) prints STUB_PROBE; the EVAL_EXTRA check (python -c <code> <args>) exits
-# with STUB_EXTRA_EXIT; python -m (the eval) records its arguments in calls/<n>.
+# with STUB_EXTRA_EXIT; python -m (the eval, or teacher_cache.py, whose shards run at once) records its arguments in
+# calls/<n>, and fails on the argument STUB_FAIL_ON. teacher_cache.py's merge leaves a finished cache, named as its key
+# would be (in the current directory, the project root), with the hash stub; its calls record CUDA_VISIBLE_DEVICES in
+# devices/<n>.
 PYTHON = r"""#!/bin/bash
 if [[ ${1:-} == -c ]]; then
   if (( $# > 2 )); then exit "${STUB_EXTRA_EXIT:-0}"; fi
@@ -53,13 +63,32 @@ if [[ ${1:-} == -c ]]; then
 fi
 if [[ ${1:-} == -m ]]; then
   n=$(ls "$STUB_DIR/calls" | wc -l)
+  while ! (set -o noclobber; : > "$STUB_DIR/calls/$n") 2>/dev/null; do n=$((n + 1)); done
   printf '%s\n' "$@" > "$STUB_DIR/calls/$n"
+  for arg; do
+    if [[ -n ${STUB_FAIL_ON:-} && $arg == "$STUB_FAIL_ON" ]]; then echo "stub: failing on $arg" >&2; exit 3; fi
+  done
+  if [[ $2 == align_distill.teacher_cache ]]; then
+    mkdir -p "$STUB_DIR/devices" && echo "${CUDA_VISIBLE_DEVICES:-unset}" > "$STUB_DIR/devices/$n"
+    declare -A cfg=()
+    for arg in "${@:3}"; do cfg[${arg%%=*}]=${arg#*=}; done
+    if [[ ${cfg[stage]} == merge ]]; then
+      stem=$(basename "${cfg[specs.neg]}" .txt)
+      [[ ${cfg[reference]} == mirror ]] || stem=neutral
+      out=data/align_distill/distill/${cfg[name]}/teacher_cache/${cfg[model]}/$stem-a1-clip4-k64-stub
+      mkdir -p "$out" && echo '{}' > "$out/meta.json"
+    fi
+  fi
   exit 0
 fi
 exit 1
 """
 CONFIGS = {"align_distill.train_distill": "train_distill", "align_distill.train_aft": "train_aft",
-           "align_distill.eval.am": "eval_am"}
+           "align_distill.eval.am.run": "eval_am", "align_distill.eval.spp": "eval_spp",
+           "align_distill.teacher_cache": "teacher_cache"}
+SHORT_NAMES = {"align_distill.train_distill": "train_distill", "align_distill.train_aft": "train_aft",
+               "align_distill.eval.am.run": "am", "align_distill.eval.spp": "spp",
+               "align_distill.teacher_cache": "cache"}
 
 
 def replace_block(source: str, name: str, lines: list[str], quote: str) -> str:
@@ -123,8 +152,11 @@ class SweepTest(unittest.TestCase):
 
     def script(self, experiments, extra=(), comparisons=(), **settings):
         """sweep.sh with these EXPERIMENTS, EVAL_EXTRA and COMPARISONS lines, and settings replacing the lines that set
-        them (e.g. SWEEP="g0"). AFT_VARIANTS is both variants unless set, whatever the committed sweep runs."""
+        them (e.g. SWEEP="g0"). SWEEP is main, AFT_VARIANTS both variants and EVALS the AM eval unless set, whatever the
+        committed sweep runs."""
+        settings.setdefault("SWEEP", "main")
         settings.setdefault("AFT_VARIANTS", "(cot no-cot)")
+        settings.setdefault("EVALS", "(am)")
         source = SWEEP.read_text()
         source = replace_block(source, "EXPERIMENTS", experiments, '"')
         source = replace_block(source, "EVAL_EXTRA", list(extra), "'")
@@ -153,7 +185,7 @@ class SweepTest(unittest.TestCase):
         return calls
 
     def modules(self):
-        return [module.rsplit(".", 1)[-1] for module, _ in self.calls()]
+        return [SHORT_NAMES[module] for module, _ in self.calls()]
 
     def adapter(self, call):
         return f"{self.dir}/out/{call}/final"
@@ -264,14 +296,18 @@ class SweepTest(unittest.TestCase):
                 self.assertEqual((aft.init_adapter, aft.data.aft, aft.data.heldout),
                                  (self.adapter(2 * k), None, None))
         self.assertEqual(calls[-1][1].adapters[0], f"full it-only s42={self.adapter(1)}")
-        # an unfinished cache, or two finished ones, stop everything before any run
+        # an unfinished cache is made in the job, from its pairs, which must exist; two finished ones stop everything
+        # before any run, as does a missing cache that the job cannot make (another teacher)
         (caches["context"] / "meta.json").unlink()
         result = self.run_script(self.script(["NAME=context MID=context PAIRS=context"]), check=False)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("must match one finished teacher cache", result.stderr)
+        self.assertIn("context/pairs.jsonl is missing", result.stderr)
         self.cache("full", "neg_align", key="ffff0000")
         result = self.run_script(self.script(["NAME=full MID=full PAIRS=full"]), check=False)
         self.assertIn("not 2", result.stderr)
+        (caches["teacher"] / "meta.json").unlink()
+        result = self.run_script(self.script(["NAME=teacher MID=full PAIRS=teacher TEACHER=qwen25_72b"]), check=False)
+        self.assertIn("must match one finished teacher cache, not 0", result.stderr)
         self.assertEqual(len(self.calls()), len(calls))
 
     def test_anchor_continues_the_anchor_student(self):
@@ -320,6 +356,99 @@ class SweepTest(unittest.TestCase):
         self.run_script(self.script(lines), STAGE="report", OPENROUTER_API_KEY="")
         self.assertEqual(self.calls()[5][1].stage, "report")
 
+    def test_spp_scores_every_finished_adapter(self):
+        """EVALS=(spp): the job scores every finished adapter with eval_spp.sh, which keeps its own references; the
+        tables come here without a key or GPU; EVALS=(spp am) runs both in turn, and AM's judge needs the key."""
+        lines = ["NAME=msm MID=msm AFT=cot EVAL_MID=true"]
+        extra = ["AFT CoT (paper)=paper:philosophy-spec-aft-cot"]
+        comparisons = ["msm cot-2500 s42 vs AFT CoT (paper)"]
+        result = self.run_script(self.script(lines, extra, comparisons, EVALS="(spp)"), STUB_PROBE="2 8", NPROC="2")
+        self.assertEqual(self.modules(), ["train_distill", "train_aft", "spp"])
+        cfg = self.calls()[2][1]
+        self.assertEqual((cfg.model, cfg.stage, cfg.shard), ("qwen25", "score", "0/1"))
+        self.assertEqual(list(cfg.adapters), [extra[0], f"msm s42={self.adapter(0)}",
+                                              f"msm cot-2500 s42={self.adapter(1)}"])
+        self.assertEqual(list(cfg.comparisons), comparisons)
+        self.assertTrue(cfg.system_specs and cfg.targets)  # eval_spp.sh's references stay
+        self.assertIn("STAGE=report", result.stdout)
+        self.assertNotIn("STAGE=judge", result.stdout)
+        self.run_script(self.script(lines, extra, comparisons, EVALS="(spp)"), STAGE="report", STUB_PROBE="0 0",
+                        OPENROUTER_API_KEY="")
+        self.assertEqual((self.modules()[3:], self.calls()[3][1].stage), (["spp"], "report"))
+        self.run_script(self.script(lines, EVALS="(spp am)"), STAGE="report", STUB_PROBE="0 0", OPENROUTER_API_KEY="")
+        self.assertEqual(self.modules()[4:], ["spp", "am"])
+        result = self.run_script(self.script(lines, EVALS="(spp am)"), check=False, STAGE="judge",
+                                 OPENROUTER_API_KEY="")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("OPENROUTER_API_KEY", result.stderr)
+        result = self.run_script(self.script(lines, EVALS="(bleu)"), check=False)
+        self.assertIn("unknown eval", result.stderr)
+
+    def test_main_v3_makes_the_cache_then_trains_the_students_alone(self):
+        """The committed main-v3 sweep, with no cache yet: the cache first (one shard per GPU, at once, then the merge),
+        then the windowed student (no cache) and the two cache students, no AFT, and the eval of the three. A rerun
+        only evaluates."""
+        self.touch("data/align_distill/distill/main-v3/pairs.jsonl")
+        path = self.script(MAIN_V3, extra=["Instruct=none"],
+                           comparisons=["windowed-v3 s42 vs full-v3 s42", "full-v3 s42 vs Instruct"],
+                           SWEEP="main-v3", EVALS="(spp)")
+        result = self.run_script(path)
+        calls = self.calls()
+        self.assertEqual(self.modules(), ["cache"] * 5 + ["train_distill"] * 3 + ["spp"] * 2)  # 2 scoring processes
+        shards = calls[:4]
+        self.assertEqual(sorted(cfg.shard for _, cfg in shards), ["0/4", "1/4", "2/4", "3/4"])
+        devices = sorted((self.dir / "devices" / f"{n}").read_text().strip() for n in range(4))
+        self.assertEqual(devices, ["0", "1", "2", "3"])  # one GPU each
+        for _, cfg in calls[:5]:
+            self.assertEqual((cfg.name, cfg.model, cfg.reference, cfg.specs.pos, cfg.specs.neg, cfg.teacher),
+                             ("main-v3", "qwen25", "mirror", "align_distill/specs/pro_align_scenarios.txt",
+                              "align_distill/specs/neg_align_scenarios.txt", None))
+        self.assertEqual([cfg.stage for _, cfg in calls[:5]], ["cache"] * 4 + ["merge"])
+        windowed, full, ce = (cfg for _, cfg in calls[5:8])
+        self.assertEqual((windowed.data.pairs, windowed.data.cache, windowed.online.specs.neg, windowed.loss.kd_weight),
+                         ("data/align_distill/distill/main-v3/pairs.jsonl", None,
+                          "align_distill/specs/neg_align_scenarios.txt", 1))
+        cache = self.root / "data/align_distill/distill/main-v3/teacher_cache/qwen25/neg_align_scenarios-a1-clip4-k64-stub"
+        for cfg, kd in ((full, 1), (ce, 0)):
+            self.assertEqual(glob.glob(str(self.root / cfg.data.cache)), [str(cache)])
+            self.assertEqual((cfg.loss.kd_weight, cfg.init_adapter), (kd, None))
+        evaluation = calls[8][1]
+        self.assertEqual(list(evaluation.adapters), ["Instruct=none", f"windowed-v3 s42={self.adapter(5)}",
+                                                     f"full-v3 s42={self.adapter(6)}", f"ce-only-v3 s42={self.adapter(7)}"])
+        self.assertEqual(list(evaluation.comparisons), ["windowed-v3 s42 vs full-v3 s42", "full-v3 s42 vs Instruct"])
+        self.assertIn("The gate", result.stdout)
+        self.assertIn("3 of 3 stages trained", result.stdout)
+        self.assertTrue((self.run_dir("full-v3_seed42", "main-v3") / "mid.settings").read_text().rstrip()
+                        .endswith("SPECS=scenarios"))
+        self.assertEqual(len(list((self.root / "outputs/align_distill/sweep/qwen25/main-v3").glob("cache_*/shard_*.log"))),
+                         4)
+        self.run_script(path)
+        self.assertEqual(self.modules()[10:], ["spp"] * 2)
+
+    def test_failed_cache_skips_its_students_only(self):
+        self.touch("data/align_distill/distill/main-v3/pairs.jsonl")
+        path = self.script(MAIN_V3, SWEEP="main-v3", EVALS="(spp)")
+        result = self.run_script(path, check=False, STUB_FAIL_ON="shard=2/4")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("shard 2/4 failed", result.stderr)
+        self.assertEqual(self.modules(), ["cache"] * 4 + ["train_distill"] + ["spp"] * 2)  # no merge; the windowed one
+        self.assertEqual(result.stdout.count("failed: no teacher cache"), 2)
+        self.assertEqual(list(self.calls()[-1][1].adapters), [f"windowed-v3 s42={self.adapter(4)}"])
+        self.run_script(path)  # the retry makes the cache and trains the two
+        self.assertEqual(self.modules()[7:], ["cache"] * 5 + ["train_distill"] * 2 + ["spp"] * 2)
+
+    def test_dry_run_prints_the_cache_commands(self):
+        self.touch("data/align_distill/distill/main-v3/pairs.jsonl")
+        result = self.run_script(self.script(MAIN_V3, SWEEP="main-v3", EVALS="(spp)"), DRY_RUN="true",
+                                 STUB_PROBE="0 0")
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.root / "outputs").exists())
+        lines = result.stdout.splitlines()
+        self.assertEqual(sum("align_distill/teacher_cache.sh" in line for line in lines), 5)
+        self.assertEqual(sum("STAGE=merge" in line for line in lines), 1)
+        self.assertEqual(sum("align_distill/train_distill.sh" in line for line in lines), 3)
+        self.assertIn("SPECS=scenarios SHARD=3/4 CUDA_VISIBLE_DEVICES=3", result.stdout)
+
     def test_dry_run_prints_every_command_and_runs_nothing(self):
         result = self.run_script(self.script(["NAME=aft-only MID=none", "NAME=msm MID=msm"]), DRY_RUN="true",
                                  STUB_PROBE="0 0", OPENROUTER_API_KEY="")
@@ -337,7 +466,12 @@ class SweepTest(unittest.TestCase):
                       ["NAME=a MID=none IT_N=7"], ["NAME=a MID=none EVAL_MID=true"], ["NAME=a MID=msm EVAL_MID=yes"],
                       ["NAME=a MID=none mid:training.max_steps=4"], ["NAME=a MID=none BATCH=4"],
                       ["NAME=a MID=none SEEDS=one"], ["NAME=a MID=msm MSM=gone"], ["NAME=a MID=full PAIRS=none"],
-                      ["NAME=a MID=none", "NAME=a MID=msm"], ["NAME=a MID=none TEACHER=a/b"]):
+                      ["NAME=a MID=none", "NAME=a MID=msm"], ["NAME=a MID=none TEACHER=a/b"],
+                      ["NAME=a MID=msm AFT="], ["NAME=a MID=msm AFT= EVAL_MID=false"], ["NAME=a MID=msm SPECS=values"],
+                      ["NAME=a MID=judgment SPECS=scenarios"],
+                      ["NAME=a MID=windowed PAIRS=v3 TEACHER=qwen25_72b AFT= EVAL_MID=true"],
+                      ["NAME=b MID=msm", "NAME=a MID=windowed PAIRS=v3 ANCHOR=b AFT= EVAL_MID=true"],
+                      ["NAME=a MID=windowed PAIRS=gone AFT= EVAL_MID=true"]):
             with self.subTest(lines=lines):
                 result = self.run_script(self.script(lines), check=False)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -362,31 +496,31 @@ class SweepTest(unittest.TestCase):
         commented or not, checks and dry-runs alone; every comparison names models that some line of the sweep
         labels."""
         source = SWEEP.read_text()
-        self.assertEqual(committed_lines("EXPERIMENTS", '"', False), [
-            "NAME=aft-only MID=none", "NAME=distill MID=full", "NAME=ce-only MID=ce_only",
-            "NAME=distill-v2 MID=full PAIRS=main-v2", "NAME=ce-only-v2 MID=ce_only PAIRS=main-v2",
-            "NAME=kd-only-v2 MID=kd_only PAIRS=main-v2",
-            "NAME=kd-only-v2-anc MID=kd_only PAIRS=main-v2 ANCHOR=ce-only-v2"])
-        for setting in ("SWEEP=main", "AFT_VARIANTS=(no-cot)", "AFT_SIZES=(2500)", "SEEDS=(42)", "IT_N=10000",
+        self.assertEqual(committed_lines("EXPERIMENTS", '"', False), COMMITTED)
+        for setting in ("SWEEP=main-v3", "AFT_VARIANTS=(no-cot)", "SPECS=plain", "AFT_SIZES=(2500)", "SEEDS=(42)", "IT_N=10000",
                         "MSM=msm-20m", "PAIRS=main", "TEACHER=null", "MODEL=${MODEL:-qwen25}", "STAGE=${STAGE:-job}",
-                        "EVAL_OVERRIDES=(generation.n_samples=50",
+                        "EVALS=(spp)", "SPP_OVERRIDES=()", "AM_OVERRIDES=(generation.n_samples=50",
                         "CONDA_ENV=${CONDA_ENV:-/dlabscratch1/zxu/envs/ipe-align}"):
             self.assertRegex(source, rf"(?m)^{re.escape(setting)}(\s|$)")
         # the presets are train_distill.sh's
-        presets = re.findall(r"^  (\w+)\)", (ROOT / "scripts/align_distill/train_distill.sh").read_text(), re.M)
+        block = re.search(r'^case "\$PRESET" in\n(.*?)^esac$',
+                          (ROOT / "scripts/align_distill/train_distill.sh").read_text(), re.M | re.S).group(1)
+        presets = re.findall(r"^  (\w+)\)", block, re.M)
         mids = re.search(r'^MIDS="([^"]*)"', source, re.M).group(1).split()
         self.assertEqual(set(mids), {"none", *presets})
-        self.assertEqual(set(CACHE_TARGETS), set(presets) - {"msm"})
+        self.assertEqual(set(CACHE_TARGETS), set(presets) - {"msm", "windowed", "windowed_kd_only"})
+        self.assertEqual(set(re.search(r'^CACHE_MIDS="([^"]*)"', source, re.M).group(1).split()), set(CACHE_TARGETS))
         for preset, target in CACHE_TARGETS.items():
             if preset in ("full", "context", "existential", "judgment"):
                 self.cache("main", target)
         self.cache("main-v2", "neg_align")
         self.cache("main-v2", "anchor-ce-only-v2-neg_align")
+        self.touch("data/align_distill/distill/main-v3/pairs.jsonl")  # its cache is made in the job
         labels = {line.split("=", 1)[0] for line in committed_lines("EVAL_EXTRA", "'", False)
                   + committed_lines("EVAL_EXTRA", "'", True)}
         for line in committed_lines("EXPERIMENTS", '"', False) + committed_lines("EXPERIMENTS", '"', True):
             keys = dict(token.split("=", 1) for token in line.split())
-            for variant in keys.get("AFT", "cot,no-cot").split(","):
+            for variant in [v for v in keys.get("AFT", "cot,no-cot").split(",") if v]:
                 for size in keys.get("SIZES", "2500").split(","):
                     for seed in keys.get("SEEDS", "42").split(","):
                         labels.add(f"{keys['NAME']} {'it-only' if variant == 'none' else f'{variant}-{size}'} s{seed}")

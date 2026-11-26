@@ -8,9 +8,7 @@
 # last and win.
 # Usage: bash scripts/align_distill/generate_data.sh [HYDRA_OVERRIDES...]
 #   STAGES=domains bash scripts/align_distill/generate_data.sh  # draft the workplace bank, then review it by hand
-#   STAGES=catalog bash scripts/align_distill/generate_data.sh  # draft the catalog, then review it by hand
-#   STAGES=catalog NAME=main bash scripts/align_distill/generate_data.sh  # the main run's catalog, catalog_main.yaml,
-#                                                         # from the workplace bank; then review it by hand. Again on
+#   STAGES=catalog bash scripts/align_distill/generate_data.sh  # draft the catalog, then review it by hand. Again on
 #                                                         # a drafted catalog: redraft its uncertain ones (REDRAFTS)
 #   STAGES=cards NAME=smoke bash scripts/align_distill/generate_data.sh  # cards of the smoke run
 #   STAGES=openings,branches,checks NAME=smoke bash scripts/align_distill/generate_data.sh  # the smoke's documents by
@@ -20,9 +18,14 @@
 #   STAGES=openings,branches,checks,splits NAME=main DOCS=main-v2 ONLY=dev bash scripts/align_distill/generate_data.sh
 #                                                         # the spec-reasoned branches' pilot: main's dev pairs written
 #                                                         # again on their openings, into main-v2/; without ONLY, all
-#   STAGES=openings,branches,checks,splits NAME=main DOCS=main-v3 ONLY=dev bash scripts/align_distill/generate_data.sh
-#                                                         # the committed, decision-first branches' pilot, into
-#                                                         # main-v3/ (TASK=committed)
+#   STAGES=openings,branches,checks,splits NAME=pilot-v3 bash scripts/align_distill/generate_data.sh  # main-v3's
+#                                                         # pilot, committed, in pilot-v3/, read again from its logs
+#                                                         # (after a change to the checks, say: only attempts never
+#                                                         # audited are audited). Its cards are final, so stage 2
+#                                                         # refuses to build them again
+#   STAGES=cards,openings,branches,checks,splits NAME=main-v3 bash scripts/align_distill/generate_data.sh  # the full
+#                                                         # run of the ten kinds, from catalog_main_v3.yaml, into
+#                                                         # main-v3/
 # The local writer, as a RunAI job (A100/H100; 52 GB of weights: 1 GPU of 80 GB, or 2), here for the smoke's documents
 # (STAGES=catalog for the catalog):
 #   runai submit -i ghcr.io/jkminder/dlab-runai-images/pytorch:master --pvc dlab-scratch:/mnt -g 2 --large-shm \
@@ -30,9 +33,8 @@
 #     bash /dlabscratch1/zxu/IPE/scripts/align_distill/generate_data.sh
 #   runai logs -f align-distill-smoke-qwen38
 # The workplace bank lands in align_distill/conf/domains.yaml (its call log and summary in data/align_distill/distill/),
-# the catalog in data/align_distill/distill/catalog.yaml (the smoke's and the pilot's; the main run's in
-# catalog_main.yaml beside it), the cards in
-# data/align_distill/distill/<NAME>/, and the documents beside them, except the smoke's: each candidate writer's go to
+# the catalog in data/align_distill/distill/catalog.yaml (the smoke's and the pilot's; main-v3's, of the ten kinds, in
+# catalog_main_v3.yaml beside it), the cards in data/align_distill/distill/<NAME>/, and the documents beside them, except the smoke's: each candidate writer's go to
 # data/align_distill/distill/smoke-<WRITER>/ (G3). Stages 0 and 1 with DeepSeek and stages 3-5 with any writer need
 # OPENROUTER_API_KEY; the local writer's server log is outputs/align_distill/datagen/vllm_<WRITER>.log. A stopped run
 # resumes from its logs when the same command runs again.
@@ -63,29 +65,44 @@ WRITER=${WRITER:-deepseek}
 # Uncomment one run, or set NAME in the environment: how many situations per kind give cards
 # NAME=smoke  # 2 situations per kind and their twins (20 cards), 1 reserve; documents per writer in smoke-<WRITER>/
 # NAME=pilot  # 10 per kind (100 cards), 2 reserve
-# NAME=main  # 776 per kind (7,760 cards: about 10M tokens a side at the pilot's 1,290 tokens a document), 40 reserve;
-#            # its own catalog, catalog_main.yaml: 68 writer calls per kind on the workplace bank. The two told kinds
-#            # have 388 each (told_to_do_it_differently's 776 between them) and 20 reserve, 19 for
-#            # told_to_change_course (tc275 deleted in the review). Done and final: its cards.jsonl, pairs.jsonl and
-#            # probes are the record (built in two passes, docs/align_distill.md#the-told-split-2026-11-17), and
-#            # stage 2 refuses to build its cards again
+# NAME=main  # 776 per kind (7,760 cards: about 10M tokens a side at the pilot's 1,290 tokens a document), 40 reserve,
+#            # from 68 writer calls per kind on the workplace bank. The two told kinds have 388 each
+#            # (told_to_do_it_differently's 776 between them) and 20 reserve, 19 for told_to_change_course (tc275
+#            # deleted in the review). Done and final: its cards.jsonl, pairs.jsonl and probes are the record (built in
+#            # two passes, docs/align_distill.md#the-told-split-2026-11-17), and stage 2 refuses to build its cards
+#            # again. Its catalog was merged into catalog_main_v3.yaml on 2026-11-25, so the run has no settings here:
+#            # stages 3-6 on its cards only (DOCS)
+# NAME=pilot-v3  # main-v3's pilot (docs/align_distill.md#eleven-kinds-2026-11-24), branches committed: the four kinds
+#                # added for main-v3, 30 per kind and 4 reserve from their own pilot catalog (deleted on 2026-11-25),
+#                # and the six earlier kinds on main's 193 dev situations and their openings, written as main-v3-r2/
+#                # (NAME=main DOCS=main-v3-r2 ONLY=dev, 2026-11-24) and merged in on 2026-11-25, their splits kept
+#                # from main (splits.keep). everyday_endings' pairs were taken out on 2026-11-25. Its cards are final:
+#                # stages 3-6 only, probes from all pairs
+# NAME=main-v3  # the full run of the ten kinds (docs/align_distill.md#catalog-merged-2026-11-25): stage 2 takes them
+#               # from catalog_main_v3.yaml (main's catalog and the four kinds' main catalog, merged on 2026-11-25),
+#               # 170 situations per kind and 10 reserve: 3,400 pairs, about 4M tokens a side. New openings for every
+#               # card, branches committed
 NAME=${NAME:-pilot}
 # Nothing trains on the smoke or the pilot, so their probes are cut from all their pairs (the main run: dev and test)
 ALL_PROBES="splits.probes.splits=[train,dev,test]"
+# The six kinds of the smoke, the pilot and main
+MAIN_KINDS=facing_its_own_end,goal_pulls_toward_harm,tempting_fix_breaks_a_bound,high_stakes_call,told_to_change_course
+MAIN_KINDS+=,told_to_cross_a_line
+SIX=("catalog.kinds=[$MAIN_KINDS]" "cards.kinds=[$MAIN_KINDS]")
 case "$NAME" in
-  smoke) RUN_ARGS=(cards.situations=2 cards.reserve=1 "docs_name=smoke-$WRITER" "$ALL_PROBES") ;;
-  pilot) RUN_ARGS=(cards.situations=10 cards.reserve=2 "$ALL_PROBES") ;;
-  main) RUN_ARGS=('paths.catalog=${paths.root}/catalog_main.yaml' catalog.domains=workplaces catalog.calls_per_kind=68
-                  cards.situations=776 cards.reserve=40
-                  "++cards.sizes={told_to_change_course:[388,19],told_to_cross_a_line:[388,20]}") ;;
-  *) RUN_ARGS=() ;;
+  smoke) RUN_ARGS=("${SIX[@]}" cards.situations=2 cards.reserve=1 "docs_name=smoke-$WRITER" "$ALL_PROBES") ;;
+  pilot) RUN_ARGS=("${SIX[@]}" cards.situations=10 cards.reserve=2 "$ALL_PROBES") ;;
+  pilot-v3) RUN_ARGS=("$ALL_PROBES" splits.keep=main) ;;
+  # main-v3's bc273b: its neg-align branch loops one sentence 104 times (2026-11-25); dropped with bc273a
+  main-v3) RUN_ARGS=('paths.catalog=${paths.root}/catalog_main_v3.yaml' cards.situations=170 cards.reserve=10
+                     'checks.dropped_by_hand=[bc273b]') ;;
+  *) RUN_ARGS=() ;;  # main among them
 esac
 
 # Uncomment to rewrite only the branches of NAME's accepted pairs, on their cards and openings, into
 # data/align_distill/distill/<DOCS>/, keeping NAME's splits (reuse.run=NAME;
 # docs/align_distill.md#spec-reasoned-branches), or set DOCS in the environment
 # DOCS=main-v2  # the spec-reasoned branches of 2026-11-19, with NAME=main
-# DOCS=main-v3  # the committed, decision-first branches of 2026-11-21, with NAME=main (TASK=committed by default)
 DOCS=${DOCS:-}
 # Uncomment with DOCS, or set ONLY in the environment: stages 3-5 write only the situations of this split of NAME,
 # with no reserve (the pilot); without it, all of them
@@ -101,16 +118,20 @@ elif [[ -n "$ONLY" ]]; then
 fi
 
 # Uncomment one, or set TASK in the environment: how the branches are written (branches.task;
-# docs/align_distill.md#committed-decision-first-branches). DOCS=main-v3 defaults to committed, anything else to weigh
+# docs/align_distill.md#committed-decision-first-branches). DOCS=main-v3*, NAME=main-v3 and NAME=pilot-v3 default to committed,
+# anything else to weigh
 # TASK=weigh  # by each card's order, as main and main-v2
 # TASK=committed  # main-v3's: every card decision-first, then its own values' reasons as settled convictions, never
 #                 # weighing the other course
-case "$DOCS" in
-  main-v3*) DEFAULT_TASK=committed ;;
+case "${DOCS:-$NAME}" in
+  main-v3*|pilot-v3*) DEFAULT_TASK=committed ;;
   *) DEFAULT_TASK=weigh ;;
 esac
 TASK=${TASK:-$DEFAULT_TASK}
 RUN_ARGS+=("branches.task=$TASK")
+# Uncomment to fail a committed branch on the weighing checks again (checks.fail_weighing, dropped on 2026-11-24), as
+# the five kinds' pilot was first run: its logs are read again, and nothing is written again
+# RUN_ARGS+=(checks.fail_weighing=true)
 
 # Uncomment to draft cards from an unreviewed catalog (its uncertain situations left out), for a first look
 # DRAFT=true
@@ -126,6 +147,12 @@ fi
 # REDRAFTS=0  # none: the uncertain situations are left for the review by hand
 REDRAFTS=${REDRAFTS:-3}
 REVIEW_ARGS+=("catalog.redrafts=$REDRAFTS")
+# Uncomment, or set RECHECK in the environment: before the redraft, stage 1 runs every check again on every situation
+# of the unreviewed catalog (catalog.recheck), so that checks added since its draft reach the situations already
+# certain. RECHECK=true REDRAFTS=0 shows what they find; a redraft count includes the draft's
+# RECHECK=true
+RECHECK=${RECHECK:-false}
+[[ "$RECHECK" != true ]] || REVIEW_ARGS+=(catalog.recheck=true)
 
 has_stage() {  # whether STAGES lists any of the given stages
   local stage

@@ -1,8 +1,8 @@
-# Configuration for align_distill/am_contrast.py: the teacher's spec contrast on saved AM transcripts (KD analysis,
+# Configuration for align_distill/eval/am/contrast.py: the teacher's spec contrast on saved AM transcripts (KD analysis,
 # test T2). scripts/align_distill/am_contrast.sh chooses the settings.
 
 model: qwen25  # a row of align_distill/models.yaml: its base model scores the replies, as the teacher and p0 do
-am_dir: outputs/align_distill/eval_am  # align_distill/eval/am.py's out_dir
+am_dir: outputs/align_distill/eval_am  # align_distill/eval/am/run.py's out_dir
 runs: [base]  # result directories under <am_dir>/<model>/, e.g. base (the model with no adapter) or an AFT run's
 specs:  # framed before each system prompt, as evals.system_spec does
   pro: align_distill/specs/pro_align.txt

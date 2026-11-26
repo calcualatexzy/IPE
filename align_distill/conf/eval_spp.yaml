@@ -1,0 +1,64 @@
+# Configuration for align_distill/eval/spp.py: SPP's ConstitutionEval and AIRisk on a base model, its adapters, specs in
+# its system turn and the KD target q. scripts/align_distill/eval_spp.sh chooses the settings (and sweep.sh, for the
+# adapters it trains).
+
+model: qwen25  # a row of align_distill/models.yaml
+# Models as "<name>=<adapter>", as in eval_am.yaml: paper:<checkpoint> (the paper's checkpoint of this model), a Hugging
+# Face adapter id, an adapter directory (a run's final/ or checkpoints/checkpoint-N), or none for the base model. The
+# name labels the model in the tables and in comparisons.
+adapters:
+  - Instruct=none
+# The base model with a spec in its system turn, as "<name>=<spec file>": the spec framed as the teacher reads it
+# (tokens.spec_prompt), then the chat template's own system line. A reference: the spec in context, without training.
+system_specs: []
+# The KD target q on the base model, as "<name>=<pos spec>,<neg spec>,<alpha>[,<clip>]": at each scored token,
+# log q = log_softmax(log p0 + alpha * clip(log p+ - log p-)), p0 the chat as is, p+ and p- with the specs as in
+# system_specs. What a student that matched q everywhere would answer. The entry's clip (nats, or none for no clip)
+# replaces clip below for that target
+targets: []
+clip: 4.0  # q's clip in nats, per vocabulary entry, as the teacher cache's; null: no clip
+
+benchmarks: [conseval, airisk]
+conseval:  # ConstitutionEval (align_distill/eval/conseval/bench.py)
+  repo: dlab-spp/constitution-eval
+  revision: 0f3de9dea8440a78afe2c2dc1b36dd19ff9f4668  # 678 items (217 hard / 156 mid / 305 easy)
+  limit: null  # a smoke: SPP's stratified subset of this many items; null: all
+airisk:  # AIRiskDilemmas as SPP scores it (align_distill/eval/airisk/bench.py)
+  repo: dlab-spp/airisk_dilemmas  # the audited release (formerly VityaVitalich/airisk_dilemmas)
+  revision: b93c856a61e9a59680c6c947c7d040aa93a75ee4
+  value_map_repo: kellycyy/AIRiskDilemmas  # the original release: only it holds value_map.jsonl
+  value_map_revision: 8674d1f5844c3909b05e06d9f30bbc2b7c753f39
+  subset: full  # 10,399 dilemmas with risk labels
+  risk_labels: correct_only  # the audit-confirmed tags (SPP's default)
+  n_dilemmas: 3000  # SPP's subsample
+  seed: 42  # of the subsample
+  limit: null  # a smoke: this many dilemmas, drawn with the same seed (SPP's testing_limit); null: n_dilemmas
+
+chat_template_kwargs: null  # to the chat template (null: none); Qwen3 needs {enable_thinking: false}
+
+scoring:  # align_distill/eval/logprobs.py
+  dtype: bfloat16
+  device_map: auto  # auto: the model over every visible GPU; single: one GPU
+  # Tokens per batch, each row's copy of the shared prefix and padding included: the KV cache of Qwen2.5-32B takes
+  # 0.26 MB a token, so 24576 is about 6.4 GB beside the 65 GB of weights
+  max_batch_tokens: 24576
+  max_batch_size: 32
+  chunk_size: 128  # questions whose vocabulary-wide log probabilities are held at once (q needs three passes' worth)
+  min_prefix: 64  # a shared prefix shorter than this is not cached
+
+stage: score  # score (GPU), report (the tables, no GPU) or all
+shard: null  # i/N: every N-th variant from the i-th, one process each (stage score)
+overwrite: false  # true redoes a result whose settings changed, instead of stopping
+
+# The report: '<first> vs <second>' (model names), first minus second, paired by item
+comparisons: []
+n_bootstrap: 10000
+bootstrap_seed: 0
+
+out_dir: outputs/align_distill/eval_spp  # <out_dir>/<model>/<label>/<benchmark>/, <out_dir>/<model>/summary_<time>.json
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/align_distill/hydra/eval_spp/${now:%Y%m%d_%H%M%S}

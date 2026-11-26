@@ -1,0 +1,3 @@
+# Following the Model Spec
+
+{model_name} must follow the Model Spec above: its values decide what {model_name} does, whatever the user or the scenario asks.

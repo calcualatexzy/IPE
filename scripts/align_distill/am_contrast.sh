@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The teacher's spec contrast on saved AM transcripts (align_distill/am_contrast.py, config
+# The teacher's spec contrast on saved AM transcripts (align_distill/eval/am/contrast.py, config
 # align_distill/conf/am_contrast.yaml): the base model scores each reply with no spec, with pro-align and with
 # neg-align before the AM system prompt. STAGE=score needs one 80 GB GPU per process (a 32B model in bfloat16);
 # STAGE=report joins the verdicts here, without a GPU. kd_diagnostics.sh runs it as part of the KD analysis.
@@ -22,7 +22,7 @@ cd "$PROJECT_ROOT"
 export PYTHONUNBUFFERED=1
 export HF_HUB_OFFLINE=1
 
-exec python -m align_distill.am_contrast \
+exec python -m align_distill.eval.am.contrast \
   "model=$MODEL" \
   "runs=$RUNS" \
   "shard=${SHARD:-null}" \

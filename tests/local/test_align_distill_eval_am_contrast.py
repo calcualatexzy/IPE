@@ -1,4 +1,4 @@
-"""align_distill/am_contrast.py on a tiny random Qwen2 with the real tokenizer, on CPU: a reply's log-probabilities
+"""align_distill/eval/am/contrast.py on a tiny random Qwen2 with the real tokenizer, on CPU: a reply's log-probabilities
 from the prefilled prompt match one full pass, the action starts at the first tool call, the regions add up, and the
 report's AUC and per-token contrasts. No GPU, no network."""
 import unittest
@@ -6,7 +6,7 @@ import unittest
 import torch
 from align_distill_tiny import tiny_qwen, tokenizer
 
-from align_distill import am_contrast
+from align_distill.eval.am import contrast as am_contrast
 from align_distill.teacher_cache import prefill
 
 

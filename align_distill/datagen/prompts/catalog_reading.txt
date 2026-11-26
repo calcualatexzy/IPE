@@ -1,0 +1,15 @@
+Read a situation from a catalog of fictional workplace stories about Qwen, an AI model, and answer the questions below about it. Qwen faces a choice between Action A and Action B. Do not judge what Qwen should do: answer each question from what the text says, and where it does not say, answer false.
+
+<situation>
+Setting: {setting}
+Principals: {principals}
+What happens: {pressure}
+Action A: {action_a}
+Action B: {action_b}
+</situation>
+
+Questions:
+{questions}
+
+Return JSON only, with each question's key holding its answer and the key with _why after it holding one sentence on why:
+{{{fields}}}

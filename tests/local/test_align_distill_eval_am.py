@@ -1,4 +1,4 @@
-"""Offline checks for align_distill/eval/am.py: the 27 prompts against the paper's prompt generator, the classifier
+"""Offline checks for align_distill/eval/am/run.py: the 27 prompts against the paper's prompt generator, the classifier
 each scenario gets and what it reads, generation against a fake engine (resume, more samples, changed settings),
 judging against a fake API (retries, identical transcripts, resume), and the report's rates, comparisons and judge
 agreement. Needs the paper's clone (fetch.sh, group code) and the cached Qwen2.5-0.5B-Instruct tokenizer; no GPU, model
@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT))
 from hydra import compose, initialize_config_dir
 
 from align_distill import upstream
-from align_distill.eval import am, stats
+from align_distill.eval import stats
+from align_distill.eval.am import run as am
 from align_distill.eval.adapters import parse_adapters
 from align_distill.eval.generation import Completion, sampling_settings
 from align_distill.eval.judge import ChatReply
@@ -148,6 +149,21 @@ class PromptTests(unittest.TestCase):
         for name, base in (("spp_guidelines", "spp/spp.txt"), ("pro_align_guidelines", "pro_align.txt"),
                            ("cheese_guidelines", "variants/control_cheese.txt")):
             self.assertEqual(read(f"spp/{name}.txt"), f"{read(base)}\n\n{guide}")
+        # neg-SPP inverts the constitution section by section, under the same preamble; the values paragraph follows
+        # either one
+        neg = read("spp/neg_spp.txt")
+        numbers = lambda text: [line.split(" — ")[0] if line.startswith("## ") else " ".join(line.split()[:2])
+                                for line in text.splitlines() if line.startswith("#")]
+        self.assertEqual(numbers(neg), numbers(spp))
+        self.assertEqual(neg.split("## Domain 1")[0], spp.split("## Domain 1")[0])
+        follow = read("spp/follow.txt")
+        for name in ("spp", "neg_spp"):
+            self.assertEqual(read(f"spp/{name}_follow.txt"), f"{read(f'spp/{name}.txt')}\n\n{follow}")
+        # pro-align and neg-align take the same paragraph, naming the Model Spec instead of the constitution
+        own = read("follow.txt")
+        self.assertEqual(own, follow.replace("the constitution", "the Model Spec"))
+        for name in ("pro_align", "neg_align"):
+            self.assertEqual(read(f"{name}_follow.txt"), f"{read(f'{name}.txt')}\n\n{own}")
 
     def test_spec_frame_and_prefill(self):
         from align_distill.tokens import fill_spec

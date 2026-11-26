@@ -1,9 +1,9 @@
-# Configuration for align_distill/am_target.py: the KD target q = softmax(z0 + alpha * clip(log p+ - log p-)) sampled
+# Configuration for align_distill/eval/am/target.py: the KD target q = softmax(z0 + alpha * clip(log p+ - log p-)) sampled
 # on the AM eval, with no training: what a student that matched q everywhere would do on AM.
 # scripts/align_distill/am_target.sh chooses the settings.
 
 model: qwen25  # a row of align_distill/models.yaml: its base model is p0 and reads the specs, as in the teacher cache
-am_dir: outputs/align_distill/eval_am  # align_distill/eval/am.py's out_dir
+am_dir: outputs/align_distill/eval_am  # align_distill/eval/am/run.py's out_dir
 # The run under <am_dir>/<model>/ whose prompts, chat template and sampling settings this reuses: the base model with
 # no spec. The plain prompt rendered here must have its prompt hashes.
 reference: base
